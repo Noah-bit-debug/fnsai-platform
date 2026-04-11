@@ -1,0 +1,45 @@
+{
+  "name": "fnsai-backend",
+  "version": "1.0.0",
+  "description": "FNS AI - Frontline Healthcare Staffing Backend",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --noEmitOnError false",
+    "start": "node dist/index.js",
+    "db:migrate": "node dist/db/migrate.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.3",
+    "@azure/identity": "^4.5.0",
+    "@clerk/express": "^1.3.13",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "multer-s3": "^3.0.1",
+    "nodemailer": "^8.0.5",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.13.1",
+    "sharp": "^0.34.5",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/morgan": "^1.9.9",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.11.10",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
