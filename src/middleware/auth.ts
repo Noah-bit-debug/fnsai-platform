@@ -36,6 +36,17 @@ export const PERMISSIONS: Record<string, string[]> = {
   reminders_manage:     ['ceo', 'manager', 'hr', 'admin'],
   all_reports:          ['ceo', 'manager', 'admin'],
   team_reports:         ['ceo', 'manager', 'hr', 'admin'],
+  integrations_view:    ['ceo', 'manager', 'admin'],
+  integrations_manage:  ['ceo', 'admin'],
+  reports_view:         ['ceo', 'manager', 'hr', 'admin'],
+  reports_create:       ['ceo', 'manager', 'admin'],
+  knowledge_view:       ['ceo', 'manager', 'hr', 'admin'],
+  knowledge_manage:     ['ceo', 'admin'],
+  clarification_manage: ['ceo', 'manager', 'hr', 'admin'],
+  templates_view:       ['ceo', 'manager', 'hr', 'recruiter', 'admin', 'coordinator'],
+  templates_manage:     ['ceo', 'manager', 'hr', 'admin'],
+  suggestions_view:     ['ceo', 'manager', 'hr', 'recruiter', 'admin'],
+  suggestions_manage:   ['ceo', 'manager', 'admin'],
 };
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {

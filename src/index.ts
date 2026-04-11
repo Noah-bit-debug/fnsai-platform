@@ -24,6 +24,13 @@ import esignRouter from './routes/esign';
 import candidatesRouter from './routes/candidates';
 import remindersRouter from './routes/reminders';
 import pipelineRouter from './routes/pipeline';
+import integrationsRouter from './routes/integrations';
+import reportsRouter from './routes/reports';
+import knowledgeRouter from './routes/knowledge';
+import clarificationRouter from './routes/clarification';
+import templatesRouter from './routes/templates';
+import suggestionsRouter from './routes/suggestions';
+import dailySummaryRouter from './routes/dailySummary';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -96,6 +103,13 @@ app.use('/api/v1/esign', esignRouter);
 app.use('/api/v1/candidates', candidatesRouter);
 app.use('/api/v1/reminders', remindersRouter);
 app.use('/api/v1/pipeline', pipelineRouter);
+app.use('/api/v1/integrations', integrationsRouter);
+app.use('/api/v1/reports', reportsRouter);
+app.use('/api/v1/knowledge', knowledgeRouter);
+app.use('/api/v1/clarification', clarificationRouter);
+app.use('/api/v1/templates', templatesRouter);
+app.use('/api/v1/suggestions', suggestionsRouter);
+app.use('/api/v1/daily-summary', dailySummaryRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
