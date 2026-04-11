@@ -60,7 +60,7 @@ export async function chatCompletion(
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 4096,
       system: systemWithContext,
       messages: messages.map((m) => ({
@@ -126,7 +126,7 @@ Check for:
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 2048,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
@@ -187,7 +187,7 @@ Spam: marketing, irrelevant`;
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
