@@ -21,6 +21,9 @@ import checklistsRouter from './routes/checklists';
 import clientsRouter from './routes/clients';
 import learningRouter from './routes/learning';
 import esignRouter from './routes/esign';
+import candidatesRouter from './routes/candidates';
+import remindersRouter from './routes/reminders';
+import pipelineRouter from './routes/pipeline';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -90,6 +93,9 @@ app.use('/api/v1/checklists', checklistsRouter);
 app.use('/api/v1/clients', clientsRouter);
 app.use('/api/v1/learning', learningRouter);
 app.use('/api/v1/esign', esignRouter);
+app.use('/api/v1/candidates', candidatesRouter);
+app.use('/api/v1/reminders', remindersRouter);
+app.use('/api/v1/pipeline', pipelineRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
