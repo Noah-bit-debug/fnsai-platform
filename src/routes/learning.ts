@@ -94,7 +94,7 @@ router.post('/corrections/:id/strike', requireAuth, async (req: Request, res: Re
       'ai.strike',
       id,
       { correction_text, strike: rule.correction_count },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.json({
@@ -127,7 +127,7 @@ router.post('/corrections/:id/defend', requireAuth, async (req: Request, res: Re
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'ai.defendRule', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'ai.defendRule', id, {}, (req.ip ?? 'unknown'));
     res.json({ success: true, rule: result.rows[0] });
   } catch (err) {
     console.error('Defend error:', err);
@@ -166,7 +166,7 @@ router.post('/manual', requireAuth, async (req: Request, res: Response) => {
       'knowledge.add',
       result.rows[0].id as string,
       { source: data.source },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);

@@ -163,7 +163,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'credential.add',
       result.rows[0].id as string,
       { staffId: data.staff_id, type: data.type },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -204,7 +204,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'credential.update', id, { fields }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'credential.update', id, { fields }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Credential update error:', err);

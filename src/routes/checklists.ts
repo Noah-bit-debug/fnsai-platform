@@ -80,7 +80,7 @@ router.post('/templates', requireAuth, async (req: Request, res: Response) => {
       'checklist.create',
       result.rows[0].id as string,
       { name: data.name },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -160,7 +160,7 @@ router.put('/templates/:id', requireAuth, async (req: Request, res: Response) =>
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'checklist.update', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'checklist.update', id, {}, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Checklist update error:', err);

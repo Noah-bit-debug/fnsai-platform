@@ -124,9 +124,9 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       null,
       auth?.userId ?? 'unknown',
       'placement.create',
-      result.rows[0].id,
+      String(result.rows[0].id),
       { facilityId: data.facility_id, role: data.role },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -167,7 +167,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'placement.update', id, { fields }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'placement.update', id, { fields }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Placement update error:', err);
@@ -209,10 +209,10 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
     );
 
     const envelope = await createEnvelope(
-      placement.staff_email,
+      String(placement.staff_email),
       `${placement.first_name} ${placement.last_name}`,
       contractBuffer,
-      `Contract_${placement.last_name}_${placement.facility_name.replace(/\s/g, '_')}.pdf`
+      `Contract_${String(placement.last_name)}_${String(placement.facility_name).replace(/\s/g, '_')}.pdf`
     );
 
     // Update placement with envelope ID
@@ -225,7 +225,7 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
     // Send SMS approval if staff has phone
     if (placement.staff_phone) {
       const smsResult = await sendApprovalRequest(
-        placement.staff_phone,
+        String(placement.staff_phone),
         `Placement Contract: ${placement.role} at ${placement.facility_name}`,
         `Start: ${placement.start_date || 'TBD'} | Rate: $${placement.hourly_rate || 'TBD'}/hr\nPlease check your email to sign your contract.`,
         id
@@ -250,7 +250,7 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
       'placement.sendContract',
       id,
       { envelopeId: envelope.envelopeId },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.json({
@@ -280,7 +280,7 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response) => 
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'placement.approve', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'placement.approve', id, {}, (req.ip ?? 'unknown'));
     res.json({ success: true, placement: result.rows[0] });
   } catch (err) {
     console.error('Placement approve error:', err);

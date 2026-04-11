@@ -206,7 +206,7 @@ initEsignTables().catch(console.error);
 function getClientIp(req: Request): string {
   return (
     (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ??
-    req.ip ??
+    (req.ip ?? 'unknown') ??
     'unknown'
   );
 }

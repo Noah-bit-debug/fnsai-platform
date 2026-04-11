@@ -87,7 +87,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'sms.send',
       approval.id as string,
       { type: data.type, to: data.recipient_phone },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(approval);
@@ -116,7 +116,7 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response) => 
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'sms.approve', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'sms.approve', id, {}, (req.ip ?? 'unknown'));
     res.json({ success: true, approval: result.rows[0] });
   } catch (err) {
     console.error('SMS approve error:', err);
@@ -143,7 +143,7 @@ router.post('/:id/deny', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'sms.deny', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'sms.deny', id, {}, (req.ip ?? 'unknown'));
     res.json({ success: true, approval: result.rows[0] });
   } catch (err) {
     console.error('SMS deny error:', err);

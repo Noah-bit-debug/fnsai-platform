@@ -110,7 +110,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'onboarding.create',
       result.rows[0].id as string,
       { staffId: data.staff_id, item: data.item_name },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -159,7 +159,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'onboarding.update', id, { fields }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'onboarding.update', id, { fields }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Onboarding update error:', err);

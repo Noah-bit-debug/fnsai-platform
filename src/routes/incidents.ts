@@ -124,7 +124,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'incident.create',
       result.rows[0].id as string,
       { type: data.type, workersComp: data.workers_comp_claim },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -165,7 +165,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'incident.update', id, { fields }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'incident.update', id, { fields }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Incident update error:', err);
@@ -189,7 +189,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'incident.close', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'incident.close', id, {}, (req.ip ?? 'unknown'));
     res.json({ success: true });
   } catch (err) {
     console.error('Incident close error:', err);

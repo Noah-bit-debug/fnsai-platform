@@ -160,7 +160,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'staff.create',
       `${data.first_name} ${data.last_name}`,
       { staffId: result.rows[0].id },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -207,7 +207,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       'staff.update',
       id,
       { fields },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.json(result.rows[0]);
@@ -239,7 +239,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
       'staff.deactivate',
       id,
       {},
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.json({ success: true, message: 'Staff member deactivated' });

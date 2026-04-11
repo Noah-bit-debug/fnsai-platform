@@ -41,7 +41,7 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
 
   try {
-    const response = await chatCompletion(messages, userContext);
+    const response = await chatCompletion(messages as any, userContext);
 
     await logAudit(
       null,

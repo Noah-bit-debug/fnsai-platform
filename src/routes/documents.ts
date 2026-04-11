@@ -114,7 +114,7 @@ router.post(
         'document.upload',
         doc.id as string,
         { type: document_type, status: newStatus },
-        req.ip
+        (req.ip ?? 'unknown')
       );
 
       res.status(201).json({
@@ -258,7 +258,7 @@ router.post('/qa/:id/answer', requireAuth, async (req: Request, res: Response) =
       );
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'document.qa.answer', id, { answer_scope }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'document.qa.answer', id, { answer_scope }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('QA answer error:', err);

@@ -133,7 +133,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'facility.create',
       result.rows[0].id as string,
       { name: data.name },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -178,7 +178,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'facility.update', id, { fields }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'facility.update', id, { fields }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Facility update error:', err);
@@ -203,7 +203,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'facility.deactivate', id, {}, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'facility.deactivate', id, {}, (req.ip ?? 'unknown'));
     res.json({ success: true });
   } catch (err) {
     console.error('Facility delete error:', err);

@@ -122,7 +122,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       'timesheet.submit',
       result.rows[0].id as string,
       { staffId: data.staff_id, hours: data.hours_worked, week: data.week_start },
-      req.ip
+      (req.ip ?? 'unknown')
     );
 
     res.status(201).json(result.rows[0]);
@@ -152,7 +152,7 @@ router.post('/:id/verify', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'timesheet.verify', id, { status }, req.ip);
+    await logAudit(null, auth?.userId ?? 'unknown', 'timesheet.verify', id, { status }, (req.ip ?? 'unknown'));
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Timesheet verify error:', err);
