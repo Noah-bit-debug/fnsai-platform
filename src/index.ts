@@ -4,6 +4,9 @@ import { clerkMiddleware } from '@clerk/express';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
+import * as fs from 'fs';
+import * as path from 'path';
+import { pool } from './db/client';
 
 // Routes
 import staffRouter from './routes/staff';
@@ -127,10 +130,51 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`FNS AI API running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV ?? 'development'}`);
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL ?? 'http://localhost:5173'}`);
-});
+// ─── Auto-migrate all SQL files on startup ────────────────────────────────────
+async function runMigrations(): Promise<void> {
+  const migrationFiles = [
+    'schema.sql',
+    'candidates_migration.sql',
+    'intelligence_migration.sql',
+    'time_tracking_migration.sql',
+  ];
+
+  const client = await pool.connect();
+  try {
+    for (const file of migrationFiles) {
+      const filePath = path.join(__dirname, 'db', file);
+      if (!fs.existsSync(filePath)) {
+        console.log(`[migrate] Skipping ${file} (not found)`);
+        continue;
+      }
+      try {
+        const sql = fs.readFileSync(filePath, 'utf-8');
+        await client.query(sql);
+        console.log(`[migrate] ✓ ${file}`);
+      } catch (err) {
+        // Log but do NOT crash — partial migrations are better than no server
+        console.error(`[migrate] ✗ ${file}:`, (err as Error).message?.slice(0, 200));
+      }
+    }
+  } finally {
+    client.release();
+  }
+}
+
+runMigrations()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`FNS AI API running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV ?? 'development'}`);
+      console.log(`Frontend URL: ${process.env.FRONTEND_URL ?? 'http://localhost:5173'}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[migrate] Fatal error connecting to DB:', err);
+    // Still try to start even if migration connection fails
+    app.listen(PORT, () => {
+      console.log(`FNS AI API running on port ${PORT} (migration skipped)`);
+    });
+  });
 
 export default app;

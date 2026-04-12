@@ -52,7 +52,7 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
       req.ip
     );
 
-    res.json({ response, model: 'claude-sonnet-4-20250514' });
+    res.json({ response, model: 'claude-3-5-sonnet-20241022' });
   } catch (err) {
     console.error('Chat route error:', err);
     res.status(500).json({ error: 'AI service error' });
