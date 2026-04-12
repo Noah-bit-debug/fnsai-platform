@@ -31,6 +31,7 @@ import clarificationRouter from './routes/clarification';
 import templatesRouter from './routes/templates';
 import suggestionsRouter from './routes/suggestions';
 import dailySummaryRouter from './routes/dailySummary';
+import timeTrackingRouter from './routes/timeTracking';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -110,6 +111,7 @@ app.use('/api/v1/clarification', clarificationRouter);
 app.use('/api/v1/templates', templatesRouter);
 app.use('/api/v1/suggestions', suggestionsRouter);
 app.use('/api/v1/daily-summary', dailySummaryRouter);
+app.use('/api/v1/time-tracking', timeTrackingRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

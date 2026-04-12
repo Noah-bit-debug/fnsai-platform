@@ -46,7 +46,10 @@ export const PERMISSIONS: Record<string, string[]> = {
   templates_view:       ['ceo', 'manager', 'hr', 'recruiter', 'admin', 'coordinator'],
   templates_manage:     ['ceo', 'manager', 'hr', 'admin'],
   suggestions_view:     ['ceo', 'manager', 'hr', 'recruiter', 'admin'],
-  suggestions_manage:   ['ceo', 'manager', 'admin'],
+  suggestions_manage:      ['ceo', 'manager', 'admin'],
+  time_tracking_view_own:  ['ceo', 'manager', 'hr', 'recruiter', 'admin', 'coordinator', 'viewer'],
+  time_tracking_view_team: ['ceo', 'manager', 'hr', 'admin'],
+  time_tracking_admin:     ['ceo', 'admin'],
 };
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
