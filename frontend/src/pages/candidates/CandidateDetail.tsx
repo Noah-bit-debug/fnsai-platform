@@ -207,7 +207,27 @@ export default function CandidateDetail() {
   const [forms, setForms] = useState<OnboardingForm[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'pipeline' | 'documents' | 'onboarding' | 'compliance'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'pipeline' | 'documents' | 'onboarding' | 'compliance' | 'ats'>('profile');
+
+  // ATS tab state (Phase 3)
+  type AtsMatchingJob = {
+    id: string; job_code?: string; title: string;
+    profession?: string; specialty?: string;
+    city?: string; state?: string;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+    client_name?: string; facility_name?: string;
+    match_score: number; already_submitted: boolean;
+  };
+  const [matchingJobs, setMatchingJobs] = useState<AtsMatchingJob[]>([]);
+  const [candidateSubmissions, setCandidateSubmissions] = useState<Array<{
+    id: string; job_id: string; job_title?: string; job_code?: string;
+    client_name?: string; stage_key?: string | null; stage_label?: string; stage_color?: string;
+    ai_score?: number | null; ai_fit_label?: string | null; gate_status?: string;
+    created_at: string;
+  }>>([]);
+  const [atsLoaded, setAtsLoaded] = useState(false);
+  const [atsLoading, setAtsLoading] = useState(false);
+  const [submittingJobId, setSubmittingJobId] = useState<string | null>(null);
 
   // Edit mode
   const [editing, setEditing] = useState(false);
@@ -293,11 +313,51 @@ export default function CandidateDetail() {
     }
   }
 
+  const loadAts = async () => {
+    if (!id) return;
+    setAtsLoading(true);
+    try {
+      const [matchRes, subRes] = await Promise.all([
+        candidatesApi.matchingJobs(id).catch(() => ({ data: { jobs: [] } })),
+        // Use raw api instance since submissionsApi is typed separately; this keeps tab loading self-contained.
+        import('../../lib/api').then((m) => m.submissionsApi.list({ candidate_id: id })),
+      ]);
+      setMatchingJobs(matchRes.data.jobs);
+      setCandidateSubmissions(subRes.data.submissions.map((s) => ({
+        id: s.id, job_id: s.job_id, job_title: s.job_title, job_code: s.job_code,
+        client_name: s.client_name, stage_key: s.stage_key, stage_label: s.stage_label,
+        stage_color: s.stage_color, ai_score: s.ai_score, ai_fit_label: s.ai_fit_label,
+        gate_status: s.gate_status, created_at: s.created_at,
+      })));
+    } catch (e) {
+      console.error('ATS tab load error:', e);
+    } finally {
+      setAtsLoading(false);
+    }
+  };
+
+  const submitToJob = async (jobId: string) => {
+    if (!id) return;
+    setSubmittingJobId(jobId);
+    try {
+      const mod = await import('../../lib/api');
+      const res = await mod.submissionsApi.create({ candidate_id: id, job_id: jobId });
+      navigate(`/submissions/${res.data.submission.id}`);
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Failed to create submission');
+      setSubmittingJobId(null);
+    }
+  };
+
   const handleTabChange = (tab: typeof activeTab) => {
     setActiveTab(tab);
     if (tab === 'compliance' && !complianceLoaded) {
       setComplianceLoaded(true);
       loadCompliance();
+    }
+    if (tab === 'ats' && !atsLoaded) {
+      setAtsLoaded(true);
+      loadAts();
     }
   };
 
@@ -426,9 +486,9 @@ export default function CandidateDetail() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {(['profile', 'pipeline', 'documents', 'onboarding', 'compliance'] as const).map((tab) => (
+        {(['profile', 'ats', 'pipeline', 'documents', 'onboarding', 'compliance'] as const).map((tab) => (
           <button key={tab} style={tabBtn(tab)} onClick={() => handleTabChange(tab)}>
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'ats' ? 'ATS' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -853,6 +913,127 @@ export default function CandidateDetail() {
           ) : (
             <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>No compliance data available.</div>
           )}
+        </div>
+      )}
+
+      {/* ─── ATS TAB ─── */}
+      {activeTab === 'ats' && (
+        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
+          {/* Active submissions */}
+          <div style={cardStyle}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
+              Active submissions ({candidateSubmissions.length})
+            </h3>
+            {atsLoading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+            ) : candidateSubmissions.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                This candidate has not been submitted to any job yet.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {candidateSubmissions.map((s) => (
+                  <div
+                    key={s.id}
+                    onClick={() => navigate(`/submissions/${s.id}`)}
+                    style={{
+                      padding: 12, background: '#f8fafc', borderRadius: 8,
+                      border: '1px solid #e2e8f0', cursor: 'pointer',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.job_title ?? 'Job'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                        {s.job_code && <span style={{ fontFamily: 'monospace' }}>{s.job_code} · </span>}
+                        {s.client_name && <span>{s.client_name}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                      {s.ai_score != null && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#3b82f6', padding: '2px 7px', borderRadius: 999 }}>
+                          {s.ai_score}
+                        </span>
+                      )}
+                      {s.stage_label && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
+                          background: `${s.stage_color ?? '#6b7280'}20`, color: s.stage_color ?? '#6b7280',
+                          textTransform: 'uppercase', letterSpacing: 0.5,
+                        }}>
+                          {s.stage_label}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Matching jobs */}
+          <div style={cardStyle}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
+              Matching open jobs ({matchingJobs.length})
+            </h3>
+            {atsLoading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+            ) : matchingJobs.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                No open jobs match this candidate's profile.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {matchingJobs.map((j) => (
+                  <div key={j.id} style={{
+                    padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                      <div
+                        onClick={() => navigate(`/jobs/${j.id}`)}
+                        style={{ minWidth: 0, cursor: 'pointer', flex: 1 }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {j.title}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          {j.profession && <span>{j.profession}{j.specialty ? ` · ${j.specialty}` : ''}</span>}
+                          {(j.city || j.state) && <span> · {[j.city, j.state].filter(Boolean).join(', ')}</span>}
+                          {j.client_name && <span> · {j.client_name}</span>}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, color: '#fff',
+                        background: j.match_score >= 70 ? '#10b981' : j.match_score >= 40 ? '#f59e0b' : '#6b7280',
+                        padding: '2px 8px', borderRadius: 999, flexShrink: 0,
+                      }}>
+                        {j.match_score}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      {j.already_submitted ? (
+                        <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>✓ Already submitted</span>
+                      ) : can('candidates_create') ? (
+                        <button
+                          onClick={() => submitToJob(j.id)}
+                          disabled={submittingJobId === j.id}
+                          style={{
+                            padding: '5px 10px', background: '#1565c0', color: '#fff', border: 'none',
+                            borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                            opacity: submittingJobId === j.id ? 0.6 : 1,
+                          }}
+                        >
+                          {submittingJobId === j.id ? 'Submitting…' : 'Submit to this job'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

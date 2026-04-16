@@ -426,6 +426,45 @@ router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ATS Phase 3: Matching jobs for a given candidate
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /:id/matching-jobs — ranked list of open jobs this candidate may fit
+router.get('/:id/matching-jobs', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
+  try {
+    const candRes = await query(
+      `SELECT role, specialties, city, state FROM candidates WHERE id = $1`,
+      [req.params.id]
+    );
+    if (candRes.rows.length === 0) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    const c = candRes.rows[0] as { role: string | null; specialties: string[] | null; city: string | null; state: string | null };
+    const specialties = c.specialties ?? [];
+
+    // Mirror of jobs./matching-candidates scoring: profession + specialty overlap + location
+    const result = await query(
+      `SELECT j.id, j.job_code, j.title, j.profession, j.specialty, j.city, j.state, j.priority,
+              cl.name AS client_name, f.name AS facility_name,
+              (CASE WHEN j.profession = $1 THEN 40 ELSE 0 END
+               + CASE WHEN j.specialty = ANY($2::text[]) THEN 30 ELSE 0 END
+               + CASE WHEN j.city ILIKE $3 THEN 20 WHEN j.state = $4 THEN 10 ELSE 0 END) AS match_score,
+              EXISTS (SELECT 1 FROM submissions s WHERE s.candidate_id = $5 AND s.job_id = j.id) AS already_submitted
+       FROM jobs j
+       LEFT JOIN clients cl ON j.client_id = cl.id
+       LEFT JOIN facilities f ON j.facility_id = f.id
+       WHERE j.status = 'open'
+       ORDER BY match_score DESC, j.created_at DESC
+       LIMIT 50`,
+      [c.role, specialties, c.city ? `%${c.city}%` : null, c.state, req.params.id]
+    );
+    res.json({ jobs: result.rows });
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ jobs: [] }); return; }
+    console.error('Candidate matching jobs error:', err);
+    res.status(500).json({ error: 'Failed to fetch matching jobs' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ATS Phase 1: Duplicate detection + saved views
 // ═══════════════════════════════════════════════════════════════════════════
 

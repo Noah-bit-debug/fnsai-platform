@@ -616,6 +616,23 @@ export const candidatesApi = {
   sendOnboardingForm: (id: string, form_type: string) =>
     api.post<OnboardingForm>(`/candidates/${id}/onboarding-forms`, { form_type }),
   stats: () => api.get<{ total: number; by_stage: Record<string, number>; recent_7_days: number }>('/candidates/stats/overview'),
+  // ATS Phase 3
+  matchingJobs: (id: string) => api.get<{
+    jobs: Array<{
+      id: string; job_code?: string; title: string;
+      profession?: string; specialty?: string;
+      city?: string; state?: string;
+      priority: 'low' | 'normal' | 'high' | 'urgent';
+      client_name?: string; facility_name?: string;
+      match_score: number;
+      already_submitted: boolean;
+    }>;
+  }>(`/candidates/${id}/matching-jobs`),
+  duplicates: (params: { email?: string; phone?: string; name?: string; exclude_id?: string }) =>
+    api.get<{
+      candidates: Array<{ id: string; first_name: string; last_name: string; email?: string; phone?: string; role?: string; stage: string; status: string; created_at: string }>;
+      match_count: number;
+    }>('/candidates/duplicates', { params }),
 };
 
 export const pipelineApi = {

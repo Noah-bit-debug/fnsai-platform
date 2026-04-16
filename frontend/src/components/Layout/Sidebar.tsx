@@ -63,6 +63,7 @@ const NAV_GROUPS: NavGroupDef[] = [
       { to: '/submissions',   icon: '📤', label: 'Submissions', roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
       { to: '/clients-orgs',  icon: '🏢', label: 'Clients',     roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
       { to: '/pipeline',      icon: '🔄', label: 'Pipeline',    roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/kanban',        icon: '📊', label: 'Kanban',      roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
       { to: '/reminders',     icon: '🔔', label: 'Reminders',   roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
     ],
   },

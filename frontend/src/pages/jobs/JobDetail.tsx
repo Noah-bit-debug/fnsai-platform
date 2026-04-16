@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { jobsApi, submissionsApi, Job, JobRequirement, MatchingCandidate } from '../../lib/api';
+import { jobsApi, submissionsApi, complianceBundlesApi, Job, JobRequirement, MatchingCandidate, CompBundle } from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
 
 const STATUS_COLOR: Record<Job['status'], string> = {
@@ -22,6 +22,68 @@ export default function JobDetail() {
   const [error, setError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState<'boolean' | 'ad' | 'summary' | null>(null);
   const [creatingSub, setCreatingSub] = useState<string | null>(null);
+
+  // Requirement editor (Phase 3)
+  const [bundles, setBundles] = useState<CompBundle[]>([]);
+  const [reqKind, setReqKind] = useState<'submission' | 'onboarding'>('submission');
+  const [reqBundleId, setReqBundleId] = useState<string>('');
+  const [reqAdHoc, setReqAdHoc] = useState<Array<{ type: 'doc' | 'cert' | 'license' | 'skill'; label: string; required: boolean }>>([]);
+  const [reqAdHocDraft, setReqAdHocDraft] = useState<{ type: 'doc' | 'cert' | 'license' | 'skill'; label: string }>({ type: 'doc', label: '' });
+  const [savingReq, setSavingReq] = useState(false);
+  const [showReqEditor, setShowReqEditor] = useState(false);
+
+  useEffect(() => {
+    complianceBundlesApi.list({ status: 'published' }).then((r) => setBundles(r.data.bundles)).catch(() => { /* ignore */ });
+  }, []);
+
+  const addAdHocRow = () => {
+    const label = reqAdHocDraft.label.trim();
+    if (!label) return;
+    setReqAdHoc([...reqAdHoc, { type: reqAdHocDraft.type, label, required: true }]);
+    setReqAdHocDraft({ type: reqAdHocDraft.type, label: '' });
+  };
+
+  const resetReqEditor = () => {
+    setShowReqEditor(false);
+    setReqBundleId('');
+    setReqAdHoc([]);
+    setReqAdHocDraft({ type: 'doc', label: '' });
+  };
+
+  const saveRequirement = async () => {
+    if (!id) return;
+    if (!reqBundleId && reqAdHoc.length === 0) {
+      alert('Select a bundle or add at least one ad-hoc item.');
+      return;
+    }
+    setSavingReq(true);
+    try {
+      await jobsApi.addRequirement(id, {
+        kind: reqKind,
+        bundle_id: reqBundleId || null,
+        ad_hoc: reqAdHoc,
+      });
+      resetReqEditor();
+      await load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string };
+      alert(err.response?.data?.error ?? err.message ?? 'Failed to save');
+    } finally {
+      setSavingReq(false);
+    }
+  };
+
+  const removeRequirement = async (reqId: string) => {
+    if (!id) return;
+    if (!window.confirm('Remove this requirement row?')) return;
+    try {
+      await jobsApi.deleteRequirement(id, reqId);
+      await load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } }; message?: string };
+      alert(err.response?.data?.error ?? err.message ?? 'Failed to remove');
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -141,8 +203,12 @@ export default function JobDetail() {
           </Section>
 
           {/* Requirements / Credential gate */}
-          <Section title="Credential requirements">
-            {requirements.length === 0 ? (
+          <Section title="Credential requirements" action={
+            can('candidates_edit') && !showReqEditor ? (
+              <button onClick={() => setShowReqEditor(true)} style={{ padding: '5px 12px', background: 'var(--pr)', color: 'var(--sf)', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>+ Add requirement</button>
+            ) : null
+          }>
+            {requirements.length === 0 && !showReqEditor ? (
               <div style={{ padding: 16, color: 'var(--t3)', fontSize: 13, textAlign: 'center', background: 'var(--sf2)', borderRadius: 6 }}>
                 No requirements configured yet. Submission gate will report "unknown" until you add a bundle or ad-hoc items.
               </div>
@@ -152,7 +218,12 @@ export default function JobDetail() {
                   <div key={r.id} style={{ padding: 12, background: 'var(--sf2)', borderRadius: 6, border: '1px solid var(--bd)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--t1)', textTransform: 'capitalize' }}>{r.kind}</span>
-                      {r.bundle_title && <span style={{ fontSize: 11, color: 'var(--pr)' }}>Bundle: {r.bundle_title}</span>}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {r.bundle_title && <span style={{ fontSize: 11, color: 'var(--pr)' }}>Bundle: {r.bundle_title}</span>}
+                        {can('candidates_edit') && (
+                          <button onClick={() => removeRequirement(r.id)} style={{ background: 'none', border: 'none', color: 'var(--dg)', cursor: 'pointer', fontSize: 11 }}>Remove</button>
+                        )}
+                      </div>
                     </div>
                     {r.ad_hoc?.length > 0 && (
                       <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--t2)' }}>
@@ -169,9 +240,66 @@ export default function JobDetail() {
                 ))}
               </div>
             )}
-            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 10 }}>
-              Requirement editor UI lands in Phase 3 — for now, add rows via the API or database.
-            </div>
+
+            {/* Inline editor */}
+            {showReqEditor && (
+              <div style={{ marginTop: 12, padding: 14, background: 'var(--sf2)', borderRadius: 6, border: '1px dashed var(--pr)' }}>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <label style={{ flex: '1 1 160px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Applies to</span>
+                    <select value={reqKind} onChange={(e) => setReqKind(e.target.value as 'submission' | 'onboarding')} style={inputBase}>
+                      <option value="submission">Submission (pre-client)</option>
+                      <option value="onboarding">Onboarding (post-placement)</option>
+                    </select>
+                  </label>
+                  <label style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Bundle (optional)</span>
+                    <select value={reqBundleId} onChange={(e) => setReqBundleId(e.target.value)} style={inputBase}>
+                      <option value="">— no bundle —</option>
+                      {bundles.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}
+                    </select>
+                  </label>
+                </div>
+
+                {/* Ad-hoc items */}
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                  Ad-hoc items {reqAdHoc.length > 0 && `(${reqAdHoc.length})`}
+                </div>
+                {reqAdHoc.length > 0 && (
+                  <ul style={{ margin: '0 0 10px', paddingLeft: 18, fontSize: 12, color: 'var(--t2)' }}>
+                    {reqAdHoc.map((a, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ flex: 1 }}>{a.label} <span style={{ color: 'var(--t3)' }}>· {a.type}</span></span>
+                        <button onClick={() => setReqAdHoc(reqAdHoc.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: 'var(--dg)', cursor: 'pointer', fontSize: 11 }}>Remove</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                  <select value={reqAdHocDraft.type} onChange={(e) => setReqAdHocDraft({ ...reqAdHocDraft, type: e.target.value as 'doc' | 'cert' | 'license' | 'skill' })} style={{ ...inputBase, flex: '0 0 120px' }}>
+                    <option value="doc">Document</option>
+                    <option value="cert">Certification</option>
+                    <option value="license">License</option>
+                    <option value="skill">Skill</option>
+                  </select>
+                  <input
+                    value={reqAdHocDraft.label}
+                    onChange={(e) => setReqAdHocDraft({ ...reqAdHocDraft, label: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addAdHocRow(); } }}
+                    placeholder={reqAdHocDraft.type === 'cert' ? 'e.g. BLS, ACLS' : reqAdHocDraft.type === 'license' ? 'e.g. TX RN License' : reqAdHocDraft.type === 'skill' ? 'e.g. EPIC charting' : 'e.g. Physical form'}
+                    style={{ ...inputBase, flex: 1 }}
+                  />
+                  <button onClick={addAdHocRow} style={{ padding: '6px 12px', background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}>Add</button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={resetReqEditor} style={{ padding: '7px 14px', background: 'var(--sf)', color: 'var(--t2)', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={saveRequirement} disabled={savingReq} style={{ padding: '7px 14px', background: 'var(--pr)', color: 'var(--sf)', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: savingReq ? 0.6 : 1 }}>
+                    {savingReq ? 'Saving…' : 'Save requirement'}
+                  </button>
+                </div>
+              </div>
+            )}
           </Section>
 
           {/* Description */}
@@ -233,14 +361,26 @@ export default function JobDetail() {
 }
 
 // ─── UI bits ────────────────────────────────────────────────────────────────
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div style={{ background: 'var(--sf)', borderRadius: 'var(--br)', border: '1px solid var(--bd)', padding: 16 }}>
-      <h2 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: 'var(--t1)', letterSpacing: 0.3 }}>{title}</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--t1)', letterSpacing: 0.3 }}>{title}</h2>
+        {action}
+      </div>
       {children}
     </div>
   );
 }
+
+const inputBase: React.CSSProperties = {
+  padding: '7px 10px',
+  border: '1px solid var(--bd)',
+  borderRadius: 5,
+  fontSize: 12,
+  background: 'var(--sf)',
+  outline: 'none',
+};
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (

@@ -1,6 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { candidatesApi, ParsedResume } from '../../lib/api';
+
+type DuplicateMatch = { id: string; first_name: string; last_name: string; email?: string; phone?: string; role?: string; stage: string; status: string; created_at: string };
 
 const ROLES = ['RN', 'LPN', 'LVN', 'CNA', 'RT', 'NP', 'PA', 'Other'];
 const SOURCES = ['referral', 'job board', 'linkedin', 'walk-in', 'other'];
@@ -61,6 +63,27 @@ export default function CandidateNew() {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Duplicate detection (Phase 3) — debounced check on email/phone/name
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
+  const [dupDismissed, setDupDismissed] = useState(false);
+  useEffect(() => {
+    const email = form.email.trim();
+    const phone = form.phone.trim();
+    const name = [form.first_name.trim(), form.last_name.trim()].filter(Boolean).join(' ');
+    if (!email && !phone && !(form.first_name && form.last_name)) { setDuplicates([]); return; }
+    const handle = setTimeout(() => {
+      const params: { email?: string; phone?: string; name?: string } = {};
+      if (email) params.email = email;
+      if (phone) params.phone = phone;
+      if (form.first_name && form.last_name) params.name = name;
+      candidatesApi.duplicates(params)
+        .then((r) => { setDuplicates(r.data.candidates); setDupDismissed(false); })
+        .catch(() => { /* silent — duplicate check is best-effort */ });
+    }, 500);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.email, form.phone, form.first_name, form.last_name]);
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -179,6 +202,50 @@ export default function CandidateNew() {
           ))}
         </div>
       </div>
+
+      {/* Duplicate warning (Phase 3) */}
+      {step === 1 && duplicates.length > 0 && !dupDismissed && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, color: '#92400e', fontSize: 14 }}>
+              ⚠ Possible duplicate{duplicates.length === 1 ? '' : 's'} ({duplicates.length})
+            </div>
+            <button
+              onClick={() => setDupDismissed(true)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#92400e', padding: 0 }}
+            >×</button>
+          </div>
+          <div style={{ fontSize: 12, color: '#78350f', marginBottom: 10 }}>
+            We found existing candidate{duplicates.length === 1 ? '' : 's'} matching this info. Click to open before creating a new record.
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {duplicates.slice(0, 5).map((d) => (
+              <div
+                key={d.id}
+                onClick={() => navigate(`/candidates/${d.id}`)}
+                style={{
+                  padding: '8px 12px', background: '#fff', borderRadius: 6,
+                  border: '1px solid #fde68a', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{d.first_name} {d.last_name}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                    {d.email && <span>{d.email}</span>}
+                    {d.email && d.phone && <span> · </span>}
+                    {d.phone && <span>{d.phone}</span>}
+                    {d.role && <span> · {d.role}</span>}
+                  </div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {d.stage}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {step === 1 && (
         <>
