@@ -1,469 +1,287 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-interface Placement {
-  id: string;
-  staff: string;
-  staffId?: string;
-  candidateId?: string;
-  role: string;
-  facility: string;
-  start: string;
-  end: string;
-  contract: string;
-  contractClass: string;
-  status: string;
-  statusClass: string;
-}
-
-interface Requisition {
-  id: string;
-  role: string;
-  facility: string;
-  shift: string;
-  needed: string;
-  urgency?: 'asap' | 'soon' | 'flexible';
-}
-
-const INITIAL_PLACEMENTS: Placement[] = [
-  {
-    id: 'p1',
-    staff: 'Ana Reyes',
-    role: 'RN',
-    facility: 'Harris Health System',
-    start: 'Apr 14, 2026',
-    end: 'Jul 13, 2026',
-    contract: 'Signed',
-    contractClass: 'tg',
-    status: 'active',
-    statusClass: 'tg',
-  },
-  {
-    id: 'p2',
-    staff: 'James Torres',
-    role: 'CNA',
-    facility: 'Mercy Hospital',
-    start: 'Apr 21, 2026',
-    end: 'Jul 20, 2026',
-    contract: 'Pending eSign',
-    contractClass: 'tw',
-    status: 'pending',
-    statusClass: 'tw',
-  },
-  {
-    id: 'p3',
-    staff: 'Sarah Mitchell',
-    role: 'RN',
-    facility: "St. Luke's Medical",
-    start: 'Apr 7, 2026',
-    end: 'Oct 6, 2026',
-    contract: 'Signed',
-    contractClass: 'tg',
-    status: 'active',
-    statusClass: 'tg',
-  },
-  {
-    id: 'p4',
-    staff: 'Marcus Green',
-    role: 'RT',
-    facility: 'Valley Clinic',
-    start: 'Apr 28, 2026',
-    end: 'Jul 27, 2026',
-    contract: 'Pending eSign',
-    contractClass: 'tw',
-    status: 'pending',
-    statusClass: 'tw',
-  },
-  {
-    id: 'p5',
-    staff: 'Diana Patel',
-    role: 'RN',
-    facility: 'Harris Health System',
-    start: 'Mar 3, 2026',
-    end: 'Jun 1, 2026',
-    contract: 'Signed',
-    contractClass: 'tg',
-    status: 'active',
-    statusClass: 'tg',
-  },
-];
-
-const OPEN_REQS: Requisition[] = [
-  { id: 'r1', role: 'LPN', facility: 'Mercy Hospital',       shift: 'Day shift, 3x12',  needed: 'ASAP',          urgency: 'asap' },
-  { id: 'r2', role: 'CNA', facility: 'Harris Health System', shift: 'Night shift, 5x8', needed: 'May 1, 2026',   urgency: 'soon' },
-  { id: 'r3', role: 'RN',  facility: 'Valley Clinic',        shift: 'Day shift, 3x12',  needed: 'Jun 1, 2026',   urgency: 'flexible' },
-];
-
-const URGENCY_COLORS: Record<string, string> = {
-  asap:     '#c62828',
-  soon:     '#e65100',
-  flexible: '#2e7d32',
-};
-
-const STAFF_OPTIONS = [
-  'Ana Reyes', 'James Torres', 'Sarah Mitchell', 'Marcus Green',
-  'Diana Patel', 'Lisa Kim', 'Tom Reed', 'Ben Carter',
-];
-const FACILITY_OPTIONS = [
-  'Harris Health System', 'Mercy Hospital', "St. Luke's Medical", 'Valley Clinic', 'Memorial Hospital',
-];
-
-interface NewPlacementForm {
-  staff: string;
-  role: string;
-  facility: string;
-  start: string;
-  end: string;
-}
-
-const EMPTY_FORM: NewPlacementForm = { staff: '', role: '', facility: '', start: '', end: '' };
+import { useQuery } from '@tanstack/react-query';
+import { placementsApi, jobsApi, Placement, Job } from '../lib/api';
+import QueryState, { EmptyCta } from '../components/QueryState';
 
 type TabKey = 'active' | 'pending' | 'open_reqs';
 
+const PRIORITY_COLOR: Record<Job['priority'], string> = {
+  urgent: '#dc2626',
+  high: '#f59e0b',
+  normal: '#6b7280',
+  low: '#9ca3af',
+};
+
+const STATUS_LABEL: Record<Placement['status'], string> = {
+  active: 'Active',
+  pending: 'Pending',
+  unfilled: 'Unfilled',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+const STATUS_CLASS: Record<Placement['status'], string> = {
+  active: 'tg',
+  pending: 'tw',
+  unfilled: 'tgr',
+  completed: 'tb',
+  cancelled: 'td',
+};
+
+function fmtDate(iso?: string): string {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
+}
+
 export default function Placements() {
   const navigate = useNavigate();
-  const [placements, setPlacements] = useState<Placement[]>(INITIAL_PLACEMENTS);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState<NewPlacementForm>(EMPTY_FORM);
-  const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('active');
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3500);
-  }
-
-  function handleCreate() {
-    if (!form.staff || !form.role || !form.facility) return;
-    const newP: Placement = {
-      id: `p${Date.now()}`,
-      staff: form.staff,
-      role: form.role,
-      facility: form.facility,
-      start: form.start || 'TBD',
-      end: form.end || 'TBD',
-      contract: 'Pending eSign',
-      contractClass: 'tw',
-      status: 'pending',
-      statusClass: 'tw',
-    };
-    setPlacements((prev) => [...prev, newP]);
-    setForm(EMPTY_FORM);
-    setShowModal(false);
-    showToast(`Placement created for ${newP.staff}`);
-  }
-
-  function sendContract(p: Placement) {
-    setPlacements((prev) =>
-      prev.map((pl) =>
-        pl.id === p.id ? { ...pl, contract: 'Sent', contractClass: 'tb' } : pl
-      )
-    );
-    showToast(`Contract sent via Foxit eSign to ${p.staff}`);
-  }
-
-  function fillPosition(req: Requisition) {
-    setForm({ ...EMPTY_FORM, role: req.role, facility: req.facility });
-    setShowModal(true);
-  }
-
-  function handleEmployeeClick(p: Placement) {
-    if (p.candidateId) {
-      navigate(`/candidates/${p.candidateId}`);
-    } else if (p.staffId) {
-      navigate(`/staff/${p.staffId}`);
-    }
-    // If no ID available, do nothing (plain display)
-  }
-
-  // ── Filtered data ────────────────────────────────────────────────────────
-  const activePlacements  = placements.filter(p => p.status === 'active');
-  const pendingPlacements = placements.filter(p => p.status === 'pending' || p.status === 'open');
-
-  const tabCounts: Record<TabKey, number> = {
-    active:   activePlacements.length,
-    pending:  pendingPlacements.length,
-    open_reqs: OPEN_REQS.length,
-  };
-
-  const TABS: { key: TabKey; label: string }[] = [
-    { key: 'active',    label: `Active Employees (${tabCounts.active})` },
-    { key: 'pending',   label: `Pending Placements (${tabCounts.pending})` },
-    { key: 'open_reqs', label: `Open Requisitions (${tabCounts.open_reqs})` },
-  ];
-
-  const tabBtnStyle = (active: boolean): React.CSSProperties => ({
-    padding: '12px 22px', border: 'none', cursor: 'pointer', fontSize: 14,
-    fontWeight: active ? 700 : 500,
-    color: active ? '#1565c0' : '#64748b',
-    background: active ? '#eff6ff' : 'transparent',
-    borderBottom: active ? '2px solid #1565c0' : '2px solid transparent',
+  // Two backing queries: placements (active + pending) and open jobs (requisitions)
+  const placementsQ = useQuery({
+    queryKey: ['placements-legacy'],
+    queryFn: () => placementsApi.list(),
   });
 
-  function renderPlacementsTable(rows: Placement[], isActive: boolean) {
-    const employeeHeader = isActive ? 'Employee' : 'Staff';
-    if (rows.length === 0) {
-      return (
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>{isActive ? '👩‍⚕️' : '⏳'}</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#1a2b3c', marginBottom: 6 }}>
-            {isActive ? 'No active employees' : 'No pending placements'}
-          </div>
-          <div style={{ fontSize: 14, color: '#64748b' }}>
-            {isActive ? 'Active placements will appear here.' : 'New placements awaiting contracts will show here.'}
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>{employeeHeader}</th>
-              <th>Role</th>
-              <th>Facility</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Contract</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => (
-              <tr key={p.id}>
-                <td style={{ fontWeight: 600 }}>
-                  {(p.candidateId || p.staffId) ? (
-                    <button
-                      onClick={() => handleEmployeeClick(p)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontWeight: 600, color: '#1565c0', fontSize: 14, padding: 0,
-                        textDecoration: 'underline', textUnderlineOffset: 3,
-                      }}
-                    >
-                      {p.staff}
-                    </button>
-                  ) : (
-                    p.staff
-                  )}
-                </td>
-                <td>
-                  <span className="tag tgr">{p.role}</span>
-                </td>
-                <td className="t2">{p.facility}</td>
-                <td className="t3">{p.start}</td>
-                <td className="t3">{p.end}</td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className={`tag ${p.contractClass}`}>{p.contract}</span>
-                    {p.contract === 'Pending eSign' && (
-                      <button
-                        className="btn btn-gh btn-sm"
-                        onClick={() => sendContract(p)}
-                        style={{ fontSize: '11px', padding: '3px 8px' }}
-                      >
-                        Send Contract
-                      </button>
-                    )}
-                    {p.contract === 'Sent' && (
-                      <span style={{ fontSize: '11px', color: 'var(--t3)' }}>✓ Sent</span>
-                    )}
-                  </div>
-                </td>
-                <td>
-                  <span className={`tag ${p.statusClass}`}>
-                    {p.status.charAt(0).toUpperCase() + p.status.slice(1)}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
+  const jobsQ = useQuery({
+    queryKey: ['placements-legacy-open-jobs'],
+    queryFn: () => jobsApi.list({ status: 'open' }),
+  });
+
+  const allPlacements: Placement[] = placementsQ.data?.data?.placements ?? [];
+  const openJobs: Job[] = jobsQ.data?.data?.jobs ?? [];
+
+  const active = useMemo(() => allPlacements.filter((p) => p.status === 'active'), [allPlacements]);
+  const pending = useMemo(() => allPlacements.filter((p) => p.status === 'pending'), [allPlacements]);
+
+  const counts = {
+    active: active.length,
+    pending: pending.length,
+    open_reqs: openJobs.length,
+  };
 
   return (
     <div>
-      {/* Page Header */}
       <div className="ph">
         <div>
-          <div className="pt">🏥 Placements</div>
-          <div className="ps">Manage active employees, pending placements, and open requisitions</div>
+          <div className="pt">📋 Placements</div>
+          <div className="ps">Active assignments, pending starts, and open requisitions</div>
         </div>
-        <button className="btn btn-pr" onClick={() => { setForm(EMPTY_FORM); setShowModal(true); }}>
-          + New Placement
+        <button className="btn btn-pr" onClick={() => navigate('/jobs/new')}>
+          + New Job
         </button>
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className="ab ab-g" style={{ marginBottom: '16px' }}>
-          ✓ {toast}
-        </div>
-      )}
-
-      {/* Tab bar + content */}
-      <div className="pn" style={{ marginBottom: '24px', padding: 0, overflow: 'hidden' }}>
-        {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid #e8edf2' }}>
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)} style={tabBtnStyle(activeTab === t.key)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab: Active Employees */}
-        {activeTab === 'active' && (
-          <div style={{ padding: '4px 0' }}>
-            {renderPlacementsTable(activePlacements, true)}
-          </div>
-        )}
-
-        {/* Tab: Pending Placements */}
-        {activeTab === 'pending' && (
-          <div style={{ padding: '4px 0' }}>
-            {renderPlacementsTable(pendingPlacements, false)}
-          </div>
-        )}
-
-        {/* Tab: Open Requisitions */}
-        {activeTab === 'open_reqs' && (
-          <div>
-            {OPEN_REQS.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 48 }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#1a2b3c', marginBottom: 6 }}>No open requisitions</div>
-                <div style={{ fontSize: 14, color: '#64748b' }}>All positions are currently filled.</div>
-              </div>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Role</th>
-                      <th>Facility</th>
-                      <th>Shift</th>
-                      <th>Needed By</th>
-                      <th>Urgency</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {OPEN_REQS.map((req) => (
-                      <tr key={req.id}>
-                        <td>
-                          <span className="tag tp">{req.role}</span>
-                        </td>
-                        <td className="t2">{req.facility}</td>
-                        <td className="t3">{req.shift}</td>
-                        <td className="t3">{req.needed}</td>
-                        <td>
-                          {req.urgency && (
-                            <span style={{
-                              background: URGENCY_COLORS[req.urgency],
-                              color: '#fff', borderRadius: 10, padding: '3px 10px',
-                              fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
-                            }}>
-                              {req.urgency === 'asap' ? 'ASAP' : req.urgency.charAt(0).toUpperCase() + req.urgency.slice(1)}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <button className="btn btn-ac btn-sm" onClick={() => fillPosition(req)}>
-                            Fill Position
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {(['active', 'pending', 'open_reqs'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`filter-btn ${activeTab === tab ? 'active' : ''}`}
+          >
+            {tab === 'active' && 'Active'}
+            {tab === 'pending' && 'Pending'}
+            {tab === 'open_reqs' && 'Open Requisitions'}
+            <span style={{ opacity: 0.6, marginLeft: 6 }}>{counts[tab]}</span>
+          </button>
+        ))}
       </div>
 
-      {/* New Placement Modal */}
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>New Placement</h3>
-              <button className="btn btn-gh btn-sm" onClick={() => setShowModal(false)}>
-                ✕
-              </button>
+      {activeTab === 'active' && (
+        <QueryState
+          isLoading={placementsQ.isLoading}
+          error={placementsQ.error}
+          isEmpty={active.length === 0}
+          empty={
+            <EmptyCta
+              title="No active placements yet"
+              subtitle="Placements appear here when a candidate moves to the 'Placed' stage on the Kanban board — or once you mark a pending placement as active."
+              ctaLabel="Open Kanban"
+              onCta={() => navigate('/kanban')}
+            />
+          }
+          onRetry={() => void placementsQ.refetch()}
+        >
+          <div className="pn">
+            <div className="pnh">
+              <h3>Active Placements</h3>
+              <span className="tag tg">{active.length} active</span>
             </div>
-            <div className="modal-body">
-              <div className="fg">
-                <label className="fl">Staff Member</label>
-                <select
-                  className="fi form-select"
-                  value={form.staff}
-                  onChange={(e) => setForm({ ...form, staff: e.target.value })}
-                >
-                  <option value="">Select staff…</option>
-                  {STAFF_OPTIONS.map((s) => (
-                    <option key={s} value={s}>{s}</option>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Staff / Candidate</th>
+                    <th>Role</th>
+                    <th>Facility</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Contract</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {active.map((p) => (
+                    <PlacementRow key={p.id} p={p} />
                   ))}
-                </select>
-              </div>
-              <div className="fg">
-                <label className="fl">Role</label>
-                <input
-                  className="fi"
-                  placeholder="e.g. RN, CNA, LPN"
-                  value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value })}
-                />
-              </div>
-              <div className="fg">
-                <label className="fl">Facility</label>
-                <select
-                  className="fi form-select"
-                  value={form.facility}
-                  onChange={(e) => setForm({ ...form, facility: e.target.value })}
-                >
-                  <option value="">Select facility…</option>
-                  {FACILITY_OPTIONS.map((f) => (
-                    <option key={f} value={f}>{f}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="fg">
-                  <label className="fl">Start Date</label>
-                  <input
-                    className="fi"
-                    type="date"
-                    value={form.start}
-                    onChange={(e) => setForm({ ...form, start: e.target.value })}
-                  />
-                </div>
-                <div className="fg">
-                  <label className="fl">End Date</label>
-                  <input
-                    className="fi"
-                    type="date"
-                    value={form.end}
-                    onChange={(e) => setForm({ ...form, end: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-gh" onClick={() => setShowModal(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-pr" onClick={handleCreate}>
-                Create Placement
-              </button>
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
+        </QueryState>
+      )}
+
+      {activeTab === 'pending' && (
+        <QueryState
+          isLoading={placementsQ.isLoading}
+          error={placementsQ.error}
+          isEmpty={pending.length === 0}
+          empty={
+            <EmptyCta
+              title="No pending placements"
+              subtitle="Pending placements are created when a candidate is offered a role but hasn't started yet."
+            />
+          }
+          onRetry={() => void placementsQ.refetch()}
+        >
+          <div className="pn">
+            <div className="pnh">
+              <h3>Pending Placements</h3>
+              <span className="tag tw">{pending.length} pending</span>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Staff / Candidate</th>
+                    <th>Role</th>
+                    <th>Facility</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Contract</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pending.map((p) => (
+                    <PlacementRow key={p.id} p={p} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </QueryState>
+      )}
+
+      {activeTab === 'open_reqs' && (
+        <QueryState
+          isLoading={jobsQ.isLoading}
+          error={jobsQ.error}
+          isEmpty={openJobs.length === 0}
+          empty={
+            <EmptyCta
+              title="No open requisitions"
+              subtitle="Create a job to start filling a new position."
+              ctaLabel="Create Job"
+              onCta={() => navigate('/jobs/new')}
+            />
+          }
+          onRetry={() => void jobsQ.refetch()}
+        >
+          <div className="pn">
+            <div className="pnh">
+              <h3>Open Requisitions</h3>
+              <span className="tag tw">{openJobs.length} open</span>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Role</th>
+                    <th>Client / Facility</th>
+                    <th>Positions</th>
+                    <th>Priority</th>
+                    <th>Start</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openJobs.map((j) => (
+                    <tr key={j.id} onClick={() => navigate(`/jobs/${j.id}`)} style={{ cursor: 'pointer' }}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{j.title}</div>
+                        {j.job_code && (
+                          <div style={{ fontSize: 11, color: 'var(--t3)', fontFamily: 'monospace' }}>{j.job_code}</div>
+                        )}
+                      </td>
+                      <td>
+                        {j.profession ?? '—'}
+                        {j.specialty && <div style={{ fontSize: 11, color: 'var(--t3)' }}>{j.specialty}</div>}
+                      </td>
+                      <td>
+                        <div>{j.client_name ?? '—'}</div>
+                        {j.facility_name && <div style={{ fontSize: 11, color: 'var(--t3)' }}>{j.facility_name}</div>}
+                      </td>
+                      <td>{j.positions ?? 1}</td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: `${PRIORITY_COLOR[j.priority]}20`,
+                            color: PRIORITY_COLOR[j.priority],
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {j.priority}
+                        </span>
+                      </td>
+                      <td>{fmtDate(j.start_date ?? undefined)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </QueryState>
       )}
     </div>
+  );
+}
+
+function PlacementRow({ p }: { p: Placement }) {
+  const name =
+    [p.first_name, p.last_name].filter(Boolean).join(' ') ||
+    (p.staff_id ? `Staff ${p.staff_id.slice(0, 8)}` : 'Unfilled');
+  const contractLabel: Record<Placement['contract_status'], string> = {
+    signed: 'Signed',
+    pending_esign: 'Awaiting signature',
+    expired: 'Expired',
+    not_sent: 'Not sent',
+  };
+  const contractClass: Record<Placement['contract_status'], string> = {
+    signed: 'tg',
+    pending_esign: 'tw',
+    expired: 'td',
+    not_sent: 'tgr',
+  };
+  return (
+    <tr>
+      <td>
+        <div style={{ fontWeight: 600 }}>{name}</div>
+      </td>
+      <td>{p.role}</td>
+      <td>{p.facility_name ?? '—'}</td>
+      <td>{fmtDate(p.start_date ?? undefined)}</td>
+      <td>{fmtDate(p.end_date ?? undefined)}</td>
+      <td>
+        <span className={`tag ${STATUS_CLASS[p.status]}`} style={{ marginRight: 6 }}>
+          {STATUS_LABEL[p.status]}
+        </span>
+        <span className={`tag ${contractClass[p.contract_status]}`}>{contractLabel[p.contract_status]}</span>
+      </td>
+    </tr>
   );
 }

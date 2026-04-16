@@ -1,7 +1,17 @@
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import { staffApi, placementsApi, credentialsApi, onboardingApi } from '../lib/api';
+
+function relativeTimeAgo(ms: number): string {
+  if (!ms) return 'never';
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 5) return 'just now';
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -18,30 +28,45 @@ export default function Dashboard() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  const { data: staffData } = useQuery({
+  const { data: staffData, dataUpdatedAt: staffUpdatedAt } = useQuery({
     queryKey: ['staff-active'],
     queryFn: () => staffApi.list({ status: 'active' }),
+    refetchInterval: 60000,
   });
 
-  const { data: pendingData } = useQuery({
+  const { data: pendingData, dataUpdatedAt: pendingUpdatedAt } = useQuery({
     queryKey: ['placements-pending'],
     queryFn: () => placementsApi.list({ status: 'pending' }),
+    refetchInterval: 60000,
   });
 
-  const { data: onboardingStaff } = useQuery({
+  const { data: onboardingStaff, dataUpdatedAt: onboardingUpdatedAt } = useQuery({
     queryKey: ['staff-onboarding'],
     queryFn: () => staffApi.list({ status: 'onboarding' }),
+    refetchInterval: 60000,
   });
 
-  const { data: expiringData } = useQuery({
+  const { data: expiringData, dataUpdatedAt: expiringUpdatedAt } = useQuery({
     queryKey: ['credentials-expiring'],
     queryFn: () => credentialsApi.expiring(),
+    refetchInterval: 60000,
   });
 
   const { data: onboardingData } = useQuery({
     queryKey: ['onboarding-summary'],
     queryFn: () => onboardingApi.summary(),
+    refetchInterval: 60000,
   });
+
+  // Use the most-recent fetch for the header "updated" indicator
+  const lastUpdated = Math.max(staffUpdatedAt ?? 0, pendingUpdatedAt ?? 0, onboardingUpdatedAt ?? 0, expiringUpdatedAt ?? 0);
+
+  // Re-render every 10s so the "updated Xs ago" text stays accurate
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const h = setInterval(() => setTick((t) => t + 1), 10000);
+    return () => clearInterval(h);
+  }, []);
 
   const activeEmployees = staffData?.data?.staff?.length ?? 0;
   const pendingPlacements = pendingData?.data?.placements?.length ?? 0;
@@ -78,7 +103,16 @@ export default function Dashboard() {
         <div className="page-header-row">
           <div>
             <h1>{getGreeting()}, {firstName} 👋</h1>
-            <p style={{ color: 'var(--t3)', fontSize: 14 }}>{today}</p>
+            <p style={{ color: 'var(--t3)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>{today}</span>
+              <span
+                title="Live data — refreshes every 60 seconds"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'rgba(22,163,74,0.1)', color: 'var(--ac)', fontWeight: 600 }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ac)' }} />
+                Live · updated {relativeTimeAgo(lastUpdated)}
+              </span>
+            </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => navigate('/ai-assistant')}>
@@ -110,16 +144,30 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 4 Stat cards */}
+      {/* 4 Stat cards — clickable, each routes to the filtered destination */}
       <div className="sc-grid">
-        <div className="sc" style={{ borderTop: '3px solid var(--pr)' }}>
+        <div
+          className="sc"
+          style={{ borderTop: '3px solid var(--pr)', cursor: 'pointer', transition: 'box-shadow 0.15s' }}
+          onClick={() => navigate('/staff')}
+          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 12px rgba(30,64,175,0.12)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+          title="Open Staff"
+        >
           <div className="sc-icon" style={{ background: 'rgba(30,64,175,0.1)', color: 'var(--pr)' }}>👥</div>
           <div className="sc-label">Active Employees</div>
           <div className="sc-value">{activeEmployees}</div>
           <div className="sc-sub">Currently active staff</div>
         </div>
 
-        <div className="sc" style={{ borderTop: '3px solid var(--wn)' }}>
+        <div
+          className="sc"
+          style={{ borderTop: '3px solid var(--wn)', cursor: 'pointer', transition: 'box-shadow 0.15s' }}
+          onClick={() => navigate('/placements')}
+          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 12px rgba(234,88,12,0.12)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+          title="Open Placements"
+        >
           <div className="sc-icon" style={{ background: 'rgba(234,88,12,0.1)', color: 'var(--wn)' }}>⏳</div>
           <div className="sc-label">Pending Placements</div>
           <div className="sc-value" style={{ color: pendingPlacements > 0 ? 'var(--wn)' : 'var(--t1)' }}>
@@ -128,14 +176,28 @@ export default function Dashboard() {
           <div className="sc-sub">Awaiting confirmation</div>
         </div>
 
-        <div className="sc" style={{ borderTop: '3px solid #7c3aed' }}>
+        <div
+          className="sc"
+          style={{ borderTop: '3px solid #7c3aed', cursor: 'pointer', transition: 'box-shadow 0.15s' }}
+          onClick={() => navigate('/onboarding')}
+          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 12px rgba(124,58,237,0.12)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+          title="Open Onboarding"
+        >
           <div className="sc-icon" style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>🎓</div>
           <div className="sc-label">In Onboarding</div>
           <div className="sc-value">{onboardingCount}</div>
           <div className="sc-sub">Completing onboarding</div>
         </div>
 
-        <div className="sc" style={{ borderTop: `3px solid ${complianceRate >= 90 ? 'var(--ac)' : complianceRate >= 70 ? 'var(--wn)' : 'var(--dg)'}` }}>
+        <div
+          className="sc"
+          style={{ borderTop: `3px solid ${complianceRate >= 90 ? 'var(--ac)' : complianceRate >= 70 ? 'var(--wn)' : 'var(--dg)'}`, cursor: 'pointer', transition: 'box-shadow 0.15s' }}
+          onClick={() => navigate('/compliance/admin/records')}
+          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 12px rgba(22,163,74,0.12)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+          title="Open Compliance Records"
+        >
           <div className="sc-icon" style={{ background: 'rgba(22,163,74,0.1)', color: 'var(--ac)' }}>✅</div>
           <div className="sc-label">Compliance Rate</div>
           <div className="sc-value" style={{ color: complianceRate >= 90 ? 'var(--ac)' : complianceRate >= 70 ? 'var(--wn)' : 'var(--dg)' }}>

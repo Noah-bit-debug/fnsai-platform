@@ -290,7 +290,31 @@ export default function MyCompliance() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>Loading your compliance items...</div>
         ) : error ? (
-          <div style={{ textAlign: 'center', padding: 40, color: '#dc2626' }}>{error}</div>
+          <div
+            style={{
+              textAlign: 'center',
+              padding: 40,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: 12,
+            }}
+          >
+            <div style={{ color: '#dc2626', marginBottom: 12, fontWeight: 600 }}>{error}</div>
+            <button
+              onClick={fetchRecords}
+              style={{
+                padding: '8px 16px',
+                background: '#fff',
+                border: '1px solid #fecaca',
+                borderRadius: 6,
+                color: '#991b1b',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          </div>
         ) : filtered.length === 0 ? (
           <div
             style={{

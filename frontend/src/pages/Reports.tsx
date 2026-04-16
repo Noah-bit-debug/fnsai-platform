@@ -185,9 +185,9 @@ function GenerateModal({ onClose, onGenerated }: { onClose: () => void; onGenera
     setSaving(true);
     setErr(null);
     try {
-      await api.post('/reports/generate', {
-        name: form.name.trim(),
-        type: form.type,
+      await api.post('/reports/runs', {
+        run_name: form.name.trim(),
+        report_type: form.type,
         filters: {
           date_from:     form.date_from || undefined,
           date_to:       form.date_to || undefined,
@@ -428,7 +428,7 @@ export default function Reports() {
   const runs: ReportRun[] = data?.data?.runs ?? [];
 
   const generateMutation = useMutation({
-    mutationFn: (payload: unknown) => api.post('/reports/generate', payload),
+    mutationFn: (payload: unknown) => api.post('/reports/runs', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report-runs'] });
       showToast('Report generation started! It will appear below when complete.');

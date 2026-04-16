@@ -7,6 +7,21 @@ import { query } from '../db/client';
 
 const router = Router();
 
+// Shared guard — returns `true` if the request has been short-circuited
+// because the AI backend is unconfigured. Prevents 500s with obscure
+// Anthropic errors when ANTHROPIC_API_KEY is missing.
+function aiUnavailable(res: Response): boolean {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key || !key.trim()) {
+    res.status(503).json({
+      error: 'ai_unavailable',
+      message: 'AI Assistant is not configured. Set ANTHROPIC_API_KEY on the backend to enable.',
+    });
+    return true;
+  }
+  return false;
+}
+
 const chatSchema = z.object({
   messages: z.array(
     z.object({
@@ -31,6 +46,8 @@ const categorizeEmailSchema = z.object({
 
 // POST /ai/chat
 router.post('/chat', requireAuth, async (req: Request, res: Response) => {
+  if (aiUnavailable(res)) return;
+
   const parse = chatSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: 'Validation error', details: parse.error.flatten() });

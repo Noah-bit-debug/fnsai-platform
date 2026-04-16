@@ -1,81 +1,119 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { incidentsApi, staffApi, facilitiesApi, Incident, Staff, Facility } from '../lib/api';
+import QueryState, { EmptyCta } from '../components/QueryState';
 
-interface Incident {
-  id: number;
-  staff: string;
-  type: string;
-  facility: string;
-  date: string;
-  description: string;
-  severity: string;
-  workersComp: boolean;
-  resolved: boolean;
+function fmtDate(iso?: string): string {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
 }
 
-const INITIAL_INCIDENTS: Incident[] = [
-  {
-    id: 1,
-    staff: 'James Torres',
-    type: 'Workplace injury',
-    facility: "St. Luke's Medical",
-    date: 'Apr 7, 2026',
-    description: 'Minor back strain reported while repositioning patient. Staff self-reported. No emergency treatment required. Under review with risk management.',
-    severity: 'Medium',
-    workersComp: true,
-    resolved: false,
-  },
+function statusTag(s: Incident['status']): string {
+  switch (s) {
+    case 'open':         return 'td';
+    case 'under_review': return 'tw';
+    case 'resolved':
+    case 'closed':       return 'tg';
+  }
+}
+
+function statusLabel(s: Incident['status']): string {
+  switch (s) {
+    case 'open':         return 'Open';
+    case 'under_review': return 'Under review';
+    case 'resolved':     return 'Resolved';
+    case 'closed':       return 'Closed';
+  }
+}
+
+interface FormState {
+  staff_id: string;
+  facility_id: string;
+  type: string;
+  description: string;
+  date: string;
+  workers_comp_claim: boolean;
+}
+
+const INCIDENT_TYPES = [
+  'Workplace injury',
+  'Patient complaint',
+  'Misconduct allegation',
+  'Documentation issue',
+  'Contract dispute',
+  'Other',
 ];
 
-const EMPTY_FORM = {
-  staff: '',
-  type: 'Workplace injury',
-  facility: '',
-  date: '',
+const EMPTY_FORM: FormState = {
+  staff_id: '',
+  facility_id: '',
+  type: INCIDENT_TYPES[0],
   description: '',
-  severity: 'Low',
-  workersComp: false,
+  date: '',
+  workers_comp_claim: false,
 };
-
-function severityTag(s: string) {
-  if (s === 'Critical') return 'td';
-  if (s === 'High') return 'tw';
-  if (s === 'Medium') return 'tb';
-  return 'tgr';
-}
 
 export default function Incidents() {
   const navigate = useNavigate();
-  const [incidents, setIncidents] = useState<Incident[]>(INITIAL_INCIDENTS);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<FormState>({ ...EMPTY_FORM });
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const open = incidents.filter((i) => !i.resolved);
-  const closed = incidents.filter((i) => i.resolved);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['incidents'],
+    queryFn: () => incidentsApi.list(),
+  });
 
-  function handleSubmit() {
-    if (!form.staff.trim()) return;
-    const newInc: Incident = {
-      id: Date.now(),
-      staff: form.staff,
+  // Pull real staff + facilities to power the form dropdowns (no more hardcoded names)
+  const staffQ = useQuery({
+    queryKey: ['incidents-staff-options'],
+    queryFn: () => staffApi.list(),
+  });
+  const facilityQ = useQuery({
+    queryKey: ['incidents-facility-options'],
+    queryFn: () => facilitiesApi.list(),
+  });
+
+  const incidents: Incident[] = data?.data?.incidents ?? [];
+  const open = incidents.filter((i) => i.status === 'open' || i.status === 'under_review');
+  const closed = incidents.filter((i) => i.status === 'resolved' || i.status === 'closed');
+
+  const staff: Staff[] = staffQ.data?.data?.staff ?? [];
+  const facilities: Facility[] = facilityQ.data?.data?.facilities ?? [];
+
+  const createMut = useMutation({
+    mutationFn: (payload: Partial<Incident>) => incidentsApi.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['incidents'] });
+      setForm({ ...EMPTY_FORM });
+      setSubmitError(null);
+    },
+    onError: (e: { response?: { data?: { error?: string } }; message?: string }) => {
+      setSubmitError(e?.response?.data?.error ?? e?.message ?? 'Failed to submit');
+    },
+  });
+
+  const resolveMut = useMutation({
+    mutationFn: (id: string) => incidentsApi.update(id, { status: 'resolved' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['incidents'] }),
+  });
+
+  const handleSubmit = () => {
+    if (!form.staff_id) { setSubmitError('Select a staff member'); return; }
+    if (!form.description.trim()) { setSubmitError('Description is required'); return; }
+    createMut.mutate({
+      staff_id: form.staff_id,
+      facility_id: form.facility_id || undefined,
       type: form.type,
-      facility: form.facility,
-      date: form.date || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      description: form.description,
-      severity: form.severity,
-      workersComp: form.workersComp,
-      resolved: false,
-    };
-    setIncidents((prev) => [...prev, newInc]);
-    setForm({ ...EMPTY_FORM });
-  }
-
-  function markResolved(id: number) {
-    setIncidents((prev) => prev.map((i) => i.id === id ? { ...i, resolved: true } : i));
-  }
+      description: form.description.trim(),
+      date: form.date || new Date().toISOString().slice(0, 10),
+      workers_comp_claim: form.workers_comp_claim,
+    });
+  };
 
   return (
     <div>
-      {/* Page Header */}
       <div className="page-header">
         <div className="page-header-row">
           <div>
@@ -95,97 +133,93 @@ export default function Incidents() {
         </div>
       </div>
 
-      {/* Open Incidents */}
+      {/* Open + Under-review Incidents */}
       <div className="pn" style={{ marginBottom: 20 }}>
         <div className="pnh">
           <h3>Open Incidents</h3>
-          <span className={open.length > 0 ? 'td' : 'tgr'}>{open.length} open</span>
+          <span className={`tag ${open.length > 0 ? 'td' : 'tgr'}`}>{open.length} open</span>
         </div>
-        <div className="pnb" style={{ padding: open.length === 0 ? 24 : 0 }}>
-          {open.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--t3)', padding: '24px 0' }}>
-              No open incidents. All clear.
-            </div>
-          ) : (
-            open.map((inc) => (
-              <div
-                key={inc.id}
-                className="incident-item"
-                style={{
-                  padding: '16px 18px',
-                  borderBottom: '1px solid var(--sf3)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <strong style={{ fontSize: 14 }}>{inc.type}</strong>
-                      <span style={{ color: 'var(--t3)', fontSize: 12 }}>—</span>
-                      <span style={{ fontSize: 13, color: 'var(--t2)' }}>{inc.staff}</span>
-                      <span style={{ color: 'var(--t3)', fontSize: 12 }}>{inc.date}</span>
-                      <span className="tw">Under review</span>
-                      <span className={severityTag(inc.severity)}>{inc.severity}</span>
-                      {inc.workersComp && <span className="tb">Workers&apos; comp</span>}
+        <div className="pnb" style={{ padding: open.length === 0 && !isLoading && !error ? 0 : 0 }}>
+          <QueryState
+            isLoading={isLoading}
+            error={error}
+            isEmpty={open.length === 0}
+            empty={
+              <EmptyCta
+                title="No open incidents"
+                subtitle="Incidents submitted through the form below will appear here. All clear."
+              />
+            }
+            onRetry={() => void refetch()}
+          >
+            <div>
+              {open.map((inc) => {
+                const name = [inc.first_name, inc.last_name].filter(Boolean).join(' ') || 'Unknown';
+                return (
+                  <div key={inc.id} style={{ padding: '16px 18px', borderBottom: '1px solid var(--sf3)' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: 14 }}>{inc.type}</strong>
+                          <span style={{ color: 'var(--t3)', fontSize: 12 }}>—</span>
+                          <span style={{ fontSize: 13, color: 'var(--t2)' }}>{name}</span>
+                          <span style={{ color: 'var(--t3)', fontSize: 12 }}>{fmtDate(inc.date)}</span>
+                          <span className={`tag ${statusTag(inc.status)}`}>{statusLabel(inc.status)}</span>
+                          {inc.workers_comp_claim && <span className="tag tb">Workers&apos; comp</span>}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6, marginBottom: 10 }}>
+                          {inc.description}
+                        </div>
+                        {inc.facility_name && (
+                          <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
+                            Facility: {inc.facility_name}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6, marginBottom: 10 }}>
-                      {inc.description}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
-                      Facility: {inc.facility}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        style={{ background: 'var(--ac)', color: '#fff' }}
+                        onClick={() => resolveMut.mutate(inc.id)}
+                        disabled={resolveMut.isPending}
+                      >
+                        {resolveMut.isPending ? 'Resolving…' : 'Mark Resolved'}
+                      </button>
                     </div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-ghost btn-sm" type="button">
-                    View Full Report
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    type="button"
-                    style={{ color: 'var(--pu)', borderColor: 'var(--pu)' }}
-                    onClick={() => navigate('/ai-assistant')}
-                  >
-                    ✦ Ask AI Next Steps
-                  </button>
-                  <button
-                    className="btn btn-sm"
-                    type="button"
-                    style={{ background: 'var(--ac)', color: '#fff' }}
-                    onClick={() => markResolved(inc.id)}
-                  >
-                    Mark Resolved
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
+                );
+              })}
+            </div>
+          </QueryState>
         </div>
       </div>
 
-      {/* Log New Incident Form */}
+      {/* Report New Incident */}
       <div className="pn" id="incident-form-panel" style={{ marginBottom: 20 }}>
         <div className="pnh">
           <h3>Log New Incident</h3>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            style={{ color: 'var(--pu)', borderColor: 'rgba(142,68,173,0.3)' }}
-            onClick={() => navigate('/ai-assistant')}
-          >
-            ✦ Ask AI What to Include
-          </button>
         </div>
         <div className="pnb">
+          {submitError && (
+            <div className="ab ab-w" style={{ marginBottom: 14 }}>{submitError}</div>
+          )}
           <div className="grid-2" style={{ gap: 14, marginBottom: 14 }}>
             <div className="form-group">
-              <label className="form-label">Staff Member</label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="e.g. James Torres"
-                value={form.staff}
-                onChange={(e) => setForm({ ...form, staff: e.target.value })}
-              />
+              <label className="form-label">Staff Member *</label>
+              <select
+                className="form-select"
+                value={form.staff_id}
+                onChange={(e) => setForm({ ...form, staff_id: e.target.value })}
+              >
+                <option value="">— select —</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.first_name} {s.last_name} {s.role ? `(${s.role})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Incident Type</label>
@@ -194,23 +228,21 @@ export default function Incidents() {
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
               >
-                <option>Workplace injury</option>
-                <option>Patient complaint</option>
-                <option>Misconduct allegation</option>
-                <option>Documentation issue</option>
-                <option>Contract dispute</option>
-                <option>Other</option>
+                {INCIDENT_TYPES.map((t) => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label className="form-label">Facility</label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="e.g. Mercy Hospital"
-                value={form.facility}
-                onChange={(e) => setForm({ ...form, facility: e.target.value })}
-              />
+              <select
+                className="form-select"
+                value={form.facility_id}
+                onChange={(e) => setForm({ ...form, facility_id: e.target.value })}
+              >
+                <option value="">— none —</option>
+                {facilities.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Date</label>
@@ -221,25 +253,12 @@ export default function Incidents() {
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">Severity</label>
-              <select
-                className="form-select"
-                value={form.severity}
-                onChange={(e) => setForm({ ...form, severity: e.target.value })}
-              >
-                <option>Low</option>
-                <option>Medium</option>
-                <option>High</option>
-                <option>Critical</option>
-              </select>
-            </div>
             <div className="form-group" style={{ display: 'flex', alignItems: 'center', paddingTop: 22 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--t2)' }}>
                 <input
                   type="checkbox"
-                  checked={form.workersComp}
-                  onChange={(e) => setForm({ ...form, workersComp: e.target.checked })}
+                  checked={form.workers_comp_claim}
+                  onChange={(e) => setForm({ ...form, workers_comp_claim: e.target.checked })}
                   style={{ width: 16, height: 16, accentColor: 'var(--pr)' }}
                 />
                 Workers&apos; compensation claim filed
@@ -247,7 +266,7 @@ export default function Incidents() {
             </div>
           </div>
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="form-label">Description *</label>
             <textarea
               className="form-textarea"
               placeholder="Describe what happened, when, where, and who was involved..."
@@ -260,8 +279,17 @@ export default function Incidents() {
             className="btn btn-danger btn-sm"
             type="button"
             onClick={handleSubmit}
+            disabled={createMut.isPending || staffQ.isLoading}
           >
-            Submit Report
+            {createMut.isPending ? 'Submitting…' : 'Submit Report'}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            style={{ marginLeft: 8, color: 'var(--pu)' }}
+            onClick={() => navigate('/ai-assistant')}
+          >
+            ✦ Ask AI What to Include
           </button>
         </div>
       </div>
@@ -270,7 +298,7 @@ export default function Incidents() {
       <div className="pn">
         <div className="pnh">
           <h3>Closed / Resolved</h3>
-          <span className="tg">{closed.length} resolved</span>
+          <span className="tag tg">{closed.length} resolved</span>
         </div>
         <div className="pnb" style={{ padding: closed.length === 0 ? 24 : 0 }}>
           {closed.length === 0 ? (
@@ -278,26 +306,21 @@ export default function Incidents() {
               No resolved incidents yet. Resolved incidents will appear here.
             </div>
           ) : (
-            closed.map((inc) => (
-              <div
-                key={inc.id}
-                style={{
-                  padding: '14px 18px',
-                  borderBottom: '1px solid var(--sf3)',
-                  opacity: 0.75,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <strong style={{ fontSize: 13 }}>{inc.type}</strong>
-                  <span style={{ color: 'var(--t3)', fontSize: 12 }}>—</span>
-                  <span style={{ fontSize: 13, color: 'var(--t2)' }}>{inc.staff}</span>
-                  <span style={{ color: 'var(--t3)', fontSize: 12 }}>{inc.date}</span>
-                  <span className="tg">Resolved</span>
-                  <span className={severityTag(inc.severity)}>{inc.severity}</span>
+            closed.map((inc) => {
+              const name = [inc.first_name, inc.last_name].filter(Boolean).join(' ') || 'Unknown';
+              return (
+                <div key={inc.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--sf3)', opacity: 0.75 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: 13 }}>{inc.type}</strong>
+                    <span style={{ color: 'var(--t3)', fontSize: 12 }}>—</span>
+                    <span style={{ fontSize: 13, color: 'var(--t2)' }}>{name}</span>
+                    <span style={{ color: 'var(--t3)', fontSize: 12 }}>{fmtDate(inc.date)}</span>
+                    <span className={`tag ${statusTag(inc.status)}`}>{statusLabel(inc.status)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 4 }}>{inc.description}</div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 4 }}>{inc.description}</div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>

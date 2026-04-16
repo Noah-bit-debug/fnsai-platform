@@ -391,62 +391,74 @@ router.get('/runs/:id/export', requireAuth, requirePermission('reports_view'), a
 // ---------------------------------------------------------------------------
 
 // GET /standard/metrics — return all key operational metrics
+// Returns the KPI snapshot the Reports page renders. Flat shape so the
+// frontend renders each card without extra mapping. Each metric's query is
+// independently wrapped — a single missing table (e.g. jobs not yet migrated)
+// returns 0 for that metric instead of 500-ing the whole endpoint.
 router.get('/standard/metrics', requireAuth, requirePermission('reports_view'), async (_req: Request, res: Response) => {
-  try {
-    const [
-      candidatePipeline,
-      placementSummary,
-      reminderSummary,
-      documentHealth,
-      recentActivity,
-    ] = await Promise.all([
-      query(
-        `SELECT stage, COUNT(*)::INT AS count
-         FROM candidates
-         WHERE status = 'active'
-         GROUP BY stage
-         ORDER BY count DESC`
-      ),
-      query(
-        `SELECT
-           COUNT(*) FILTER (WHERE status = 'active')::INT AS active_placements,
-           COUNT(*) FILTER (WHERE status = 'completed')::INT AS completed_placements,
-           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::INT AS new_last_30d
-         FROM placements`
-      ),
-      query(
-        `SELECT
-           COUNT(*) FILTER (WHERE status = 'scheduled')::INT AS scheduled,
-           COUNT(*) FILTER (WHERE status = 'sent')::INT AS sent,
-           COUNT(*) FILTER (WHERE status = 'pending')::INT AS pending,
-           COUNT(*) FILTER (WHERE status = 'failed')::INT AS failed
-         FROM reminders`
-      ),
-      query(
-        `SELECT
-           COUNT(*) FILTER (WHERE status = 'missing' AND required = true)::INT AS missing_required,
-           COUNT(*) FILTER (WHERE expiry_date <= NOW() + INTERVAL '30 days' AND expiry_date IS NOT NULL)::INT AS expiring_soon
-         FROM candidate_documents`
-      ),
-      query(
-        `SELECT COUNT(*)::INT AS candidates_added_today
-         FROM candidates
-         WHERE created_at >= NOW()::DATE`
-      ),
-    ]);
+  const safeNum = async (sql: string): Promise<number> => {
+    try {
+      const r = await query(sql);
+      const v = r.rows[0] ? Number((r.rows[0] as Record<string, unknown>).n ?? 0) : 0;
+      return Number.isFinite(v) ? v : 0;
+    } catch {
+      return 0;
+    }
+  };
 
-    res.json({
-      candidate_pipeline: candidatePipeline.rows,
-      placements:         placementSummary.rows[0],
-      reminders:          reminderSummary.rows[0],
-      document_health:    documentHealth.rows[0],
-      activity_today:     recentActivity.rows[0],
-      generated_at:       new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error('Standard metrics error:', err);
-    res.status(500).json({ error: 'Failed to fetch metrics' });
-  }
+  const compRates = async (): Promise<{ completed: number; total: number }> => {
+    try {
+      const r = await query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status IN ('completed','signed','read','approved'))::INT AS completed,
+           COUNT(*)::INT AS total
+         FROM comp_competency_records`
+      );
+      const row = r.rows[0] as { completed?: number; total?: number } | undefined;
+      return { completed: row?.completed ?? 0, total: row?.total ?? 0 };
+    } catch {
+      return { completed: 0, total: 0 };
+    }
+  };
+
+  const [
+    active_placements,
+    candidates_pipeline,
+    comp,
+    open_positions,
+    avg_time_to_fill,
+  ] = await Promise.all([
+    safeNum(`SELECT COUNT(*)::INT AS n FROM placements WHERE status = 'active'`),
+    safeNum(
+      `SELECT COUNT(*)::INT AS n FROM candidates
+       WHERE status = 'active'
+         AND stage NOT IN ('placed','rejected','withdrawn','not_joined')`
+    ),
+    compRates(),
+    safeNum(`SELECT COALESCE(SUM(positions), 0)::INT AS n FROM jobs WHERE status = 'open'`),
+    safeNum(
+      `SELECT COALESCE(ROUND(AVG(GREATEST(EXTRACT(EPOCH FROM (start_date::timestamp - created_at)) / 86400, 0))::numeric, 1), 0) AS n
+       FROM placements
+       WHERE start_date IS NOT NULL
+         AND created_at >= NOW() - INTERVAL '90 days'
+         AND status IN ('active','completed')`
+    ),
+  ]);
+
+  const compliance_rate = comp.total > 0
+    ? Math.round((comp.completed / comp.total) * 1000) / 10
+    : 0;
+
+  res.json({
+    active_placements,
+    candidates_pipeline,
+    compliance_rate,
+    open_positions,
+    avg_time_to_fill,
+    // No revenue/invoicing table yet — return 0 so the card renders "$0" instead of undefined.
+    revenue_mtd: 0,
+    generated_at: new Date().toISOString(),
+  });
 });
 
 export default router;

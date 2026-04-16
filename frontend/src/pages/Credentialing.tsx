@@ -1,287 +1,209 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { credentialsApi, Credential } from '../lib/api';
+import QueryState, { EmptyCta } from '../components/QueryState';
 
-interface Credential {
-  id: string;
-  name: string;
-  expiry: string;
-  status: string;
-  statusClass: string;
-  expiring?: boolean;
+type StatusFilter = '' | Credential['status'];
+
+function statusClass(s: Credential['status']): string {
+  switch (s) {
+    case 'valid':          return 'tg';
+    case 'expiring':
+    case 'expiring_soon':  return 'tw';
+    case 'expired':        return 'td';
+    case 'pending':        return 'tb';
+    case 'missing':
+    default:               return 'tgr';
+  }
 }
 
-interface StaffCredentials {
-  id: string;
-  name: string;
-  role: string;
-  credentials: Credential[];
+function daysUntil(iso?: string): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 86400000);
 }
 
-const STAFF_CREDENTIALS: StaffCredentials[] = [
-  {
-    id: 'james',
-    name: 'James Torres',
-    role: 'CNA',
-    credentials: [
-      { id: 'c1', name: 'CNA State License', expiry: 'Dec 15, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'c2', name: 'BLS Certification', expiry: 'May 3, 2026', status: 'Expiring 24 days', statusClass: 'tw', expiring: true },
-      { id: 'c3', name: 'TB Test', expiry: 'Jun 1, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'c4', name: 'Physical Exam', expiry: 'Aug 20, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'c5', name: 'Flu Vaccine', expiry: 'Due Oct 2026 (Annual)', status: 'Due soon', statusClass: 'tw', expiring: true },
-      { id: 'c6', name: 'Background Check', expiry: 'Jan 5, 2026', status: 'Cleared', statusClass: 'tg' },
-    ],
-  },
-  {
-    id: 'sarah',
-    name: 'Sarah Mitchell',
-    role: 'RN',
-    credentials: [
-      { id: 's1', name: 'RN State License', expiry: 'Mar 2, 2027', status: 'Valid', statusClass: 'tg' },
-      { id: 's2', name: 'BLS Certification', expiry: 'Nov 15, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 's3', name: 'TB Test', expiry: 'Jan 10, 2027', status: 'Valid', statusClass: 'tg' },
-      { id: 's4', name: 'Physical Exam', expiry: 'Sep 5, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 's5', name: 'Flu Vaccine', expiry: 'Due Oct 2026 (Annual)', status: 'Due soon', statusClass: 'tw', expiring: true },
-      { id: 's6', name: 'Background Check', expiry: 'Feb 1, 2026', status: 'Cleared', statusClass: 'tg' },
-      { id: 's7', name: 'ACLS Certification', expiry: 'Jul 20, 2026', status: 'Valid', statusClass: 'tg' },
-    ],
-  },
-  {
-    id: 'lisa',
-    name: 'Lisa Kim',
-    role: 'LPN',
-    credentials: [
-      { id: 'l1', name: 'LPN State License', expiry: 'Jun 30, 2026', status: 'Expiring 81 days', statusClass: 'tw', expiring: true },
-      { id: 'l2', name: 'BLS Certification', expiry: 'Pending upload', status: 'Pending upload', statusClass: 'td' },
-      { id: 'l3', name: 'TB Test', expiry: '—', status: 'Missing', statusClass: 'td' },
-      { id: 'l4', name: 'Physical Exam', expiry: 'Dec 1, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'l5', name: 'Background Check', expiry: 'Mar 10, 2026', status: 'Cleared', statusClass: 'tg' },
-    ],
-  },
-  {
-    id: 'diana',
-    name: 'Diana Patel',
-    role: 'RN',
-    credentials: [
-      { id: 'd1', name: 'RN State License', expiry: 'Oct 15, 2027', status: 'Valid', statusClass: 'tg' },
-      { id: 'd2', name: 'BLS Certification', expiry: 'Aug 22, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'd3', name: 'TB Test', expiry: 'Feb 14, 2027', status: 'Valid', statusClass: 'tg' },
-      { id: 'd4', name: 'Physical Exam', expiry: 'Nov 30, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'd5', name: 'Flu Vaccine', expiry: 'Due Oct 2026 (Annual)', status: 'Due soon', statusClass: 'tw' },
-      { id: 'd6', name: 'Background Check', expiry: 'Apr 5, 2026', status: 'Cleared', statusClass: 'tg' },
-    ],
-  },
-  {
-    id: 'marcus',
-    name: 'Marcus Green',
-    role: 'RT',
-    credentials: [
-      { id: 'm1', name: 'RT License', expiry: 'Sep 12, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'm2', name: 'BLS Certification', expiry: 'Apr 30, 2026', status: 'Expiring 20 days', statusClass: 'tw', expiring: true },
-      { id: 'm3', name: 'TB Test', expiry: 'Jul 8, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'm4', name: 'Physical Exam', expiry: 'Dec 20, 2026', status: 'Valid', statusClass: 'tg' },
-      { id: 'm5', name: 'Background Check', expiry: 'Jan 18, 2026', status: 'Cleared', statusClass: 'tg' },
-    ],
-  },
-];
-
-interface UploadForm {
-  credType: string;
-  issuer: string;
-  expiryDate: string;
+function fmtDate(iso?: string): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return iso;
+  }
 }
-
-const EMPTY_UPLOAD: UploadForm = { credType: '', issuer: '', expiryDate: '' };
 
 export default function Credentialing() {
-  const [selectedId, setSelectedId] = useState<string>('james');
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadForm, setUploadForm] = useState<UploadForm>(EMPTY_UPLOAD);
-  const [staffData, setStaffData] = useState<StaffCredentials[]>(STAFF_CREDENTIALS);
-  const [renewalSent, setRenewalSent] = useState(false);
+  const navigate = useNavigate();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
+  const [search, setSearch] = useState('');
 
-  const selected = staffData.find((s) => s.id === selectedId)!;
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['credentials-list', statusFilter],
+    queryFn: () => credentialsApi.list(statusFilter ? { status: statusFilter } : undefined),
+  });
 
-  function handleUpload() {
-    if (!uploadForm.credType) return;
-    const newCred: Credential = {
-      id: `new-${Date.now()}`,
-      name: uploadForm.credType,
-      expiry: uploadForm.expiryDate || 'N/A',
-      status: 'Valid',
-      statusClass: 'tg',
-    };
-    setStaffData((prev) =>
-      prev.map((s) =>
-        s.id === selectedId ? { ...s, credentials: [...s.credentials, newCred] } : s
-      )
-    );
-    setUploadForm(EMPTY_UPLOAD);
-    setShowUploadModal(false);
-  }
+  const expiringQ = useQuery({
+    queryKey: ['credentials-expiring'],
+    queryFn: () => credentialsApi.expiring(),
+  });
 
-  function sendRenewal() {
-    setRenewalSent(true);
-    setTimeout(() => setRenewalSent(false), 3000);
-  }
+  const credentials: Credential[] = data?.data?.credentials ?? [];
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return credentials;
+    return credentials.filter((c) => {
+      const name = `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim().toLowerCase();
+      return (
+        name.includes(q) ||
+        (c.type ?? '').toLowerCase().includes(q) ||
+        (c.issuer ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [credentials, search]);
+
+  const expiringCount = (expiringQ.data?.data?.expiringSoon?.length ?? 0) +
+                       (expiringQ.data?.data?.alreadyExpired?.length ?? 0);
 
   return (
     <div>
-      {/* Page Header */}
       <div className="ph">
         <div>
           <div className="pt">🏅 Credentialing</div>
-          <div className="ps">AI monitors all expiry dates — auto-alerts via Outlook</div>
+          <div className="ps">Staff credentials, licenses, and certifications</div>
         </div>
-        <button className="btn btn-pr" onClick={() => setShowUploadModal(true)}>
-          + Upload Credential
+        <button
+          className="btn btn-pr"
+          onClick={() => navigate('/staff')}
+          title="Upload a credential from any staff profile"
+        >
+          Manage from staff →
         </button>
       </div>
 
-      {/* Warning alert */}
-      <div className="ab ab-w" style={{ marginBottom: '20px' }}>
-        ⚠ <strong>2 credentials expiring within 30 days</strong> — reminders auto-sent via Outlook
-      </div>
-
-      {renewalSent && (
-        <div className="ab ab-g" style={{ marginBottom: '16px' }}>
-          ✓ Renewal request sent via Foxit eSign to {selected.name}
+      {expiringCount > 0 && (
+        <div
+          className="ab ab-w"
+          style={{ marginBottom: 16, cursor: 'pointer' }}
+          onClick={() => setStatusFilter('expiring_soon')}
+        >
+          ⚠ <strong>{expiringCount} credential{expiringCount === 1 ? '' : 's'} expiring or expired</strong> — click to filter
         </div>
       )}
 
-      {/* Staff selector tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        {staffData.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setSelectedId(s.id)}
-            className={`filter-btn ${selectedId === s.id ? 'active' : ''}`}
-          >
-            {s.name}{' '}
-            <span style={{ opacity: 0.6, fontSize: '11px' }}>{s.role}</span>
-          </button>
-        ))}
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by staff name, credential type, or issuer…"
+          style={{
+            flex: '1 1 280px',
+            minWidth: 200,
+            padding: '8px 12px',
+            border: '1px solid var(--bd)',
+            borderRadius: 6,
+            fontSize: 13,
+            outline: 'none',
+          }}
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          style={{
+            padding: '8px 12px',
+            border: '1px solid var(--bd)',
+            borderRadius: 6,
+            fontSize: 13,
+            background: 'var(--sf)',
+            minWidth: 150,
+          }}
+        >
+          <option value="">All statuses</option>
+          <option value="valid">Valid</option>
+          <option value="expiring_soon">Expiring soon</option>
+          <option value="expiring">Expiring</option>
+          <option value="expired">Expired</option>
+          <option value="pending">Pending</option>
+          <option value="missing">Missing</option>
+        </select>
       </div>
 
-      {/* Selected staff credentials panel */}
-      <div className="pn">
-        <div className="pnh">
-          <div>
-            <h3>
-              {selected.name}{' '}
-              <span className="tag tgr" style={{ marginLeft: 4 }}>
-                {selected.role}
-              </span>
-            </h3>
-            <div style={{ fontSize: '12px', color: 'var(--t3)', marginTop: '2px' }}>
-              {selected.credentials.length} credentials on file
-            </div>
+      <QueryState
+        isLoading={isLoading}
+        error={error}
+        isEmpty={filtered.length === 0}
+        empty={
+          <EmptyCta
+            title={credentials.length === 0 ? 'No credentials on file yet' : 'No credentials match those filters'}
+            subtitle={
+              credentials.length === 0
+                ? 'Credentials are attached to staff members. Add one from any staff profile.'
+                : 'Try clearing the search or changing the status filter.'
+            }
+            ctaLabel={credentials.length === 0 ? 'Open Staff' : undefined}
+            onCta={credentials.length === 0 ? () => navigate('/staff') : undefined}
+          />
+        }
+        onRetry={() => void refetch()}
+      >
+        <div className="pn">
+          <div className="pnh">
+            <h3>Credentials ({filtered.length})</h3>
           </div>
-          <button className="btn btn-gh btn-sm" onClick={sendRenewal}>
-            🔏 Send renewal via Foxit eSign
-          </button>
-        </div>
-        <div className="pnb">
-          <div className="cg3">
-            {selected.credentials.map((cred) => (
-              <div
-                key={cred.id}
-                style={{
-                  background: 'var(--sf)',
-                  border: cred.expiring ? '2px solid var(--wn)' : '1px solid var(--bd)',
-                  borderRadius: 'var(--br)',
-                  padding: '14px 16px',
-                  boxShadow: 'var(--sh)',
-                }}
-              >
-                <div
-                  style={{
-                    fontWeight: 600,
-                    fontSize: '13px',
-                    color: 'var(--t1)',
-                    marginBottom: '6px',
-                  }}
-                >
-                  {cred.name}
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--t3)', marginBottom: '8px' }}>
-                  {cred.expiry}
-                </div>
-                <span className={`tag ${cred.statusClass}`}>{cred.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Upload Modal */}
-      {showUploadModal && (
-        <div className="modal-overlay" onClick={() => setShowUploadModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Upload Credential</h3>
-              <button className="btn btn-gh btn-sm" onClick={() => setShowUploadModal(false)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="fg">
-                <label className="fl">Staff Member</label>
-                <select
-                  className="fi form-select"
-                  value={selectedId}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                >
-                  {staffData.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.role})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="fg">
-                <label className="fl">Credential Type</label>
-                <input
-                  className="fi"
-                  placeholder="e.g. BLS Certification"
-                  value={uploadForm.credType}
-                  onChange={(e) => setUploadForm({ ...uploadForm, credType: e.target.value })}
-                />
-              </div>
-              <div className="fg">
-                <label className="fl">Issuer</label>
-                <input
-                  className="fi"
-                  placeholder="e.g. American Heart Association"
-                  value={uploadForm.issuer}
-                  onChange={(e) => setUploadForm({ ...uploadForm, issuer: e.target.value })}
-                />
-              </div>
-              <div className="fg">
-                <label className="fl">Expiry Date</label>
-                <input
-                  className="fi"
-                  type="date"
-                  value={uploadForm.expiryDate}
-                  onChange={(e) =>
-                    setUploadForm({ ...uploadForm, expiryDate: e.target.value })
-                  }
-                />
-              </div>
-              <div className="fg">
-                <label className="fl">Upload File</label>
-                <input className="fi" type="file" style={{ padding: '6px 12px' }} />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-gh" onClick={() => setShowUploadModal(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-pr" onClick={handleUpload}>
-                Add Credential
-              </button>
-            </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Staff</th>
+                  <th>Type</th>
+                  <th>Issuer</th>
+                  <th>Expiry</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => {
+                  const days = daysUntil(c.expiry_date);
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => navigate(`/staff/${c.staff_id}`)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td>
+                        <div style={{ fontWeight: 600 }}>
+                          {c.first_name} {c.last_name}
+                        </div>
+                      </td>
+                      <td>{c.type}</td>
+                      <td style={{ color: 'var(--t3)' }}>{c.issuer ?? '—'}</td>
+                      <td>
+                        {fmtDate(c.expiry_date)}
+                        {days != null && days >= 0 && days <= 60 && (
+                          <span style={{ fontSize: 11, color: days <= 14 ? '#b45309' : 'var(--t3)', marginLeft: 8 }}>
+                            ({days}d)
+                          </span>
+                        )}
+                        {days != null && days < 0 && (
+                          <span style={{ fontSize: 11, color: '#991b1b', marginLeft: 8 }}>
+                            ({Math.abs(days)}d overdue)
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`tag ${statusClass(c.status)}`}>{c.status.replace('_', ' ')}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+      </QueryState>
     </div>
   );
 }

@@ -29,6 +29,9 @@ export default function AIAssistant() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // When the backend has no ANTHROPIC_API_KEY it returns 503 {error:'ai_unavailable'}.
+  // Surface that as a persistent banner + disabled input instead of a generic error reply.
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -50,15 +53,22 @@ export default function AIAssistant() {
     try {
       const resp = await aiApi.chat(updated);
       setMessages([...updated, { role: 'assistant', content: resp.data.response }]);
-    } catch {
-      setMessages([
-        ...updated,
-        {
-          role: 'assistant',
-          content:
-            'Sorry, I encountered an error. Please check your connection and try again.',
-        },
-      ]);
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { error?: string; message?: string } } };
+      if (e.response?.status === 503 && e.response.data?.error === 'ai_unavailable') {
+        setUnavailable(e.response.data.message ?? 'AI Assistant is not configured.');
+        // Roll back the optimistic user message so the chat doesn't stay stuck
+        setMessages(messages);
+      } else {
+        setMessages([
+          ...updated,
+          {
+            role: 'assistant',
+            content:
+              'Sorry, I encountered an error. Please check your connection and try again.',
+          },
+        ]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -98,6 +108,29 @@ export default function AIAssistant() {
         </div>
       </div>
 
+      {unavailable && (
+        <div
+          role="alert"
+          style={{
+            background: '#fef3c7',
+            border: '1px solid #fbbf24',
+            borderRadius: 10,
+            padding: '12px 16px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            color: '#78350f',
+          }}
+        >
+          <span style={{ fontSize: 18, lineHeight: 1 }}>⚠</span>
+          <div style={{ flex: 1, fontSize: 13, lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>AI Assistant is not available right now.</div>
+            <div>{unavailable}</div>
+          </div>
+        </div>
+      )}
+
       <div className="pn chat-wrap">
         {/* Quick prompts */}
         <div className="quick-prompts">
@@ -108,7 +141,7 @@ export default function AIAssistant() {
               className="quick-prompt-btn"
               type="button"
               onClick={() => void sendMessage(p)}
-              disabled={isLoading}
+              disabled={isLoading || !!unavailable}
             >
               {p.length > 50 ? p.slice(0, 50) + '…' : p}
             </button>
@@ -150,18 +183,18 @@ export default function AIAssistant() {
           <textarea
             ref={textareaRef}
             className="chat-input"
-            placeholder="Ask anything about healthcare staffing, compliance, credentials… (Enter to send, Shift+Enter for new line)"
+            placeholder={unavailable ? 'AI Assistant unavailable' : 'Ask anything about healthcare staffing, compliance, credentials… (Enter to send, Shift+Enter for new line)'}
             value={input}
             onChange={handleTextareaInput}
             onKeyDown={handleKeyDown}
-            disabled={isLoading}
+            disabled={isLoading || !!unavailable}
             rows={1}
           />
           <button
             className="btn btn-primary"
             type="button"
             onClick={() => void sendMessage(input)}
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || isLoading || !!unavailable}
             style={{ height: 42 }}
           >
             {isLoading ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : 'Send'}

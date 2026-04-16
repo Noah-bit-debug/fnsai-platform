@@ -1,119 +1,69 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { candidatesApi, Candidate, CandidateDocument } from '../lib/api';
+import QueryState, { EmptyCta } from '../components/QueryState';
 
-interface ChecklistItem {
-  label: string;
-  tag?: string;
-  tagLabel?: string;
-  done: boolean;
+// The ATS migration mapped the old 'onboarding' stage key to 'confirmed' and
+// kept 'onboarding' for any un-migrated rows. Fetch both so nothing is missed.
+const ONBOARDING_STAGES = ['confirmed', 'onboarding'];
+
+function daysSince(iso?: string): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, Math.floor(ms / 86400000));
 }
 
-interface StaffMember {
-  id: string;
-  name: string;
-  role: string;
-  started: string;
-  status: string;
-  statusClass: string;
-  items: ChecklistItem[];
-}
-
-const INITIAL_STAFF: StaffMember[] = [
-  {
-    id: 'lisa',
-    name: 'Lisa Kim',
-    role: 'LPN',
-    started: 'Apr 7',
-    status: 'In progress',
-    statusClass: 'tb',
-    items: [
-      { label: 'Offer letter signed (Foxit eSign)', done: true },
-      { label: 'I-9 / ID verification', done: true },
-      { label: 'Direct deposit setup', done: true },
-      { label: 'BLS certification upload', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'State nursing license', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'TB test results', tag: 'td', tagLabel: 'Missing', done: false },
-      { label: 'HIPAA + compliance training', tag: 'tgr', tagLabel: 'Not started', done: false },
-    ],
-  },
-  {
-    id: 'tom',
-    name: 'Tom Reed',
-    role: 'CNA',
-    started: 'Apr 9',
-    status: 'Just started',
-    statusClass: 'tgr',
-    items: [
-      { label: 'Offer letter signed', done: true },
-      { label: 'I-9 / ID verification', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'Direct deposit setup', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'BLS certification upload', tag: 'td', tagLabel: 'Missing', done: false },
-      { label: 'Background check', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'TB test results', tag: 'td', tagLabel: 'Missing', done: false },
-      { label: 'HIPAA training', tag: 'tgr', tagLabel: 'Not started', done: false },
-    ],
-  },
-  {
-    id: 'ana',
-    name: 'Ana Reyes',
-    role: 'RN',
-    started: 'Apr 3',
-    status: 'Almost done',
-    statusClass: 'tg',
-    items: [
-      { label: 'Offer letter signed', done: true },
-      { label: 'I-9 / ID verification', done: true },
-      { label: 'Direct deposit setup', done: true },
-      { label: 'BLS certification upload', done: true },
-      { label: 'State nursing license', done: true },
-      { label: 'TB test results', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'HIPAA + compliance training', tag: 'tgr', tagLabel: 'Not started', done: false },
-    ],
-  },
-  {
-    id: 'ben',
-    name: 'Ben Carter',
-    role: 'RT',
-    started: 'Apr 6',
-    status: 'In progress',
-    statusClass: 'tb',
-    items: [
-      { label: 'Offer letter signed', done: true },
-      { label: 'I-9 / ID verification', done: true },
-      { label: 'Direct deposit setup', done: true },
-      { label: 'BLS certification upload', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'RT license', tag: 'tw', tagLabel: 'Pending', done: false },
-      { label: 'TB test results', tag: 'td', tagLabel: 'Missing', done: false },
-    ],
-  },
-];
-
-function calcProgress(items: ChecklistItem[]): number {
-  if (items.length === 0) return 0;
-  return Math.round((items.filter((i) => i.done).length / items.length) * 100);
+/**
+ * Computes completion % for a candidate's documents checklist.
+ * Approved or received docs count as complete; missing/pending count as not.
+ */
+function docProgress(docs: CandidateDocument[]): { pct: number; complete: number; total: number } {
+  const required = docs.filter((d) => d.required);
+  if (required.length === 0) return { pct: 0, complete: 0, total: 0 };
+  const complete = required.filter((d) => d.status === 'approved' || d.status === 'received').length;
+  return { pct: Math.round((complete / required.length) * 100), complete, total: required.length };
 }
 
 export default function Onboarding() {
-  const [staffList, setStaffList] = useState<StaffMember[]>(INITIAL_STAFF);
-  const [selectedId, setSelectedId] = useState<string>('lisa');
-  const [reminderSent, setReminderSent] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const selected = staffList.find((s) => s.id === selectedId)!;
-  const progress = calcProgress(selected.items);
+  // 1. Load all onboarding-stage candidates
+  const {
+    data: list,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['onboarding-candidates'],
+    queryFn: async () => {
+      const results = await Promise.all(ONBOARDING_STAGES.map((stage) => candidatesApi.list({ stage })));
+      return results.flatMap((r) => r.data?.candidates ?? []);
+    },
+  });
 
-  function toggleItem(idx: number) {
-    setStaffList((prev) =>
-      prev.map((s) => {
-        if (s.id !== selectedId) return s;
-        const items = s.items.map((item, i) => (i === idx ? { ...item, done: !item.done } : item));
-        return { ...s, items };
-      })
-    );
-  }
+  const candidates: Candidate[] = useMemo(() => list ?? [], [list]);
 
-  function sendReminder(type: string) {
-    setReminderSent(type);
-    setTimeout(() => setReminderSent(null), 3000);
-  }
+  // Default-select the first candidate once the list loads
+  const activeId = selectedId ?? candidates[0]?.id ?? null;
+  const selected = candidates.find((c) => c.id === activeId) ?? null;
+
+  // 2. Load the selected candidate's documents (checklist)
+  const {
+    data: docsResp,
+    isLoading: loadingDocs,
+    error: docsError,
+    refetch: refetchDocs,
+  } = useQuery({
+    queryKey: ['onboarding-docs', activeId ?? ''],
+    queryFn: () => candidatesApi.getDocuments(activeId as string),
+    enabled: !!activeId,
+  });
+
+  const documents: CandidateDocument[] = docsResp?.data?.documents ?? [];
+  const progress = docProgress(documents);
 
   return (
     <div>
@@ -121,209 +71,207 @@ export default function Onboarding() {
       <div className="ph">
         <div>
           <div className="pt">📋 Onboarding</div>
-          <div className="ps">AI auto-sends reminders and tracks progress for each new hire</div>
+          <div className="ps">Active onboarding candidates and their document status</div>
         </div>
-        <button className="btn btn-pr">+ Start Onboarding</button>
+        <button
+          className="btn btn-pr"
+          onClick={() => {
+            alert(
+              'The Start Onboarding workflow will be wired up in the next release. For now, move a candidate to the "Confirmed" stage on the Pipeline board to put them in onboarding.'
+            );
+          }}
+        >
+          + Start Onboarding
+        </button>
       </div>
 
-      {/* Purple AI Alert */}
-      <div className="ab ab-p" style={{ marginBottom: '20px' }}>
-        <span>✦</span>{' '}
-        <span>
-          AI sent a Teams reminder to <strong>Lisa K.</strong> at 8 AM — 3 docs still outstanding.
-          Outlook follow-up scheduled for tomorrow.
-        </span>
-      </div>
-
-      {reminderSent && (
-        <div className="ab ab-g" style={{ marginBottom: '16px' }}>
-          ✓ {reminderSent} reminder sent to {selected.name}
-        </div>
-      )}
-
-      {/* 2-column layout */}
-      <div className="cg2">
-        {/* LEFT: Selected Staff Detail */}
-        <div className="pn">
-          <div className="pnh">
-            <div>
-              <h3>
-                {selected.name}{' '}
-                <span className="tag tgr" style={{ marginLeft: 4 }}>
-                  {selected.role}
-                </span>
-              </h3>
-              <div style={{ fontSize: '12px', color: 'var(--t3)', marginTop: '3px' }}>
-                Started {selected.started}
-              </div>
-            </div>
-            <span className={`tag ${progress >= 80 ? 'tg' : progress >= 50 ? 'tb' : 'tw'}`}>
-              {progress}% complete
-            </span>
-          </div>
-          <div className="pnb">
-            {/* Progress bar */}
-            <div style={{ marginBottom: '16px' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: '12px',
-                  color: 'var(--t3)',
-                  marginBottom: '6px',
-                }}
-              >
-                <span>Progress</span>
-                <span>{progress}%</span>
-              </div>
-              <div className="pb">
-                <div
-                  className="pf"
-                  style={{ width: `${progress}%`, background: 'var(--ac)' }}
-                />
-              </div>
-            </div>
-
-            {/* Checklist */}
-            <div style={{ marginBottom: '16px' }}>
-              {selected.items.map((item, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '8px 0',
-                    borderBottom:
-                      idx < selected.items.length - 1 ? '1px solid var(--sf3)' : 'none',
-                    cursor: 'pointer',
-                  }}
-                  onClick={() => toggleItem(idx)}
-                >
-                  <div
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '4px',
-                      border: item.done ? '2px solid var(--ac)' : '2px solid var(--bd)',
-                      background: item.done ? 'var(--ac)' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    {item.done && (
-                      <span style={{ color: 'white', fontSize: '11px', fontWeight: 700 }}>✓</span>
-                    )}
+      <QueryState
+        isLoading={isLoading}
+        error={error}
+        isEmpty={candidates.length === 0}
+        empty={
+          <EmptyCta
+            title="No one is onboarding right now"
+            subtitle="Move a candidate to the Confirmed stage on the Pipeline board to begin onboarding. The list here will update automatically."
+            ctaLabel="Open Pipeline"
+            onCta={() => navigate('/pipeline')}
+          />
+        }
+        onRetry={() => void refetch()}
+      >
+        <div className="cg2">
+          {/* LEFT: Selected candidate detail */}
+          <div className="pn">
+            {selected ? (
+              <>
+                <div className="pnh">
+                  <div>
+                    <h3>
+                      {selected.first_name} {selected.last_name}{' '}
+                      {selected.role && (
+                        <span className="tag tgr" style={{ marginLeft: 4 }}>
+                          {selected.role}
+                        </span>
+                      )}
+                    </h3>
+                    <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>
+                      {daysSince(selected.updated_at) != null
+                        ? `In onboarding ${daysSince(selected.updated_at)} day${daysSince(selected.updated_at) === 1 ? '' : 's'}`
+                        : 'Newly added'}
+                    </div>
                   </div>
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: '13px',
-                      color: item.done ? 'var(--t3)' : 'var(--t1)',
-                      textDecoration: item.done ? 'line-through' : 'none',
-                    }}
-                  >
-                    {item.label}
+                  <span className={`tag ${progress.pct >= 80 ? 'tg' : progress.pct >= 50 ? 'tb' : 'tw'}`}>
+                    {progress.pct}% complete
                   </span>
-                  {item.tag && !item.done && (
-                    <span className={`tag ${item.tag}`}>{item.tagLabel}</span>
-                  )}
-                  {item.done && <span className="tag tg">Done</span>}
                 </div>
-              ))}
-            </div>
+                <div className="pnb">
+                  {/* Progress bar */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--t3)', marginBottom: 6 }}>
+                      <span>Required documents</span>
+                      <span>{progress.complete} / {progress.total}</span>
+                    </div>
+                    <div className="pb">
+                      <div className="pf" style={{ width: `${progress.pct}%`, background: 'var(--ac)' }} />
+                    </div>
+                  </div>
 
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className="btn btn-gh btn-sm"
-                onClick={() => sendReminder('Outlook')}
-              >
-                📧 Send Outlook reminder
-              </button>
-              <button
-                className="btn btn-gh btn-sm"
-                onClick={() => sendReminder('Teams')}
-              >
-                💬 Request via Teams
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT: All Onboarding Staff table */}
-        <div className="pn">
-          <div className="pnh">
-            <h3>All Onboarding Staff</h3>
-            <span className="tag tb">{staffList.length} active</span>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Progress</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staffList.map((s) => {
-                  const pct = calcProgress(s.items);
-                  return (
-                    <tr
-                      key={s.id}
-                      onClick={() => setSelectedId(s.id)}
-                      style={{
-                        cursor: 'pointer',
-                        background:
-                          s.id === selectedId ? 'rgba(26, 95, 122, 0.06)' : undefined,
-                      }}
-                    >
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{s.name}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--t3)' }}>{s.role}</div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div className="pb" style={{ flex: 1, minWidth: '60px' }}>
-                            <div
-                              className="pf"
-                              style={{
-                                width: `${pct}%`,
-                                background:
-                                  pct >= 80
-                                    ? 'var(--ac)'
-                                    : pct >= 50
-                                    ? 'var(--pr)'
-                                    : 'var(--wn)',
-                              }}
-                            />
-                          </div>
-                          <span
+                  {/* Documents checklist */}
+                  <QueryState
+                    isLoading={loadingDocs}
+                    error={docsError}
+                    isEmpty={documents.length === 0}
+                    empty={
+                      <div style={{ padding: 16, color: 'var(--t3)', fontSize: 13, textAlign: 'center' }}>
+                        No onboarding documents assigned to this candidate yet. Add required documents from the candidate's profile.
+                      </div>
+                    }
+                    onRetry={() => void refetchDocs()}
+                    minHeight={100}
+                  >
+                    <div style={{ marginBottom: 16 }}>
+                      {documents.map((item, idx) => {
+                        const done = item.status === 'approved' || item.status === 'received';
+                        return (
+                          <div
+                            key={item.id}
                             style={{
-                              fontSize: '12px',
-                              color: 'var(--t3)',
-                              whiteSpace: 'nowrap',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              padding: '8px 0',
+                              borderBottom: idx < documents.length - 1 ? '1px solid var(--sf3)' : 'none',
                             }}
                           >
-                            {pct}%
+                            <div
+                              style={{
+                                width: 18,
+                                height: 18,
+                                borderRadius: 4,
+                                border: done ? '2px solid var(--ac)' : '2px solid var(--bd)',
+                                background: done ? 'var(--ac)' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {done && <span style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>✓</span>}
+                            </div>
+                            <span
+                              style={{
+                                flex: 1,
+                                fontSize: 13,
+                                color: done ? 'var(--t3)' : 'var(--t1)',
+                                textDecoration: done ? 'line-through' : 'none',
+                              }}
+                            >
+                              {item.label ?? item.document_type}
+                            </span>
+                            <span className={`tag ${tagForDocStatus(item.status)}`}>{item.status}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Deep-link into the candidate profile to manage docs */}
+                    <button className="btn btn-gh btn-sm" onClick={() => navigate(`/candidates/${selected.id}`)}>
+                      Open candidate profile →
+                    </button>
+                  </QueryState>
+                </div>
+              </>
+            ) : (
+              <div className="pnb" style={{ padding: 24, color: 'var(--t3)' }}>
+                Select a candidate to view their onboarding progress.
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT: All onboarding candidates table */}
+          <div className="pn">
+            <div className="pnh">
+              <h3>All Onboarding</h3>
+              <span className="tag tb">{candidates.length} active</span>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>In stage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidates.map((c) => {
+                    const days = daysSince(c.updated_at);
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => setSelectedId(c.id)}
+                        style={{
+                          cursor: 'pointer',
+                          background: c.id === activeId ? 'rgba(26, 95, 122, 0.06)' : undefined,
+                        }}
+                      >
+                        <td>
+                          <div style={{ fontWeight: 600 }}>
+                            {c.first_name} {c.last_name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--t3)' }}>{c.email}</div>
+                        </td>
+                        <td>{c.role ?? '—'}</td>
+                        <td>
+                          <span style={{ fontSize: 12, color: 'var(--t3)' }}>
+                            {days != null ? `${days}d` : '—'}
                           </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`tag ${s.statusClass}`}>{s.status}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      </QueryState>
     </div>
   );
+}
+
+function tagForDocStatus(status: CandidateDocument['status']): string {
+  switch (status) {
+    case 'approved':
+    case 'received':
+      return 'tg';
+    case 'pending':
+      return 'tb';
+    case 'rejected':
+    case 'expired':
+      return 'td';
+    case 'missing':
+    default:
+      return 'tw';
+  }
 }
