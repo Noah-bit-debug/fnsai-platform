@@ -1,0 +1,841 @@
+import { Router, Request, Response } from 'express';
+import { requireAuth } from '../middleware/auth';
+import { getAuth } from '@clerk/express';
+import { query } from '../db/client';
+
+const router = Router();
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getClientIp(req: Request): string {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.socket.remoteAddress ?? 'unknown';
+}
+
+// Build a simple SET clause + params array for UPDATE statements.
+// Returns { setClauses: string, params: unknown[], nextIndex: number }
+function buildSetClause(
+  fields: Record<string, unknown>,
+  startIndex = 1
+): { setClauses: string; params: unknown[]; nextIndex: number } {
+  const params: unknown[] = [];
+  const setClauses: string[] = [];
+  let i = startIndex;
+  for (const [col, val] of Object.entries(fields)) {
+    setClauses.push(`${col} = $${i++}`);
+    params.push(val);
+  }
+  return { setClauses: setClauses.join(', '), params, nextIndex: i };
+}
+
+// ---------------------------------------------------------------------------
+// CATEGORIES
+// ---------------------------------------------------------------------------
+
+// GET /categories
+router.get('/categories', async (req: Request, res: Response) => {
+  try {
+    const { level } = req.query;
+    const params: unknown[] = [];
+    let sql = `
+      SELECT id, level, name, parent_id, sort_order
+      FROM comp_categories
+    `;
+    if (level !== undefined) {
+      const lvl = parseInt(level as string, 10);
+      if (isNaN(lvl) || ![1, 2, 3].includes(lvl)) {
+        return res.status(400).json({ error: 'level must be 1, 2, or 3' });
+      }
+      sql += ` WHERE level = $1`;
+      params.push(lvl);
+    }
+    sql += ` ORDER BY level, sort_order, name`;
+    const result = await query(sql, params);
+    return res.json(result.rows);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /categories
+router.post('/categories', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { level, name, parent_id, sort_order = 0 } = req.body as {
+      level: number;
+      name: string;
+      parent_id?: string;
+      sort_order?: number;
+    };
+
+    if (!level || ![1, 2, 3].includes(Number(level))) {
+      return res.status(400).json({ error: 'level must be 1, 2, or 3' });
+    }
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const result = await query<{ id: string }>(
+      `INSERT INTO comp_categories (level, name, parent_id, sort_order)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, level, name, parent_id, sort_order, created_at`,
+      [Number(level), name.trim(), parent_id ?? null, Number(sort_order)]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /categories/:id
+router.put('/categories/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, sort_order } = req.body as { name?: string; sort_order?: number };
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (sort_order !== undefined) updates.sort_order = Number(sort_order);
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    const { setClauses, params, nextIndex } = buildSetClause(updates, 1);
+    params.push(id);
+
+    const result = await query(
+      `UPDATE comp_categories SET ${setClauses}
+       WHERE id = $${nextIndex}
+       RETURNING id, level, name, parent_id, sort_order`,
+      params
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Category not found' });
+    return res.json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// DELETE /categories/:id
+router.delete('/categories/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const result = await query('DELETE FROM comp_categories WHERE id = $1', [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Category not found' });
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POLICIES
+// ---------------------------------------------------------------------------
+
+// GET /policies
+router.get('/policies', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { status, cat1_id } = req.query;
+    const params: unknown[] = [];
+    const conditions: string[] = [];
+
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (cat1_id) {
+      params.push(cat1_id);
+      conditions.push(`cat1_id = $${params.length}`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await query(
+      `SELECT id, title, version, status, expiration_days, require_signature,
+              applicable_roles, cat1_id, cat2_id, cat3_id, created_at
+       FROM comp_policies
+       ${where}
+       ORDER BY created_at DESC`,
+      params
+    );
+    return res.json(result.rows);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /policies
+router.post('/policies', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const {
+      title, content, version = '1.0', expiration_days = null,
+      require_signature = true, status = 'draft',
+      cat1_id = null, cat2_id = null, cat3_id = null,
+      applicable_roles = [],
+    } = req.body as {
+      title: string;
+      content: string;
+      version?: string;
+      expiration_days?: number | null;
+      require_signature?: boolean;
+      status?: string;
+      cat1_id?: string | null;
+      cat2_id?: string | null;
+      cat3_id?: string | null;
+      applicable_roles?: string[];
+    };
+
+    if (!title || !content) {
+      return res.status(400).json({ error: 'title and content are required' });
+    }
+
+    const result = await query(
+      `INSERT INTO comp_policies
+         (title, content, version, expiration_days, require_signature, status,
+          cat1_id, cat2_id, cat3_id, applicable_roles, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING *`,
+      [title, content, version, expiration_days, require_signature, status,
+       cat1_id, cat2_id, cat3_id, applicable_roles, auth.userId]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /policies/:id
+router.get('/policies/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query('SELECT * FROM comp_policies WHERE id = $1', [req.params.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Policy not found' });
+    return res.json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /policies/:id
+router.put('/policies/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const allowed = [
+      'title','content','version','expiration_days','require_signature',
+      'status','cat1_id','cat2_id','cat3_id','applicable_roles',
+    ];
+    const updates: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+    updates.updated_at = new Date();
+
+    const { setClauses, params, nextIndex } = buildSetClause(updates, 1);
+    params.push(id);
+
+    const result = await query(
+      `UPDATE comp_policies SET ${setClauses} WHERE id = $${nextIndex} RETURNING *`,
+      params
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Policy not found' });
+    return res.json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// DELETE /policies/:id  (soft delete — archive)
+router.delete('/policies/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `UPDATE comp_policies SET status='archived', updated_at=NOW() WHERE id=$1 RETURNING id`,
+      [req.params.id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Policy not found' });
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /policies/:id/sign
+router.post('/policies/:id/sign', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { id: policyId } = req.params;
+    const { typed_signature } = req.body as { typed_signature: string };
+
+    if (!typed_signature?.trim()) {
+      return res.status(400).json({ error: 'typed_signature is required' });
+    }
+
+    // 1. Verify policy exists and is published
+    const policyResult = await query<{
+      id: string; title: string; expiration_days: number | null;
+    }>(
+      `SELECT id, title, expiration_days FROM comp_policies WHERE id=$1 AND status='published'`,
+      [policyId]
+    );
+    if (policyResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Policy not found or not published' });
+    }
+    const policy = policyResult.rows[0];
+
+    // 2. Get or create competency record
+    const existingCr = await query<{ id: string }>(
+      `SELECT id FROM comp_competency_records
+       WHERE user_clerk_id=$1 AND item_type='policy' AND item_id=$2
+       LIMIT 1`,
+      [auth.userId, policyId]
+    );
+
+    let competencyRecordId: string;
+    if (existingCr.rowCount && existingCr.rowCount > 0) {
+      competencyRecordId = existingCr.rows[0].id;
+    } else {
+      const newCr = await query<{ id: string }>(
+        `INSERT INTO comp_competency_records
+           (user_clerk_id, item_type, item_id, title, status)
+         VALUES ($1, 'policy', $2, $3, 'not_started')
+         RETURNING id`,
+        [auth.userId, policyId, policy.title]
+      );
+      competencyRecordId = newCr.rows[0].id;
+    }
+
+    // 3. Insert signature
+    const sigResult = await query<{ id: string }>(
+      `INSERT INTO comp_policy_signatures
+         (policy_id, competency_record_id, user_clerk_id, typed_signature, ip_address, user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id`,
+      [policyId, competencyRecordId, auth.userId, typed_signature.trim(),
+       getClientIp(req), req.headers['user-agent'] ?? null]
+    );
+    const signatureId = sigResult.rows[0].id;
+
+    // 4. Update competency record
+    const expirationDate = policy.expiration_days
+      ? new Date(Date.now() + policy.expiration_days * 86400000)
+      : null;
+
+    await query(
+      `UPDATE comp_competency_records
+       SET status='signed', completed_date=NOW(), expiration_date=$1, updated_at=NOW()
+       WHERE id=$2`,
+      [expirationDate, competencyRecordId]
+    );
+
+    return res.json({ success: true, signature_id: signatureId, competency_record_id: competencyRecordId });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /policies/:id/assign
+router.post('/policies/:id/assign', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { id: policyId } = req.params;
+    const { user_clerk_ids, due_date } = req.body as {
+      user_clerk_ids: string[];
+      due_date?: string;
+    };
+
+    if (!Array.isArray(user_clerk_ids) || user_clerk_ids.length === 0) {
+      return res.status(400).json({ error: 'user_clerk_ids must be a non-empty array' });
+    }
+
+    const policyResult = await query<{ id: string; title: string }>(
+      `SELECT id, title FROM comp_policies WHERE id=$1`, [policyId]
+    );
+    if (policyResult.rowCount === 0) return res.status(404).json({ error: 'Policy not found' });
+    const { title } = policyResult.rows[0];
+
+    let created = 0;
+    for (const userId of user_clerk_ids) {
+      const exists = await query(
+        `SELECT 1 FROM comp_competency_records
+         WHERE user_clerk_id=$1 AND item_type='policy' AND item_id=$2`,
+        [userId, policyId]
+      );
+      if (exists.rowCount && exists.rowCount > 0) continue;
+
+      await query(
+        `INSERT INTO comp_competency_records
+           (user_clerk_id, item_type, item_id, title, due_date, assigned_by)
+         VALUES ($1,'policy',$2,$3,$4,$5)`,
+        [userId, policyId, title, due_date ?? null, auth.userId]
+      );
+      created++;
+    }
+
+    return res.json({ success: true, created });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DOCUMENTS
+// ---------------------------------------------------------------------------
+
+// GET /documents
+router.get('/documents', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { status, cat1_id } = req.query;
+    const params: unknown[] = [];
+    const conditions: string[] = [];
+
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (cat1_id) {
+      params.push(cat1_id);
+      conditions.push(`cat1_id = $${params.length}`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await query(
+      `SELECT id, title, description, file_url, file_name, file_type,
+              expiration_days, require_read_ack, status,
+              cat1_id, cat2_id, cat3_id, applicable_roles, created_at
+       FROM comp_documents
+       ${where}
+       ORDER BY created_at DESC`,
+      params
+    );
+    return res.json(result.rows);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /documents
+router.post('/documents', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const {
+      title, description = null, file_url = null, file_name = null,
+      file_type = null, expiration_days = null, require_read_ack = true,
+      status = 'draft', cat1_id = null, cat2_id = null, cat3_id = null,
+      applicable_roles = [],
+    } = req.body as {
+      title: string;
+      description?: string | null;
+      file_url?: string | null;
+      file_name?: string | null;
+      file_type?: string | null;
+      expiration_days?: number | null;
+      require_read_ack?: boolean;
+      status?: string;
+      cat1_id?: string | null;
+      cat2_id?: string | null;
+      cat3_id?: string | null;
+      applicable_roles?: string[];
+    };
+
+    if (!title) return res.status(400).json({ error: 'title is required' });
+
+    const result = await query(
+      `INSERT INTO comp_documents
+         (title, description, file_url, file_name, file_type, expiration_days,
+          require_read_ack, status, cat1_id, cat2_id, cat3_id, applicable_roles, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       RETURNING *`,
+      [title, description, file_url, file_name, file_type, expiration_days,
+       require_read_ack, status, cat1_id, cat2_id, cat3_id, applicable_roles, auth.userId]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /documents/:id
+router.get('/documents/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query('SELECT * FROM comp_documents WHERE id=$1', [req.params.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Document not found' });
+    return res.json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PUT /documents/:id
+router.put('/documents/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const allowed = [
+      'title','description','file_url','file_name','file_type',
+      'expiration_days','require_read_ack','status',
+      'cat1_id','cat2_id','cat3_id','applicable_roles',
+    ];
+    const updates: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+    updates.updated_at = new Date();
+
+    const { setClauses, params, nextIndex } = buildSetClause(updates, 1);
+    params.push(id);
+
+    const result = await query(
+      `UPDATE comp_documents SET ${setClauses} WHERE id=$${nextIndex} RETURNING *`,
+      params
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Document not found' });
+    return res.json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// DELETE /documents/:id (soft delete)
+router.delete('/documents/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `UPDATE comp_documents SET status='archived', updated_at=NOW() WHERE id=$1 RETURNING id`,
+      [req.params.id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Document not found' });
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /documents/:id/read
+router.post('/documents/:id/read', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { id: documentId } = req.params;
+
+    // Verify document exists
+    const docResult = await query<{ id: string; title: string; expiration_days: number | null }>(
+      `SELECT id, title, expiration_days FROM comp_documents WHERE id=$1`, [documentId]
+    );
+    if (docResult.rowCount === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = docResult.rows[0];
+
+    // 1. Get or create competency record
+    const existingCr = await query<{ id: string }>(
+      `SELECT id FROM comp_competency_records
+       WHERE user_clerk_id=$1 AND item_type='document' AND item_id=$2 LIMIT 1`,
+      [auth.userId, documentId]
+    );
+
+    let competencyRecordId: string;
+    if (existingCr.rowCount && existingCr.rowCount > 0) {
+      competencyRecordId = existingCr.rows[0].id;
+    } else {
+      const newCr = await query<{ id: string }>(
+        `INSERT INTO comp_competency_records
+           (user_clerk_id, item_type, item_id, title, status)
+         VALUES ($1,'document',$2,$3,'not_started')
+         RETURNING id`,
+        [auth.userId, documentId, doc.title]
+      );
+      competencyRecordId = newCr.rows[0].id;
+    }
+
+    // 2. Insert read log
+    await query(
+      `INSERT INTO comp_document_read_logs
+         (document_id, competency_record_id, user_clerk_id, ip_address)
+       VALUES ($1,$2,$3,$4)`,
+      [documentId, competencyRecordId, auth.userId, getClientIp(req)]
+    );
+
+    // 3. Update competency record
+    const expirationDate = doc.expiration_days
+      ? new Date(Date.now() + doc.expiration_days * 86400000)
+      : null;
+
+    await query(
+      `UPDATE comp_competency_records
+       SET status='read', completed_date=NOW(), expiration_date=$1, updated_at=NOW()
+       WHERE id=$2`,
+      [expirationDate, competencyRecordId]
+    );
+
+    return res.json({ success: true });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /documents/:id/assign
+router.post('/documents/:id/assign', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { id: documentId } = req.params;
+    const { user_clerk_ids, due_date } = req.body as {
+      user_clerk_ids: string[];
+      due_date?: string;
+    };
+
+    if (!Array.isArray(user_clerk_ids) || user_clerk_ids.length === 0) {
+      return res.status(400).json({ error: 'user_clerk_ids must be a non-empty array' });
+    }
+
+    const docResult = await query<{ id: string; title: string }>(
+      `SELECT id, title FROM comp_documents WHERE id=$1`, [documentId]
+    );
+    if (docResult.rowCount === 0) return res.status(404).json({ error: 'Document not found' });
+    const { title } = docResult.rows[0];
+
+    let created = 0;
+    for (const userId of user_clerk_ids) {
+      const exists = await query(
+        `SELECT 1 FROM comp_competency_records
+         WHERE user_clerk_id=$1 AND item_type='document' AND item_id=$2`,
+        [userId, documentId]
+      );
+      if (exists.rowCount && exists.rowCount > 0) continue;
+
+      await query(
+        `INSERT INTO comp_competency_records
+           (user_clerk_id, item_type, item_id, title, due_date, assigned_by)
+         VALUES ($1,'document',$2,$3,$4,$5)`,
+        [userId, documentId, title, due_date ?? null, auth.userId]
+      );
+      created++;
+    }
+
+    return res.json({ success: true, created });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COMPETENCY RECORDS
+// ---------------------------------------------------------------------------
+
+// GET /competency-records
+router.get('/competency-records', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { mine, item_type, status, candidate_id } = req.query;
+    const params: unknown[] = [];
+    const conditions: string[] = [];
+
+    if (mine === 'true') {
+      params.push(auth.userId);
+      conditions.push(`user_clerk_id = $${params.length}`);
+    }
+    if (item_type) {
+      params.push(item_type);
+      conditions.push(`item_type = $${params.length}`);
+    }
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (candidate_id) {
+      params.push(candidate_id);
+      conditions.push(`candidate_id = $${params.length}`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await query(
+      `SELECT * FROM comp_competency_records ${where} ORDER BY created_at DESC`,
+      params
+    );
+    return res.json(result.rows);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /competency-records/user/:userId
+router.get('/competency-records/user/:userId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT * FROM comp_competency_records
+       WHERE user_clerk_id=$1
+       ORDER BY created_at DESC`,
+      [req.params.userId]
+    );
+    return res.json(result.rows);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /competency-records
+router.post('/competency-records', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { user_clerk_id, item_type, item_id, title, due_date } = req.body as {
+      user_clerk_id: string;
+      item_type: string;
+      item_id: string;
+      title: string;
+      due_date?: string;
+    };
+
+    if (!user_clerk_id || !item_type || !item_id || !title) {
+      return res.status(400).json({ error: 'user_clerk_id, item_type, item_id, and title are required' });
+    }
+
+    const validTypes = ['policy','document','exam','checklist','bundle'];
+    if (!validTypes.includes(item_type)) {
+      return res.status(400).json({ error: `item_type must be one of: ${validTypes.join(', ')}` });
+    }
+
+    const result = await query(
+      `INSERT INTO comp_competency_records
+         (user_clerk_id, item_type, item_id, title, due_date, assigned_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      [user_clerk_id, item_type, item_id, title, due_date ?? null, auth.userId]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// PATCH /competency-records/:id
+router.patch('/competency-records/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['status','notes','due_date','score'];
+    const updates: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+    updates.updated_at = new Date();
+
+    const { setClauses, params, nextIndex } = buildSetClause(updates, 1);
+    params.push(id);
+
+    const result = await query(
+      `UPDATE comp_competency_records SET ${setClauses} WHERE id=$${nextIndex} RETURNING *`,
+      params
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Competency record not found' });
+    return res.json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /competency-records/:id/notes
+router.post('/competency-records/:id/notes', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuth(req);
+    const { id: competencyRecordId } = req.params;
+    const { content } = req.body as { content: string };
+
+    if (!content?.trim()) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    // Verify record exists
+    const exists = await query(
+      `SELECT 1 FROM comp_competency_records WHERE id=$1`, [competencyRecordId]
+    );
+    if (exists.rowCount === 0) return res.status(404).json({ error: 'Competency record not found' });
+
+    const result = await query(
+      `INSERT INTO comp_notes (competency_record_id, author_clerk_id, content)
+       VALUES ($1,$2,$3)
+       RETURNING *`,
+      [competencyRecordId, auth.userId, content.trim()]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /competency-records/:id/notes
+router.get('/competency-records/:id/notes', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT * FROM comp_notes
+       WHERE competency_record_id=$1
+       ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    return res.json(result.rows);
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// STATS (dashboard summary)
+// ---------------------------------------------------------------------------
+
+// GET /stats
+router.get('/stats', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const [policiesResult, documentsResult, crResult] = await Promise.all([
+      query<{ status: string; count: string }>(
+        `SELECT status, COUNT(*)::int AS count FROM comp_policies GROUP BY status`
+      ),
+      query<{ status: string; count: string }>(
+        `SELECT status, COUNT(*)::int AS count FROM comp_documents GROUP BY status`
+      ),
+      query<{ status: string; count: string }>(
+        `SELECT status, COUNT(*)::int AS count FROM comp_competency_records GROUP BY status`
+      ),
+    ]);
+
+    const toMap = (rows: { status: string; count: string }[]) =>
+      rows.reduce<Record<string, number>>((acc, r) => {
+        acc[r.status] = Number(r.count);
+        return acc;
+      }, {});
+
+    const pMap = toMap(policiesResult.rows);
+    const dMap = toMap(documentsResult.rows);
+    const crMap = toMap(crResult.rows);
+
+    const pTotal = Object.values(pMap).reduce((a, b) => a + b, 0);
+    const dTotal = Object.values(dMap).reduce((a, b) => a + b, 0);
+    const crTotal = Object.values(crMap).reduce((a, b) => a + b, 0);
+
+    return res.json({
+      policies: {
+        total: pTotal,
+        published: pMap['published'] ?? 0,
+        draft: pMap['draft'] ?? 0,
+      },
+      documents: {
+        total: dTotal,
+        published: dMap['published'] ?? 0,
+        draft: dMap['draft'] ?? 0,
+      },
+      competency_records: {
+        total: crTotal,
+        not_started: crMap['not_started'] ?? 0,
+        in_progress: crMap['in_progress'] ?? 0,
+        completed: crMap['completed'] ?? 0,
+        signed: crMap['signed'] ?? 0,
+        read: crMap['read'] ?? 0,
+        expired: crMap['expired'] ?? 0,
+        failed: crMap['failed'] ?? 0,
+      },
+    });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+export default router;
