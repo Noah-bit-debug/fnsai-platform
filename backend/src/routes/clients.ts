@@ -211,4 +211,252 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ATS Phase 1: "Client Organizations" endpoints backed by the new `clients`
+// table. Existing `/` endpoints above still target the legacy `facilities`
+// table to avoid breaking current UI. Frontend will migrate to /orgs in Phase 2.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const clientSchema = z.object({
+  name: z.string().min(1).max(300),
+  website: z.string().max(500).optional().nullable(),
+  business_unit: z.string().max(200).optional().nullable(),
+  offerings: z.array(z.string()).optional().default([]),
+  submission_format: z.string().max(100).optional().nullable(),
+  submission_format_notes: z.string().max(5000).optional().nullable(),
+  primary_contact_name: z.string().max(200).optional().nullable(),
+  primary_contact_email: z.string().email().optional().nullable(),
+  primary_contact_phone: z.string().max(30).optional().nullable(),
+  status: z.enum(['active', 'inactive', 'prospect', 'churned']).optional(),
+  notes: z.string().max(10000).optional().nullable(),
+});
+
+const contactSchema = z.object({
+  name: z.string().min(1).max(200),
+  title: z.string().max(200).optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().max(30).optional().nullable(),
+  facility_id: z.string().uuid().optional().nullable(),
+  is_primary: z.boolean().optional(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+const reqTemplateSchema = z.object({
+  kind: z.enum(['submission', 'onboarding']),
+  bundle_id: z.string().uuid().optional().nullable(),
+  ad_hoc: z.array(z.object({
+    type: z.enum(['doc', 'cert', 'license', 'skill']).optional(),
+    kind: z.string().optional(),
+    label: z.string().min(1),
+    required: z.boolean().optional(),
+    notes: z.string().optional(),
+  })).optional().default([]),
+  notes: z.string().max(5000).optional().nullable(),
+});
+
+// GET /orgs — list client organizations
+router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
+  const { status, search } = req.query;
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+  if (status) { conditions.push(`c.status = $${idx++}`); params.push(status); }
+  if (search) { conditions.push(`c.name ILIKE $${idx++}`); params.push(`%${search}%`); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  try {
+    const result = await query(
+      `SELECT c.*,
+              (SELECT COUNT(*)::INT FROM facilities f WHERE f.client_id = c.id) AS facility_count,
+              (SELECT COUNT(*)::INT FROM jobs j WHERE j.client_id = c.id AND j.status = 'open') AS open_jobs
+       FROM clients c
+       ${where}
+       ORDER BY c.name ASC`,
+      params
+    );
+    res.json({ clients: result.rows });
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ clients: [] }); return; }
+    console.error('Clients list error:', err);
+    res.status(500).json({ error: 'Failed to fetch clients' });
+  }
+});
+
+// GET /orgs/:id — full client record
+router.get('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const [client, facs, contacts, templates] = await Promise.all([
+      query(`SELECT * FROM clients WHERE id = $1`, [req.params.id]),
+      query(`SELECT * FROM facilities WHERE client_id = $1 ORDER BY name`, [req.params.id]),
+      query(`SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY is_primary DESC, name ASC`, [req.params.id]),
+      query(
+        `SELECT t.*, b.title AS bundle_title
+         FROM client_requirement_templates t
+         LEFT JOIN comp_bundles b ON t.bundle_id = b.id
+         WHERE t.client_id = $1
+         ORDER BY t.kind, t.created_at`,
+        [req.params.id]
+      ),
+    ]);
+    if (client.rows.length === 0) { res.status(404).json({ error: 'Client not found' }); return; }
+    res.json({
+      client: client.rows[0],
+      facilities: facs.rows,
+      contacts: contacts.rows,
+      requirement_templates: templates.rows,
+    });
+  } catch (err) {
+    console.error('Client fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch client' });
+  }
+});
+
+// POST /orgs
+router.post('/orgs', requireAuth, async (req: Request, res: Response) => {
+  const parsed = clientSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
+  const d = parsed.data;
+  const auth = getAuth(req);
+  try {
+    const result = await query(
+      `INSERT INTO clients (name, website, business_unit, offerings, submission_format, submission_format_notes,
+         primary_contact_name, primary_contact_email, primary_contact_phone, status, notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [
+        d.name, d.website ?? null, d.business_unit ?? null, d.offerings ?? [],
+        d.submission_format ?? null, d.submission_format_notes ?? null,
+        d.primary_contact_name ?? null, d.primary_contact_email ?? null, d.primary_contact_phone ?? null,
+        d.status ?? 'active', d.notes ?? null, auth?.userId ?? null,
+      ]
+    );
+    await logAudit(null, auth?.userId ?? 'unknown', 'client.create', result.rows[0].id as string, { name: d.name }, req.ip ?? 'unknown');
+    res.status(201).json({ client: result.rows[0] });
+  } catch (err) {
+    console.error('Client create error:', err);
+    res.status(500).json({ error: 'Failed to create client' });
+  }
+});
+
+// PUT /orgs/:id
+router.put('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
+  const parsed = clientSchema.partial().safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
+  const entries = Object.entries(parsed.data).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+
+  const setClause = entries.map(([k], i) => `${k} = $${i + 2}`).join(', ');
+  const values: unknown[] = [req.params.id, ...entries.map(([, v]) => v)];
+
+  try {
+    const result = await query(
+      `UPDATE clients SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Client not found' }); return; }
+    res.json({ client: result.rows[0] });
+  } catch (err) {
+    console.error('Client update error:', err);
+    res.status(500).json({ error: 'Failed to update client' });
+  }
+});
+
+// DELETE /orgs/:id — soft delete (set status='churned')
+router.delete('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `UPDATE clients SET status = 'churned', updated_at = NOW() WHERE id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Client not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Client delete error:', err);
+    res.status(500).json({ error: 'Failed to delete client' });
+  }
+});
+
+// Contacts
+router.post('/orgs/:id/contacts', requireAuth, async (req: Request, res: Response) => {
+  const parsed = contactSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
+  const d = parsed.data;
+  try {
+    const result = await query(
+      `INSERT INTO client_contacts (client_id, facility_id, name, title, email, phone, is_primary, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.params.id, d.facility_id ?? null, d.name, d.title ?? null, d.email ?? null, d.phone ?? null, d.is_primary ?? false, d.notes ?? null]
+    );
+    res.status(201).json({ contact: result.rows[0] });
+  } catch (err) {
+    console.error('Client contact create error:', err);
+    res.status(500).json({ error: 'Failed to add contact' });
+  }
+});
+
+router.put('/orgs/:id/contacts/:contactId', requireAuth, async (req: Request, res: Response) => {
+  const parsed = contactSchema.partial().safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
+  const entries = Object.entries(parsed.data).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+  const setClause = entries.map(([k], i) => `${k} = $${i + 3}`).join(', ');
+  const values: unknown[] = [req.params.contactId, req.params.id, ...entries.map(([, v]) => v)];
+  try {
+    const result = await query(
+      `UPDATE client_contacts SET ${setClause}, updated_at = NOW() WHERE id = $1 AND client_id = $2 RETURNING *`,
+      values
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Contact not found' }); return; }
+    res.json({ contact: result.rows[0] });
+  } catch (err) {
+    console.error('Client contact update error:', err);
+    res.status(500).json({ error: 'Failed to update contact' });
+  }
+});
+
+router.delete('/orgs/:id/contacts/:contactId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `DELETE FROM client_contacts WHERE id = $1 AND client_id = $2 RETURNING id`,
+      [req.params.contactId, req.params.id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Contact not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Client contact delete error:', err);
+    res.status(500).json({ error: 'Failed to delete contact' });
+  }
+});
+
+// Requirement templates
+router.post('/orgs/:id/requirement-templates', requireAuth, async (req: Request, res: Response) => {
+  const parsed = reqTemplateSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
+  const d = parsed.data;
+  try {
+    const result = await query(
+      `INSERT INTO client_requirement_templates (client_id, kind, bundle_id, ad_hoc, notes)
+       VALUES ($1,$2,$3,$4::jsonb,$5) RETURNING *`,
+      [req.params.id, d.kind, d.bundle_id ?? null, JSON.stringify(d.ad_hoc ?? []), d.notes ?? null]
+    );
+    res.status(201).json({ template: result.rows[0] });
+  } catch (err) {
+    console.error('Requirement template create error:', err);
+    res.status(500).json({ error: 'Failed to add requirement template' });
+  }
+});
+
+router.delete('/orgs/:id/requirement-templates/:tplId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `DELETE FROM client_requirement_templates WHERE id = $1 AND client_id = $2 RETURNING id`,
+      [req.params.tplId, req.params.id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Template not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Requirement template delete error:', err);
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
 export default router;

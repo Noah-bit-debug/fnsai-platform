@@ -225,3 +225,101 @@ Spam: marketing, irrelevant`;
     };
   }
 }
+
+// ─── ATS: Job ad + job summary generators ──────────────────────────────────
+const ATS_MODEL = 'claude-opus-4-6';
+
+export interface JobForAI {
+  title: string;
+  profession?: string | null;
+  specialty?: string | null;
+  sub_specialty?: string | null;
+  city?: string | null;
+  state?: string | null;
+  job_type?: string | null;
+  shift?: string | null;
+  hours_per_week?: number | null;
+  duration_weeks?: number | null;
+  start_date?: string | null;
+  pay_rate?: number | string | null;
+  bill_rate?: number | string | null;
+  stipend?: number | string | null;
+  description?: string | null;
+  required_credentials?: string[];
+  required_skills?: string[];
+  facility_name?: string | null;
+  client_name?: string | null;
+}
+
+function formatJobBlock(job: JobForAI): string {
+  return [
+    `TITLE: ${job.title}`,
+    `PROFESSION / SPECIALTY: ${[job.profession, job.specialty, job.sub_specialty].filter(Boolean).join(' / ') || 'n/a'}`,
+    `LOCATION: ${[job.city, job.state].filter(Boolean).join(', ') || 'n/a'}`,
+    `TYPE: ${job.job_type ?? 'n/a'}`,
+    `SHIFT: ${job.shift ?? 'n/a'}`,
+    job.hours_per_week ? `HOURS/WEEK: ${job.hours_per_week}` : '',
+    job.duration_weeks ? `DURATION: ${job.duration_weeks} weeks` : '',
+    job.start_date ? `START DATE: ${job.start_date}` : '',
+    job.pay_rate ? `PAY RATE: ${job.pay_rate}` : '',
+    job.stipend ? `STIPEND: ${job.stipend}` : '',
+    job.client_name ? `CLIENT: ${job.client_name}` : '',
+    job.facility_name ? `FACILITY: ${job.facility_name}` : '',
+    job.required_credentials?.length ? `REQUIRED CREDENTIALS: ${job.required_credentials.join(', ')}` : '',
+    job.required_skills?.length ? `REQUIRED SKILLS: ${job.required_skills.join(', ')}` : '',
+    job.description ? `DESCRIPTION:\n${job.description.slice(0, 1500)}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Generates an outbound job advertisement suitable for job boards / LinkedIn.
+ * Returns markdown-friendly plain text.
+ */
+export async function generateJobAd(job: JobForAI): Promise<string> {
+  const prompt = `Write a concise, recruiter-friendly job advertisement for the healthcare staffing job below. It should read like a job board / LinkedIn post, not a form.
+
+${formatJobBlock(job)}
+
+Structure (use markdown-compatible plain text):
+- A 1-line hook headline with the role, specialty, and location
+- A 2-3 sentence pitch paragraph
+- A "What you'll do" bullet list (3-5 items)
+- A "Requirements" bullet list (3-6 items)
+- A "Details" line showing shift, duration, pay summary if available
+
+Keep it under 250 words. No emojis. No fluff. No filler like "exciting opportunity". Be specific.`;
+
+  const response = await anthropic.messages.create({
+    model: ATS_MODEL,
+    max_tokens: 900,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const block = response.content[0];
+  if (block.type !== 'text') throw new Error('Unexpected AI response shape');
+  return block.text.trim();
+}
+
+/**
+ * Generates a short internal-facing job summary (1-2 sentences) used on
+ * pipeline cards, matching-candidate lists, and client-facing blurbs.
+ */
+export async function generateJobSummary(job: JobForAI): Promise<string> {
+  const prompt = `Summarize the following healthcare staffing job in 1-2 sentences (max ~40 words). No bullets, no headers. Be concrete: include profession/specialty, location, and the most important detail (shift, pay, duration, or credential) if relevant.
+
+${formatJobBlock(job)}
+
+Return only the summary text.`;
+
+  const response = await anthropic.messages.create({
+    model: ATS_MODEL,
+    max_tokens: 200,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const block = response.content[0];
+  if (block.type !== 'text') throw new Error('Unexpected AI response shape');
+  return block.text.trim();
+}

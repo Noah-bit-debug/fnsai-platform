@@ -49,6 +49,11 @@ import complianceMessagingRouter from './routes/complianceMessaging';
 import aiEmailSearchRouter from './routes/aiEmailSearch';
 import aiOneDriveRouter from './routes/aiOneDrive';
 import aiBrainRouter from './routes/aiBrain';
+// ATS Phase 1
+import jobsRouter from './routes/jobs';
+import submissionsRouter from './routes/submissions';
+import pipelineStagesRouter from './routes/pipelineStages';
+import recruiterTasksRouter from './routes/recruiterTasks';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -187,6 +192,11 @@ app.use('/api/v1/compliance/messages', complianceMessagingRouter);
 app.use('/api/v1/ai-email', aiEmailSearchRouter);
 app.use('/api/v1/ai-onedrive', aiOneDriveRouter);
 app.use('/api/v1/ai-brain', aiBrainRouter);
+// ATS Phase 1
+app.use('/api/v1/jobs', jobsRouter);
+app.use('/api/v1/submissions', submissionsRouter);
+app.use('/api/v1/pipeline-stages', pipelineStagesRouter);
+app.use('/api/v1/tasks', recruiterTasksRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -217,6 +227,7 @@ async function runMigrations(): Promise<void> {
     'compliance_phase6_migration.sql',
     'pre_role_assignments_migration.sql',
     'ai_brain_migration.sql',
+    'ats_phase1_migration.sql',
   ];
 
   const client = await pool.connect();

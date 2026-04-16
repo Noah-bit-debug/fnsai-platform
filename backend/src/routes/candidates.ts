@@ -425,4 +425,118 @@ router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ATS Phase 1: Duplicate detection + saved views
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /duplicates?email=&phone=&name=&exclude_id=
+// Returns candidates matching any of the provided signals. Used by new-candidate
+// forms and a merge-candidate UX (Phase 3 will add the actual merge).
+router.get('/duplicates', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
+  const { email, phone, name, exclude_id } = req.query;
+  if (!email && !phone && !name) { res.status(400).json({ error: 'Provide at least one of: email, phone, name' }); return; }
+
+  const matchConditions: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  if (email) {
+    matchConditions.push(`LOWER(email) = LOWER($${idx++})`);
+    params.push(email);
+  }
+  if (phone) {
+    matchConditions.push(`REGEXP_REPLACE(COALESCE(phone,''), '[^0-9]', '', 'g') = REGEXP_REPLACE($${idx++}, '[^0-9]', '', 'g')`);
+    params.push(phone);
+  }
+  if (name) {
+    const parts = String(name).trim().split(/\s+/);
+    if (parts.length >= 2) {
+      matchConditions.push(`(LOWER(first_name) = LOWER($${idx}) AND LOWER(last_name) = LOWER($${idx + 1}))`);
+      params.push(parts[0], parts.slice(1).join(' '));
+      idx += 2;
+    } else {
+      matchConditions.push(`(LOWER(first_name) = LOWER($${idx}) OR LOWER(last_name) = LOWER($${idx}))`);
+      params.push(parts[0]);
+      idx++;
+    }
+  }
+
+  const excludeClause = exclude_id ? `AND id <> $${idx++}` : '';
+  if (exclude_id) params.push(exclude_id);
+
+  try {
+    const result = await query(
+      `SELECT id, first_name, last_name, email, phone, role, stage, status, created_at
+       FROM candidates
+       WHERE (${matchConditions.join(' OR ')})
+       ${excludeClause}
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      params
+    );
+    res.json({ candidates: result.rows, match_count: result.rows.length });
+  } catch (err) {
+    console.error('Duplicate lookup error:', err);
+    res.status(500).json({ error: 'Failed to look up duplicates' });
+  }
+});
+
+// POST /:id/merge — Phase 1 stub. Records intent; actual merge lands in Phase 3.
+router.post('/:id/merge', requireAuth, requirePermission('candidates_edit'), async (req: AuthenticatedRequest, res: Response) => {
+  const { target_id, notes } = req.body as { target_id?: string; notes?: string };
+  if (!target_id) { res.status(400).json({ error: 'target_id required' }); return; }
+  await logAudit(
+    req.userRecord?.id ?? null,
+    getAuth(req).userId ?? 'system',
+    'candidate.merge_requested',
+    req.params.id,
+    { target_id, notes }
+  );
+  res.status(202).json({ status: 'queued', message: 'Merge recorded. Manual review required until Phase 3 ships automatic merge.' });
+});
+
+// ─── Saved candidate views ────────────────────────────────────────────────
+router.get('/saved-views', requireAuth, requirePermission('candidates_view'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT * FROM candidate_saved_views WHERE user_id = $1 OR is_shared = TRUE ORDER BY created_at DESC`,
+      [req.userRecord?.id ?? null]
+    );
+    res.json({ views: result.rows });
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ views: [] }); return; }
+    console.error('Saved views error:', err);
+    res.status(500).json({ error: 'Failed to fetch saved views' });
+  }
+});
+
+router.post('/saved-views', requireAuth, requirePermission('candidates_view'), async (req: AuthenticatedRequest, res: Response) => {
+  const { name, filters, is_shared } = req.body as { name?: string; filters?: Record<string, unknown>; is_shared?: boolean };
+  if (!name || typeof name !== 'string') { res.status(400).json({ error: 'name is required' }); return; }
+  try {
+    const result = await query(
+      `INSERT INTO candidate_saved_views (user_id, name, filters, is_shared) VALUES ($1, $2, $3::jsonb, $4) RETURNING *`,
+      [req.userRecord?.id ?? null, name, JSON.stringify(filters ?? {}), is_shared ?? false]
+    );
+    res.status(201).json({ view: result.rows[0] });
+  } catch (err) {
+    console.error('Saved view create error:', err);
+    res.status(500).json({ error: 'Failed to save view' });
+  }
+});
+
+router.delete('/saved-views/:id', requireAuth, requirePermission('candidates_view'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await query(
+      `DELETE FROM candidate_saved_views WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [req.params.id, req.userRecord?.id ?? null]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'View not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Saved view delete error:', err);
+    res.status(500).json({ error: 'Failed to delete view' });
+  }
+});
+
 export default router;
