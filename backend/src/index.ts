@@ -56,6 +56,10 @@ import pipelineStagesRouter from './routes/pipelineStages';
 import recruiterTasksRouter from './routes/recruiterTasks';
 // ATS Phase 4
 import atsReportsRouter from './routes/atsReports';
+// QA Phase 5
+import integrationStatusRouter from './routes/integrationStatus';
+// QA Phase 9
+import globalSearchRouter from './routes/globalSearch';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -201,6 +205,10 @@ app.use('/api/v1/pipeline-stages', pipelineStagesRouter);
 app.use('/api/v1/tasks', recruiterTasksRouter);
 // ATS Phase 4
 app.use('/api/v1/ats-reports', atsReportsRouter);
+// QA Phase 5
+app.use('/api/v1/integrations', integrationStatusRouter);
+// QA Phase 9
+app.use('/api/v1/search', globalSearchRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

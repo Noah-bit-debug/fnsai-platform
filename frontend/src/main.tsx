@@ -6,6 +6,8 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './styles/globals.css';
 import { setTokenGetter } from './lib/api';
+import { ToastProvider } from './components/ToastHost';
+import { ConfirmProvider } from './components/ConfirmHost';
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string;
 
@@ -39,7 +41,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ClerkProvider publishableKey={PUBLISHABLE_KEY ?? 'pk_test_placeholder'}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AppWithAuth />
+          <ToastProvider>
+            <ConfirmProvider>
+              <AppWithAuth />
+            </ConfirmProvider>
+          </ToastProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ClerkProvider>

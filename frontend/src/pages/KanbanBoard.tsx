@@ -12,6 +12,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { kanbanApi, submissionsApi, KanbanColumn, FitLabel, GateStatus } from '../lib/api';
+import { useToast } from '../components/ToastHost';
 
 const FIT_COLOR: Record<FitLabel, string> = {
   excellent: '#059669', strong: '#10b981', moderate: '#f59e0b',
@@ -26,6 +27,7 @@ type KanbanCard = KanbanColumn['items'][number];
 
 export default function KanbanBoard() {
   const nav = useNavigate();
+  const toast = useToast();
   const [columns, setColumns] = useState<KanbanColumn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,9 +85,31 @@ export default function KanbanBoard() {
     setColumns(next);
 
     try {
-      await submissionsApi.moveStage(cardId, targetStageKey);
+      const resp = await submissionsApi.moveStage(cardId, targetStageKey);
+      const data = resp.data;
+
+      if (targetStageKey === 'placed' && data.placement_created) {
+        const bundleCount = data.compliance_bundles_assigned?.length ?? 0;
+        const itemsAssigned = data.compliance_bundles_assigned?.reduce((n, b) => n + b.created, 0) ?? 0;
+        const parts: string[] = [`Placement created for ${card.candidate_name}`];
+        if (bundleCount > 0) {
+          parts.push(`${bundleCount} onboarding bundle${bundleCount === 1 ? '' : 's'} (${itemsAssigned} item${itemsAssigned === 1 ? '' : 's'}) assigned`);
+        }
+        toast.success(parts.join(' · '), {
+          action: { label: 'View placement →', onClick: () => nav('/placements') },
+          ttl: 8000,
+        });
+      } else if (targetStageKey === 'placed') {
+        // Placement already existed for this submission (idempotent)
+        toast.info(`${card.candidate_name} placed — placement already on file`, { ttl: 4000 });
+      } else {
+        toast.success(`Moved ${card.candidate_name} to "${targetStageKey.replace(/_/g, ' ')}"`, { ttl: 2500 });
+      }
     } catch (err: unknown) {
-      alert(`Move failed: ${err instanceof Error ? err.message : 'unknown'}`);
+      const e = err as { response?: { data?: { error?: string } }; message?: string };
+      toast.error(`Move failed: ${e.response?.data?.error ?? e.message ?? 'unknown'}`);
+      // Original alert fallback kept for safety during rollback
+      void 0;
       setColumns(prev); // rollback
     }
   };

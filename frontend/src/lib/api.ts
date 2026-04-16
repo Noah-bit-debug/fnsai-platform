@@ -633,6 +633,9 @@ export const candidatesApi = {
       candidates: Array<{ id: string; first_name: string; last_name: string; email?: string; phone?: string; role?: string; stage: string; status: string; created_at: string }>;
       match_count: number;
     }>('/candidates/duplicates', { params }),
+  // QA Phase 4 — candidate → staff conversion
+  convertToStaff: (id: string) =>
+    api.post<{ staff_id: string; created: boolean }>(`/candidates/${id}/convert-to-staff`),
   // ATS Phase 5 — AI outreach
   aiSmsOutreach: (id: string, job_id?: string) =>
     api.post<{ message: string }>(`/candidates/${id}/ai/sms-outreach`, { job_id }),
@@ -1436,7 +1439,12 @@ export const submissionsApi = {
   update: (id: string, data: Partial<Submission>) =>
     api.put<{ submission: Submission }>(`/submissions/${id}`, data),
   moveStage: (id: string, stage_key: string, note?: string) =>
-    api.post<{ submission: Submission }>(`/submissions/${id}/move-stage`, { stage_key, note }),
+    api.post<{
+      submission: Submission;
+      placement_created?: boolean;
+      placement_id?: string | null;
+      compliance_bundles_assigned?: Array<{ bundle_id: string; bundle_title?: string; created: number; skipped: number }>;
+    }>(`/submissions/${id}/move-stage`, { stage_key, note }),
   rescore: (id: string) => api.post<{ score: NonNullable<Submission['ai_score_breakdown']> }>(`/submissions/${id}/score`),
   recheckGate: (id: string) =>
     api.post<{ gate: { status: GateStatus; missing: SubmissionGateMissing[] } }>(`/submissions/${id}/recheck-gate`),
@@ -1521,6 +1529,35 @@ export interface RecruiterTask {
   created_at: string;
   updated_at: string;
 }
+
+// ─── Integration status (Phase 5 QA) ───────────────────────────────────────
+export interface IntegrationStatus {
+  key: string;
+  name: string;
+  connected: boolean;
+  required_env: string[];
+  docs_url?: string;
+  description?: string;
+}
+
+export const integrationsStatusApi = {
+  status: () => api.get<{ integrations: IntegrationStatus[] }>('/integrations/status'),
+};
+
+// ─── Global search (Phase 9) ────────────────────────────────────────────────
+export type SearchResultType = 'candidate' | 'job' | 'submission' | 'client' | 'facility' | 'staff';
+
+export interface SearchResult {
+  type: SearchResultType;
+  id: string;
+  label: string;
+  sublabel?: string;
+  nav: string;
+}
+
+export const searchApi = {
+  query: (q: string) => api.get<{ results: SearchResult[] }>('/search', { params: { q } }),
+};
 
 // ─── ATS Reports (Phase 4) ──────────────────────────────────────────────────
 export interface AtsReportsOverview {

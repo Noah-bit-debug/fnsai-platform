@@ -137,6 +137,32 @@ function MoveStageModal({
 }
 
 // ─── Add Document Modal ───────────────────────────────────────────────────────
+// Standardized document types — keeps records consistent across candidates.
+// Each entry provides the stable backend key and the human-friendly label.
+const DOC_TYPE_OPTIONS: Array<{ type: string; label: string; hasExpiry: boolean }> = [
+  { type: 'rn_license',        label: 'RN License',                  hasExpiry: true },
+  { type: 'lpn_license',       label: 'LPN / LVN License',           hasExpiry: true },
+  { type: 'cna_certification', label: 'CNA Certification',           hasExpiry: true },
+  { type: 'bls_cert',          label: 'BLS Certification',           hasExpiry: true },
+  { type: 'acls_cert',         label: 'ACLS Certification',          hasExpiry: true },
+  { type: 'pals_cert',         label: 'PALS Certification',          hasExpiry: true },
+  { type: 'state_license',     label: 'State License',               hasExpiry: true },
+  { type: 'compact_license',   label: 'Compact License',             hasExpiry: true },
+  { type: 'tb_test',           label: 'TB Test / PPD',               hasExpiry: true },
+  { type: 'flu_vaccine',       label: 'Flu Vaccine',                 hasExpiry: true },
+  { type: 'covid_vaccine',     label: 'COVID Vaccine',               hasExpiry: false },
+  { type: 'background_check',  label: 'Background Check',            hasExpiry: true },
+  { type: 'drug_screen',       label: 'Drug Screen',                 hasExpiry: true },
+  { type: 'driver_license',    label: 'Driver\u2019s License',       hasExpiry: true },
+  { type: 'ssn_card',          label: 'Social Security Card',        hasExpiry: false },
+  { type: 'i9_form',           label: 'I-9 Form',                    hasExpiry: false },
+  { type: 'w4_form',           label: 'W-4 Form',                    hasExpiry: false },
+  { type: 'resume',            label: 'Resume / CV',                 hasExpiry: false },
+  { type: 'diploma',           label: 'Diploma / Transcript',        hasExpiry: false },
+  { type: 'reference',         label: 'Reference Letter',            hasExpiry: false },
+  { type: 'other',             label: 'Other (specify in notes)',    hasExpiry: true },
+];
+
 function AddDocumentModal({
   candidateId,
   onClose,
@@ -146,18 +172,49 @@ function AddDocumentModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [docType, setDocType] = useState('');
-  const [label, setLabel] = useState('');
+  const [docType, setDocType] = useState(DOC_TYPE_OPTIONS[0].type);
+  const [label, setLabel] = useState(DOC_TYPE_OPTIONS[0].label);
   const [required, setRequired] = useState(true);
+  const [expiryDate, setExpiryDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Autosync label when type changes (unless user has typed a custom label)
+  const [labelManuallyEdited, setLabelManuallyEdited] = useState(false);
+  const selectedOption = DOC_TYPE_OPTIONS.find((o) => o.type === docType) ?? DOC_TYPE_OPTIONS[0];
+  const onTypeChange = (newType: string) => {
+    setDocType(newType);
+    if (!labelManuallyEdited) {
+      const opt = DOC_TYPE_OPTIONS.find((o) => o.type === newType);
+      if (opt) setLabel(opt.label);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!docType.trim() || !label.trim()) { setErr('Type and label are required.'); return; }
+    if (file && file.size > 10 * 1024 * 1024) { setErr('File must be under 10 MB.'); return; }
     setSaving(true);
     setErr(null);
     try {
-      await candidatesApi.addDocument(candidateId, { document_type: docType.trim(), label: label.trim(), required, status: 'missing' });
+      // NOTE: backend /candidates/:id/documents currently accepts metadata only.
+      // File upload needs a multipart endpoint — left as a TODO for the next
+      // backend session. For now the selected filename is captured in notes
+      // so recruiters have a breadcrumb.
+      const composedNotes = [
+        notes.trim() || null,
+        file ? `(File to upload: ${file.name} — ${(file.size / 1024).toFixed(0)} KB)` : null,
+      ].filter(Boolean).join(' ');
+
+      await candidatesApi.addDocument(candidateId, {
+        document_type: docType.trim(),
+        label: label.trim(),
+        required,
+        status: 'missing',
+        expiry_date: expiryDate || undefined,
+        notes: composedNotes || undefined,
+      });
       onAdded();
       onClose();
     } catch (e: any) {
@@ -169,21 +226,81 @@ function AddDocumentModal({
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 'min(92vw, 480px)', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Add Document</div>
+
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Document Type *</label>
-          <input style={inputStyle()} value={docType} onChange={(e) => setDocType(e.target.value)} placeholder="e.g. rn_license, bls_cert" />
+          <select style={inputStyle()} value={docType} onChange={(e) => onTypeChange(e.target.value)}>
+            {DOC_TYPE_OPTIONS.map((o) => (
+              <option key={o.type} value={o.type}>{o.label}</option>
+            ))}
+          </select>
         </div>
+
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Label *</label>
-          <input style={inputStyle()} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. RN License, BLS Certification" />
+          <input
+            style={inputStyle()}
+            value={label}
+            onChange={(e) => { setLabel(e.target.value); setLabelManuallyEdited(true); }}
+            placeholder="e.g. RN License, BLS Certification"
+          />
         </div>
+
+        {selectedOption.hasExpiry && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+              Expiry date <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <input
+              type="date"
+              style={inputStyle()}
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+            />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+            Attach file <span style={{ color: '#94a3b8', fontWeight: 400 }}>(up to 10 MB, optional)</span>
+          </label>
+          <input
+            type="file"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            style={{ fontSize: 13, width: '100%' }}
+            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+          />
+          {file && (
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+              Selected: {file.name} ({(file.size / 1024).toFixed(0)} KB)
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>
+            ⚠ File upload API lands in a future release — the filename is saved to notes for now.
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+            Notes <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <textarea
+            style={{ ...inputStyle(), minHeight: 70, fontFamily: 'inherit', resize: 'vertical' }}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. Issued by state board, reference ID..."
+          />
+        </div>
+
         <div style={{ marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
           <input type="checkbox" id="req" checked={required} onChange={(e) => setRequired(e.target.checked)} />
-          <label htmlFor="req" style={{ fontSize: 14, color: '#374151', cursor: 'pointer' }}>Required document</label>
+          <label htmlFor="req" style={{ fontSize: 14, color: '#374151', cursor: 'pointer' }}>Required for placement</label>
         </div>
+
         {err && <div style={{ color: '#c62828', fontSize: 13, marginBottom: 12 }}>{err}</div>}
+
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}>Cancel</button>
           <button onClick={handleSubmit} disabled={saving} style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14 }}>

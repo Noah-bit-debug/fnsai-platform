@@ -426,6 +426,68 @@ router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// QA Phase 4: Candidate → Staff conversion
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /:id/convert-to-staff
+ * Converts an onboarding-complete candidate into a staff record and wires
+ * backlinks (any placements tied to this candidate are updated with the new
+ * staff_id). Idempotent: if a staff row with the same email already exists,
+ * that record is reused.
+ */
+router.post('/:id/convert-to-staff', requireAuth, requirePermission('staff_manage'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const candRes = await query(
+      `SELECT first_name, last_name, email, phone, role FROM candidates WHERE id = $1`,
+      [req.params.id]
+    );
+    if (candRes.rows.length === 0) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    const c = candRes.rows[0] as { first_name: string; last_name: string; email: string | null; phone: string | null; role: string | null };
+
+    // Look up or create staff
+    let staffId: string | null = null;
+    if (c.email) {
+      const existing = await query<{ id: string }>(`SELECT id FROM staff WHERE LOWER(email) = LOWER($1) LIMIT 1`, [c.email]);
+      if (existing.rows.length > 0) staffId = existing.rows[0].id;
+    }
+
+    if (!staffId) {
+      const ins = await query<{ id: string }>(
+        `INSERT INTO staff (first_name, last_name, email, phone, role, status)
+         VALUES ($1, $2, $3, $4, $5, 'active')
+         RETURNING id`,
+        [c.first_name, c.last_name, c.email, c.phone, c.role]
+      );
+      staffId = ins.rows[0].id;
+    } else {
+      // Promote existing staff to 'active' in case they were onboarding
+      await query(`UPDATE staff SET status = 'active', updated_at = NOW() WHERE id = $1`, [staffId]);
+    }
+
+    // Update any placements that referenced this candidate to point at the staff row
+    await query(
+      `UPDATE placements SET staff_id = $1 WHERE candidate_id = $2 AND staff_id IS NULL`,
+      [staffId, req.params.id]
+    );
+
+    // Mark candidate as placed (if not already) and log
+    await query(`UPDATE candidates SET status = 'placed', stage = 'placed', updated_at = NOW() WHERE id = $1`, [req.params.id]);
+
+    await logAudit(
+      req.userRecord?.id ?? null, getAuth(req).userId ?? 'system',
+      'candidate.convert_to_staff', req.params.id,
+      { staff_id: staffId }
+    );
+
+    res.json({ staff_id: staffId, created: true });
+  } catch (err) {
+    console.error('Convert-to-staff error:', err);
+    res.status(500).json({ error: 'Failed to convert candidate to staff' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ATS Phase 5: AI outreach endpoints (SMS, recruiter summary, client summary)
 // ═══════════════════════════════════════════════════════════════════════════
 

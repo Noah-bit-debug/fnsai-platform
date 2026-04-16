@@ -1,17 +1,8 @@
 import { useUser, useClerk } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { smsApi, documentsApi, incidentsApi } from '../../lib/api';
-
-const integrations = [
-  { name: 'Outlook', connected: true },
-  { name: 'Teams', connected: true },
-  { name: 'SharePoint', connected: true },
-  { name: 'OneDrive', connected: true },
-  { name: 'Foxit eSign', connected: false },
-  { name: 'ClerkChat SMS', connected: false },
-  { name: 'Excel', connected: true },
-];
+import { smsApi, documentsApi, incidentsApi, integrationsStatusApi } from '../../lib/api';
+import GlobalSearch from './GlobalSearch';
 
 interface TopBarProps {
   onMenuClick?: () => void;
@@ -47,6 +38,15 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
     queryFn: () => incidentsApi.list({ status: 'open' }),
     refetchInterval: 60000,
   });
+
+  // Real integration status — replaces the hardcoded pills
+  const { data: intgData } = useQuery({
+    queryKey: ['integration-status'],
+    queryFn: () => integrationsStatusApi.status(),
+    refetchInterval: 5 * 60_000,
+    staleTime: 2 * 60_000,
+  });
+  const integrations = intgData?.data?.integrations ?? [];
 
   const smsPending = smsData?.data?.approvals?.length ?? 0;
   const qaPending = (qaData?.data as { questions?: unknown[] })?.questions?.length ?? 0;
@@ -91,13 +91,21 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
         <small>Compliance Infrastructure</small>
       </div>
 
-      {/* Integration pills */}
-      <div className="topbar-integrations">
+      {/* Global search */}
+      <GlobalSearch />
+
+      {/* Integration pills — click any to jump to Integration Settings */}
+      <div
+        className="topbar-integrations"
+        style={{ cursor: 'pointer' }}
+        onClick={() => navigate('/settings/integrations')}
+        title="Open integration settings"
+      >
         {integrations.map((intg) => (
           <span
-            key={intg.name}
+            key={intg.key}
             className={`integration-pill ${intg.connected ? 'connected' : 'disconnected'}`}
-            title={intg.connected ? `${intg.name} connected` : `${intg.name} not configured`}
+            title={intg.connected ? `${intg.name} connected — click for details` : `${intg.name} not configured — click to see setup`}
           >
             <span className="dot" />
             {intg.name}
