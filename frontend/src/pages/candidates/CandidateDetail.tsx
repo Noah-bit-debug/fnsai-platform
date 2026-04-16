@@ -229,6 +229,36 @@ export default function CandidateDetail() {
   const [atsLoading, setAtsLoading] = useState(false);
   const [submittingJobId, setSubmittingJobId] = useState<string | null>(null);
 
+  // ATS Phase 5 — AI outreach
+  type OutreachKind = 'sms' | 'recruiter' | 'client';
+  const [outreachBusy, setOutreachBusy] = useState<OutreachKind | null>(null);
+  const [outreachResult, setOutreachResult] = useState<{ kind: OutreachKind; text: string } | null>(null);
+
+  const runOutreach = async (kind: OutreachKind) => {
+    if (!id) return;
+    setOutreachBusy(kind);
+    try {
+      const mod = await import('../../lib/api');
+      let text = '';
+      if (kind === 'sms') text = (await mod.candidatesApi.aiSmsOutreach(id)).data.message;
+      if (kind === 'recruiter') text = (await mod.candidatesApi.aiRecruiterSummary(id)).data.summary;
+      if (kind === 'client') text = (await mod.candidatesApi.aiClientSummary(id)).data.summary;
+      setOutreachResult({ kind, text });
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'AI generation failed');
+    } finally {
+      setOutreachBusy(null);
+    }
+  };
+
+  const copyOutreach = async () => {
+    if (!outreachResult) return;
+    try {
+      await navigator.clipboard.writeText(outreachResult.text);
+      alert('Copied to clipboard');
+    } catch { /* ignore */ }
+  };
+
   // Edit mode
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Candidate>>({});
@@ -918,6 +948,7 @@ export default function CandidateDetail() {
 
       {/* ─── ATS TAB ─── */}
       {activeTab === 'ats' && (
+        <div style={{ display: 'grid', gap: 16 }}>
         <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
           {/* Active submissions */}
           <div style={cardStyle}>
@@ -1034,6 +1065,51 @@ export default function CandidateDetail() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* AI Outreach panel */}
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>AI outreach</h3>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>Drafts only — review before sending</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <button
+              onClick={() => runOutreach('sms')}
+              disabled={outreachBusy !== null}
+              style={{ padding: '8px 14px', background: outreachBusy === 'sms' ? '#f1f5f9' : '#8e44ad', color: outreachBusy === 'sms' ? '#64748b' : '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: outreachBusy ? 'wait' : 'pointer', opacity: outreachBusy && outreachBusy !== 'sms' ? 0.5 : 1 }}
+            >
+              {outreachBusy === 'sms' ? 'Generating…' : '✨ SMS outreach'}
+            </button>
+            <button
+              onClick={() => runOutreach('recruiter')}
+              disabled={outreachBusy !== null}
+              style={{ padding: '8px 14px', background: outreachBusy === 'recruiter' ? '#f1f5f9' : '#8e44ad', color: outreachBusy === 'recruiter' ? '#64748b' : '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: outreachBusy ? 'wait' : 'pointer', opacity: outreachBusy && outreachBusy !== 'recruiter' ? 0.5 : 1 }}
+            >
+              {outreachBusy === 'recruiter' ? 'Generating…' : '✨ Recruiter summary'}
+            </button>
+            <button
+              onClick={() => runOutreach('client')}
+              disabled={outreachBusy !== null}
+              style={{ padding: '8px 14px', background: outreachBusy === 'client' ? '#f1f5f9' : '#8e44ad', color: outreachBusy === 'client' ? '#64748b' : '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: outreachBusy ? 'wait' : 'pointer', opacity: outreachBusy && outreachBusy !== 'client' ? 0.5 : 1 }}
+            >
+              {outreachBusy === 'client' ? 'Generating…' : '✨ Client-facing summary'}
+            </button>
+          </div>
+          {outreachResult && (
+            <div style={{ padding: 14, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {outreachResult.kind === 'sms' ? 'SMS message' : outreachResult.kind === 'recruiter' ? 'Recruiter summary' : 'Client-facing summary'}
+                </span>
+                <button onClick={copyOutreach} style={{ padding: '4px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>Copy</button>
+              </div>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: '#1e293b', lineHeight: 1.55 }}>
+                {outreachResult.text}
+              </div>
+            </div>
+          )}
+        </div>
         </div>
       )}
 

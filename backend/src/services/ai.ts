@@ -302,6 +302,108 @@ Keep it under 250 words. No emojis. No fluff. No filler like "exciting opportuni
   return block.text.trim();
 }
 
+// ─── ATS: Outreach generators (SMS, recruiter summary, client summary) ─────
+export interface CandidateForOutreach {
+  first_name?: string;
+  last_name?: string;
+  role?: string | null;
+  specialties?: string[];
+  skills?: string[];
+  certifications?: string[];
+  licenses?: string[];
+  years_experience?: number | null;
+  city?: string | null;
+  state?: string | null;
+  desired_pay_rate?: number | string | null;
+  availability_type?: string | null;
+  available_shifts?: string[];
+}
+
+function formatCandidateBlock(c: CandidateForOutreach): string {
+  return [
+    `NAME: ${[c.first_name, c.last_name].filter(Boolean).join(' ') || 'n/a'}`,
+    `ROLE: ${c.role ?? 'n/a'}`,
+    c.specialties?.length ? `SPECIALTIES: ${c.specialties.join(', ')}` : '',
+    c.certifications?.length ? `CERTIFICATIONS: ${c.certifications.join(', ')}` : '',
+    c.licenses?.length ? `LICENSES: ${c.licenses.join(', ')}` : '',
+    c.years_experience != null ? `EXPERIENCE: ${c.years_experience}y` : '',
+    [c.city, c.state].filter(Boolean).length ? `LOCATION: ${[c.city, c.state].filter(Boolean).join(', ')}` : '',
+    c.desired_pay_rate ? `DESIRED PAY: ${c.desired_pay_rate}` : '',
+    c.availability_type ? `AVAILABILITY: ${c.availability_type}` : '',
+    c.available_shifts?.length ? `SHIFTS: ${c.available_shifts.join(', ')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * Generates a short SMS outreach message (under 320 chars, two-way friendly).
+ * If a job is supplied, tailors the message to that specific opportunity.
+ */
+export async function generateSmsOutreach(candidate: CandidateForOutreach, job?: JobForAI): Promise<string> {
+  const jobBlock = job ? `\n\nOPPORTUNITY:\n${formatJobBlock(job)}` : '';
+  const prompt = `Draft a short, friendly SMS from a healthcare staffing recruiter to reach out to a candidate${job ? ' about a specific job' : ''}. Under 320 characters total. First-name only greeting. Mention exactly one concrete hook from the opportunity${job ? '' : ' or the candidate\'s profile'}. End with a single clear call-to-action (ask for a good time to chat). No emojis. No hashtags. No placeholders like [Name] — use the actual first name if given, otherwise start with "Hi there".
+
+CANDIDATE:
+${formatCandidateBlock(candidate)}${jobBlock}
+
+Return only the SMS body text, nothing else.`;
+
+  const response = await anthropic.messages.create({
+    model: ATS_MODEL,
+    max_tokens: 400,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = response.content[0];
+  if (block.type !== 'text') throw new Error('Unexpected AI response shape');
+  return block.text.trim();
+}
+
+/**
+ * Internal-facing recruiter summary: 2-3 sentences highlighting fit, gaps,
+ * and suggested next action. For the ATS tab on CandidateDetail.
+ */
+export async function generateRecruiterSummary(candidate: CandidateForOutreach, job?: JobForAI): Promise<string> {
+  const jobBlock = job ? `\n\nJOB CONTEXT:\n${formatJobBlock(job)}` : '';
+  const prompt = `Write a terse 2-3 sentence recruiter-facing summary of this candidate${job ? ' for the supplied job' : ''}. Lead with the strongest selling point, flag one gap or caveat worth knowing, and end with a suggested next action. No markdown, no headers, no bullet points — plain running text.
+
+CANDIDATE:
+${formatCandidateBlock(candidate)}${jobBlock}
+
+Return only the summary text.`;
+
+  const response = await anthropic.messages.create({
+    model: ATS_MODEL,
+    max_tokens: 400,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = response.content[0];
+  if (block.type !== 'text') throw new Error('Unexpected AI response shape');
+  return block.text.trim();
+}
+
+/**
+ * Client-facing candidate summary: professional, 3-5 sentences that sell
+ * the candidate without oversharing internal notes. Used for submission
+ * blurbs and client emails.
+ */
+export async function generateClientSummary(candidate: CandidateForOutreach, job?: JobForAI): Promise<string> {
+  const jobBlock = job ? `\n\nJOB CONTEXT:\n${formatJobBlock(job)}` : '';
+  const prompt = `Write a 3-5 sentence client-facing summary presenting this candidate for submission. Tone: confident, specific, professional. Highlight years of experience, relevant specialty/certification strengths, and availability. Do NOT mention pay rate, internal notes, or gaps. Do NOT use first person. End with a value statement tying the candidate to the role. No markdown, no bullets.
+
+CANDIDATE:
+${formatCandidateBlock(candidate)}${jobBlock}
+
+Return only the summary text.`;
+
+  const response = await anthropic.messages.create({
+    model: ATS_MODEL,
+    max_tokens: 500,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = response.content[0];
+  if (block.type !== 'text') throw new Error('Unexpected AI response shape');
+  return block.text.trim();
+}
+
 /**
  * Generates a short internal-facing job summary (1-2 sentences) used on
  * pipeline cards, matching-candidate lists, and client-facing blurbs.

@@ -633,6 +633,13 @@ export const candidatesApi = {
       candidates: Array<{ id: string; first_name: string; last_name: string; email?: string; phone?: string; role?: string; stage: string; status: string; created_at: string }>;
       match_count: number;
     }>('/candidates/duplicates', { params }),
+  // ATS Phase 5 — AI outreach
+  aiSmsOutreach: (id: string, job_id?: string) =>
+    api.post<{ message: string }>(`/candidates/${id}/ai/sms-outreach`, { job_id }),
+  aiRecruiterSummary: (id: string, job_id?: string) =>
+    api.post<{ summary: string }>(`/candidates/${id}/ai/recruiter-summary`, { job_id }),
+  aiClientSummary: (id: string, job_id?: string) =>
+    api.post<{ summary: string }>(`/candidates/${id}/ai/client-summary`, { job_id }),
 };
 
 export const pipelineApi = {

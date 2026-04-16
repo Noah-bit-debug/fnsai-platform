@@ -426,6 +426,82 @@ router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ATS Phase 5: AI outreach endpoints (SMS, recruiter summary, client summary)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function loadCandidateForOutreach(candidateId: string) {
+  const r = await query(
+    `SELECT first_name, last_name, role, specialties, skills, certifications, licenses,
+            years_experience, city, state, desired_pay_rate, availability_type, available_shifts
+     FROM candidates WHERE id = $1`,
+    [candidateId]
+  );
+  if (r.rows.length === 0) return null;
+  return r.rows[0] as import('../services/ai').CandidateForOutreach;
+}
+
+async function loadJobForOutreachById(jobId: string) {
+  const r = await query(
+    `SELECT j.title, j.profession, j.specialty, j.sub_specialty, j.city, j.state,
+            j.job_type, j.shift, j.hours_per_week, j.duration_weeks, j.start_date,
+            j.pay_rate, j.bill_rate, j.stipend, j.description,
+            cl.name AS client_name, f.name AS facility_name
+     FROM jobs j
+     LEFT JOIN clients cl ON j.client_id = cl.id
+     LEFT JOIN facilities f ON j.facility_id = f.id
+     WHERE j.id = $1`,
+    [jobId]
+  );
+  if (r.rows.length === 0) return null;
+  return r.rows[0] as unknown as import('../services/ai').JobForAI;
+}
+
+router.post('/:id/ai/sms-outreach', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
+  try {
+    const { generateSmsOutreach } = await import('../services/ai');
+    const cand = await loadCandidateForOutreach(req.params.id);
+    if (!cand) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    const jobId = typeof req.body?.job_id === 'string' ? req.body.job_id : null;
+    const job = jobId ? await loadJobForOutreachById(jobId) : undefined;
+    const message = await generateSmsOutreach(cand, job ?? undefined);
+    res.json({ message });
+  } catch (err) {
+    console.error('SMS outreach generation error:', err);
+    res.status(500).json({ error: 'Failed to generate SMS' });
+  }
+});
+
+router.post('/:id/ai/recruiter-summary', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
+  try {
+    const { generateRecruiterSummary } = await import('../services/ai');
+    const cand = await loadCandidateForOutreach(req.params.id);
+    if (!cand) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    const jobId = typeof req.body?.job_id === 'string' ? req.body.job_id : null;
+    const job = jobId ? await loadJobForOutreachById(jobId) : undefined;
+    const summary = await generateRecruiterSummary(cand, job ?? undefined);
+    res.json({ summary });
+  } catch (err) {
+    console.error('Recruiter summary error:', err);
+    res.status(500).json({ error: 'Failed to generate recruiter summary' });
+  }
+});
+
+router.post('/:id/ai/client-summary', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
+  try {
+    const { generateClientSummary } = await import('../services/ai');
+    const cand = await loadCandidateForOutreach(req.params.id);
+    if (!cand) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    const jobId = typeof req.body?.job_id === 'string' ? req.body.job_id : null;
+    const job = jobId ? await loadJobForOutreachById(jobId) : undefined;
+    const summary = await generateClientSummary(cand, job ?? undefined);
+    res.json({ summary });
+  } catch (err) {
+    console.error('Client summary error:', err);
+    res.status(500).json({ error: 'Failed to generate client summary' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ATS Phase 3: Matching jobs for a given candidate
 // ═══════════════════════════════════════════════════════════════════════════
 
