@@ -13,6 +13,8 @@ import SubmissionDetail from './pages/submissions/SubmissionDetail';
 import ClientOrgList from './pages/clients/ClientOrgList';
 import ClientOrgDetail from './pages/clients/ClientOrgDetail';
 import KanbanBoard from './pages/KanbanBoard';
+import Tasks from './pages/Tasks';
+import AtsReports from './pages/AtsReports';
 import Pipeline from './pages/Pipeline';
 import Reminders from './pages/Reminders';
 import RoleDashboard from './pages/RoleDashboard';
@@ -257,6 +259,8 @@ function AppRoutes() {
         <Route path="clients-orgs" element={<ClientOrgList />} />
         <Route path="clients-orgs/:id" element={<ClientOrgDetail />} />
         <Route path="kanban" element={<KanbanBoard />} />
+        <Route path="tasks" element={<Tasks />} />
+        <Route path="ats-reports" element={<AtsReports />} />
 
         {/* Compliance */}
         <Route path="/compliance/my" element={<MyCompliance />} />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { candidatesApi, Candidate } from '../../lib/api';
+import { candidatesApi, Candidate, candidateSavedViewsApi, CandidateSavedView } from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
@@ -226,6 +226,49 @@ export default function CandidateList() {
   const [showImport, setShowImport] = useState(false);
   const { role } = useRBAC();
 
+  // Saved views (Phase 4)
+  const [savedViews, setSavedViews] = useState<CandidateSavedView[]>([]);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [showSaveView, setShowSaveView] = useState(false);
+  const [newViewName, setNewViewName] = useState('');
+
+  useEffect(() => {
+    candidateSavedViewsApi.list()
+      .then((r) => setSavedViews(r.data.views))
+      .catch(() => { /* silent */ });
+  }, []);
+
+  const applyView = (view: CandidateSavedView) => {
+    setActiveViewId(view.id);
+    const filters = view.filters as { search?: string; stage?: string };
+    if (filters.search !== undefined) setSearch(filters.search);
+    if (filters.stage !== undefined) setActiveStage(filters.stage);
+  };
+
+  const saveCurrentView = async () => {
+    if (!newViewName.trim()) return;
+    try {
+      const res = await candidateSavedViewsApi.create(newViewName.trim(), { search, stage: activeStage });
+      setSavedViews([res.data.view, ...savedViews]);
+      setActiveViewId(res.data.view.id);
+      setNewViewName('');
+      setShowSaveView(false);
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Failed to save view');
+    }
+  };
+
+  const deleteView = async (id: string) => {
+    if (!window.confirm('Delete this saved view?')) return;
+    try {
+      await candidateSavedViewsApi.delete(id);
+      setSavedViews(savedViews.filter((v) => v.id !== id));
+      if (activeViewId === id) setActiveViewId(null);
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Failed to delete');
+    }
+  };
+
   const fetchCandidates = async () => {
     setLoading(true);
     setError(null);
@@ -280,6 +323,52 @@ export default function CandidateList() {
 
       {/* Search + Stage Filters */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8edf2', padding: 24, marginBottom: 20 }}>
+        {/* Saved views row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>Views</span>
+          {savedViews.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>— none saved</span>}
+          {savedViews.map((v) => (
+            <span key={v.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <button
+                onClick={() => applyView(v)}
+                style={{
+                  padding: '4px 10px',
+                  background: activeViewId === v.id ? '#1565c0' : '#f1f5f9',
+                  color: activeViewId === v.id ? '#fff' : '#374151',
+                  border: '1px solid #e2e8f0', borderRadius: 999,
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {v.name}
+              </button>
+              <button
+                onClick={() => deleteView(v.id)}
+                title="Delete view"
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 11, padding: 0 }}
+              >×</button>
+            </span>
+          ))}
+          {!showSaveView ? (
+            <button
+              onClick={() => setShowSaveView(true)}
+              style={{ padding: '4px 10px', background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 999, fontSize: 11, color: '#64748b', cursor: 'pointer' }}
+            >+ Save current filters</button>
+          ) : (
+            <>
+              <input
+                autoFocus
+                value={newViewName}
+                onChange={(e) => setNewViewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveCurrentView(); } }}
+                placeholder="View name…"
+                style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11, outline: 'none' }}
+              />
+              <button onClick={saveCurrentView} style={{ padding: '4px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+              <button onClick={() => { setShowSaveView(false); setNewViewName(''); }} style={{ padding: '4px 8px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 11 }}>Cancel</button>
+            </>
+          )}
+        </div>
+
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <input
             type="text"

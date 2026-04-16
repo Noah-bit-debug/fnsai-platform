@@ -54,6 +54,8 @@ import jobsRouter from './routes/jobs';
 import submissionsRouter from './routes/submissions';
 import pipelineStagesRouter from './routes/pipelineStages';
 import recruiterTasksRouter from './routes/recruiterTasks';
+// ATS Phase 4
+import atsReportsRouter from './routes/atsReports';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -197,6 +199,8 @@ app.use('/api/v1/jobs', jobsRouter);
 app.use('/api/v1/submissions', submissionsRouter);
 app.use('/api/v1/pipeline-stages', pipelineStagesRouter);
 app.use('/api/v1/tasks', recruiterTasksRouter);
+// ATS Phase 4
+app.use('/api/v1/ats-reports', atsReportsRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

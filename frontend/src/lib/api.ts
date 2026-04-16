@@ -1515,6 +1515,53 @@ export interface RecruiterTask {
   updated_at: string;
 }
 
+// ─── ATS Reports (Phase 4) ──────────────────────────────────────────────────
+export interface AtsReportsOverview {
+  funnel: Array<{ key: string; label: string; color?: string; sort_order: number; is_terminal: boolean; count: number }>;
+  recruiter_leaderboard: Array<{
+    id: string; name?: string; email?: string;
+    submissions_30d: number; placements: number; open_jobs: number;
+  }>;
+  jobs_at_risk: Array<{
+    id: string; job_code?: string; title: string; profession?: string; specialty?: string;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+    city?: string; state?: string; age_days: number; submission_count: number;
+    client_name?: string; recruiter_name?: string;
+  }>;
+  submission_to_placement: {
+    total: number; placed: number; client_submitted: number;
+    interview: number; offer: number; lost: number; placement_rate: number;
+  };
+  active_jobs_summary: {
+    open_jobs?: number; on_hold_jobs?: number; filled_jobs?: number;
+    urgent_open?: number; total_positions_open?: number;
+  };
+  tasks: {
+    open_tasks?: number; overdue?: number; due_today?: number; completed_7d?: number;
+  };
+}
+
+export const atsReportsApi = {
+  overview: () => api.get<AtsReportsOverview>('/ats-reports/overview'),
+};
+
+// ─── Saved candidate views (Phase 4) ────────────────────────────────────────
+export interface CandidateSavedView {
+  id: string;
+  user_id?: string | null;
+  name: string;
+  filters: Record<string, unknown>;
+  is_shared: boolean;
+  created_at: string;
+}
+
+export const candidateSavedViewsApi = {
+  list: () => api.get<{ views: CandidateSavedView[] }>('/candidates/saved-views'),
+  create: (name: string, filters: Record<string, unknown>, is_shared = false) =>
+    api.post<{ view: CandidateSavedView }>('/candidates/saved-views', { name, filters, is_shared }),
+  delete: (id: string) => api.delete(`/candidates/saved-views/${id}`),
+};
+
 export const tasksApi = {
   list: (params?: {
     assigned_to?: string;
