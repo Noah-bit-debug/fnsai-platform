@@ -1,0 +1,925 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
+import api from '../../lib/api';
+import { useRBAC } from '../../contexts/RBACContext';
+
+const STAGES = ['application', 'interview', 'credentialing', 'onboarding', 'placed'] as const;
+type PipelineStage = typeof STAGES[number];
+
+const STAGE_COLORS: Record<string, string> = {
+  application:   '#1565c0',
+  interview:     '#e65100',
+  credentialing: '#6a1b9a',
+  onboarding:    '#2e7d32',
+  placed:        '#00695c',
+  rejected:      '#c62828',
+  withdrawn:     '#546e7a',
+};
+
+const DOC_STATUS_COLORS: Record<string, string> = {
+  missing:  '#c62828',
+  pending:  '#e65100',
+  received: '#1565c0',
+  approved: '#2e7d32',
+  rejected: '#c62828',
+  expired:  '#546e7a',
+};
+
+const FORM_STATUS_COLORS: Record<string, string> = {
+  not_sent:  '#546e7a',
+  sent:      '#1565c0',
+  opened:    '#e65100',
+  completed: '#2e7d32',
+  expired:   '#c62828',
+};
+
+const FORM_LABELS: Record<string, string> = {
+  w4: 'W-4 (Tax Withholding)',
+  i9: 'I-9 (Employment Eligibility)',
+  direct_deposit: 'Direct Deposit Authorization',
+  emergency_contact: 'Emergency Contact Form',
+  hipaa: 'HIPAA Acknowledgement',
+  handbook: 'Employee Handbook Signature',
+  other: 'Other Form',
+};
+
+const COMPLIANCE_STATUS_COLORS: Record<string, string> = {
+  not_started: '#546e7a',
+  in_progress: '#1565c0',
+  completed:   '#2e7d32',
+  signed:      '#2e7d32',
+  read:        '#2e7d32',
+  expired:     '#c62828',
+  failed:      '#c62828',
+};
+
+function StageBadge({ stage }: { stage: string }) {
+  return (
+    <span style={{
+      background: STAGE_COLORS[stage] ?? '#546e7a',
+      color: '#fff', borderRadius: 12, padding: '4px 12px',
+      fontSize: 13, fontWeight: 600, textTransform: 'capitalize',
+    }}>
+      {stage}
+    </span>
+  );
+}
+
+function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return { width: '100%', padding: '8px 12px', border: '1px solid #e8edf2', borderRadius: 8, fontSize: 14, outline: 'none', color: '#1a2b3c', boxSizing: 'border-box', ...extra };
+}
+
+// ─── Move Stage Modal ─────────────────────────────────────────────────────────
+function MoveStageModal({
+  currentStage,
+  onClose,
+  onMove,
+}: {
+  currentStage: string;
+  onClose: () => void;
+  onMove: (stage: string, notes: string) => Promise<void>;
+}) {
+  const allStages = ['application', 'interview', 'credentialing', 'onboarding', 'placed', 'rejected', 'withdrawn'];
+  const [stage, setStage] = useState(currentStage);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async () => {
+    if (stage === currentStage) { onClose(); return; }
+    setSaving(true);
+    try {
+      await onMove(stage, notes);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Move Stage</div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>New Stage</label>
+          <select style={inputStyle()} value={stage} onChange={(e) => setStage(e.target.value)}>
+            {allStages.map((s) => (
+              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Notes (optional)</label>
+          <textarea
+            style={{ ...inputStyle(), height: 80, resize: 'vertical' }}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Reason for moving stage..."
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}>
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || stage === currentStage}
+            style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving || stage === currentStage ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, opacity: stage === currentStage ? 0.5 : 1 }}
+          >
+            {saving ? 'Moving...' : 'Move Stage'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Add Document Modal ───────────────────────────────────────────────────────
+function AddDocumentModal({
+  candidateId,
+  onClose,
+  onAdded,
+}: {
+  candidateId: string;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [docType, setDocType] = useState('');
+  const [label, setLabel] = useState('');
+  const [required, setRequired] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!docType.trim() || !label.trim()) { setErr('Type and label are required.'); return; }
+    setSaving(true);
+    setErr(null);
+    try {
+      await candidatesApi.addDocument(candidateId, { document_type: docType.trim(), label: label.trim(), required, status: 'missing' });
+      onAdded();
+      onClose();
+    } catch (e: any) {
+      setErr(e?.response?.data?.error ?? 'Failed to add document.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Add Document</div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Document Type *</label>
+          <input style={inputStyle()} value={docType} onChange={(e) => setDocType(e.target.value)} placeholder="e.g. rn_license, bls_cert" />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Label *</label>
+          <input style={inputStyle()} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. RN License, BLS Certification" />
+        </div>
+        <div style={{ marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input type="checkbox" id="req" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+          <label htmlFor="req" style={{ fontSize: 14, color: '#374151', cursor: 'pointer' }}>Required document</label>
+        </div>
+        {err && <div style={{ color: '#c62828', fontSize: 13, marginBottom: 12 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14 }}>
+            {saving ? 'Adding...' : 'Add Document'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function CandidateDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { can } = useRBAC();
+
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [documents, setDocuments] = useState<CandidateDocument[]>([]);
+  const [history, setHistory] = useState<StageHistory[]>([]);
+  const [forms, setForms] = useState<OnboardingForm[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'profile' | 'pipeline' | 'documents' | 'onboarding' | 'compliance'>('profile');
+
+  // Edit mode
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<Candidate>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Modals
+  const [showMoveStage, setShowMoveStage] = useState(false);
+  const [showAddDoc, setShowAddDoc] = useState(false);
+
+  // Compliance state
+  const [complianceData, setComplianceData] = useState<{
+    summary: { total: number; completed: number; pending: number; expired: number; completion_rate: number };
+    records: any[];
+    assigned_bundles: Array<{ bundle_id: string; bundle_title: string; item_count: number; assigned_at: string; trigger_type: string }>;
+  } | null>(null);
+  const [complianceLoading, setComplianceLoading] = useState(false);
+  const [availableBundles, setAvailableBundles] = useState<Array<{ id: string; title: string; description: string }>>([]);
+  const [showBundleModal, setShowBundleModal] = useState(false);
+  const [selectedBundle, setSelectedBundle] = useState('');
+  const [bundleDueDate, setBundleDueDate] = useState('');
+  const [assigningBundle, setAssigningBundle] = useState(false);
+  const [complianceLoaded, setComplianceLoaded] = useState(false);
+
+  const fetchAll = async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [cRes, dRes, hRes, fRes] = await Promise.all([
+        candidatesApi.get(id),
+        candidatesApi.getDocuments(id),
+        candidatesApi.getStageHistory(id),
+        candidatesApi.getOnboardingForms(id),
+      ]);
+      setCandidate(cRes.data);
+      setDocuments(dRes.data?.documents ?? []);
+      setHistory(hRes.data?.history ?? []);
+      setForms(fRes.data?.forms ?? []);
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'Failed to load candidate.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchAll(); }, [id]);
+
+  async function loadCompliance() {
+    if (!id) return;
+    setComplianceLoading(true);
+    try {
+      const [compRes, bundlesRes] = await Promise.all([
+        api.get(`/compliance/integration/candidate/${id}/compliance`),
+        api.get('/compliance/bundles?status=published'),
+      ]);
+      setComplianceData(compRes.data);
+      setAvailableBundles(bundlesRes.data.bundles ?? []);
+    } catch (e: any) {
+      console.error('Compliance load failed', e);
+    } finally {
+      setComplianceLoading(false);
+    }
+  }
+
+  async function assignBundle() {
+    if (!selectedBundle || !id) return;
+    setAssigningBundle(true);
+    try {
+      await api.post(`/compliance/integration/candidate/${id}/assign-bundle`, {
+        bundle_id: selectedBundle,
+        due_date: bundleDueDate || undefined,
+      });
+      setShowBundleModal(false);
+      setSelectedBundle('');
+      setBundleDueDate('');
+      await loadCompliance();
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Failed to assign bundle');
+    } finally {
+      setAssigningBundle(false);
+    }
+  }
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    if (tab === 'compliance' && !complianceLoaded) {
+      setComplianceLoaded(true);
+      loadCompliance();
+    }
+  };
+
+  const startEdit = () => {
+    if (!candidate) return;
+    setEditForm({
+      first_name: candidate.first_name,
+      last_name: candidate.last_name,
+      email: candidate.email,
+      phone: candidate.phone,
+      address: candidate.address,
+      city: candidate.city,
+      state: candidate.state,
+      zip: candidate.zip,
+      role: candidate.role,
+      years_experience: candidate.years_experience,
+      specialties: candidate.specialties,
+      skills: candidate.skills,
+      certifications: candidate.certifications,
+      licenses: candidate.licenses,
+      recruiter_notes: candidate.recruiter_notes,
+      hr_notes: candidate.hr_notes,
+      source: candidate.source,
+    });
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (!id) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await candidatesApi.update(id, editForm);
+      setCandidate(res.data);
+      setEditing(false);
+    } catch (e: any) {
+      setSaveError(e?.response?.data?.error ?? 'Failed to save.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMoveStage = async (stage: string, notes: string) => {
+    if (!id) return;
+    await candidatesApi.moveStage(id, stage, notes);
+    setShowMoveStage(false);
+    await fetchAll();
+  };
+
+  const handleSendForm = async (formType: string) => {
+    if (!id) return;
+    try {
+      await candidatesApi.sendOnboardingForm(id, formType);
+      const fRes = await candidatesApi.getOnboardingForms(id);
+      setForms(fRes.data?.forms ?? []);
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Failed to send form.');
+    }
+  };
+
+  const handleUpdateDocStatus = async (docId: string, status: string) => {
+    if (!id) return;
+    try {
+      await candidatesApi.updateDocument(id, docId, { status: status as any });
+      const dRes = await candidatesApi.getDocuments(id);
+      setDocuments(dRes.data?.documents ?? []);
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Failed to update document.');
+    }
+  };
+
+  const cardStyle: React.CSSProperties = { background: '#fff', borderRadius: 12, border: '1px solid #e8edf2', padding: 24, marginBottom: 16 };
+  const tabBtn = (tab: string): React.CSSProperties => ({
+    padding: '9px 20px', border: 'none', borderRadius: 8, cursor: 'pointer',
+    fontWeight: 600, fontSize: 14,
+    background: activeTab === tab ? '#1565c0' : '#f1f5f9',
+    color: activeTab === tab ? '#fff' : '#64748b',
+  });
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 40 }}>Loading...</div>;
+  if (error) return <div style={{ textAlign: 'center', padding: 40, color: '#c62828' }}>{error}</div>;
+  if (!candidate) return null;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <button
+          onClick={() => navigate('/candidates')}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565c0', fontSize: 14, fontWeight: 600, padding: 0, marginBottom: 12 }}
+        >
+          ← Candidates
+        </button>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a2b3c', margin: 0 }}>
+                {candidate.first_name} {candidate.last_name}
+              </h1>
+              <StageBadge stage={candidate.stage} />
+            </div>
+            <p style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
+              {candidate.role ?? 'No role set'} {candidate.email ? `· ${candidate.email}` : ''}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {can('candidate_stage_move') && (
+              <button
+                onClick={() => setShowMoveStage(true)}
+                style={{ background: '#00796b', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                Move Stage
+              </button>
+            )}
+            {can('candidates_edit') && !editing && (
+              <button
+                onClick={startEdit}
+                style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        {(['profile', 'pipeline', 'documents', 'onboarding', 'compliance'] as const).map((tab) => (
+          <button key={tab} style={tabBtn(tab)} onClick={() => handleTabChange(tab)}>
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── PROFILE TAB ─── */}
+      {activeTab === 'profile' && (
+        <div style={cardStyle}>
+          {editing ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {[
+                  { label: 'First Name', key: 'first_name' },
+                  { label: 'Last Name', key: 'last_name' },
+                  { label: 'Email', key: 'email' },
+                  { label: 'Phone', key: 'phone' },
+                  { label: 'Address', key: 'address' },
+                  { label: 'City', key: 'city' },
+                  { label: 'State', key: 'state' },
+                  { label: 'Zip', key: 'zip' },
+                ].map(({ label, key }) => (
+                  <div key={key}>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>{label}</label>
+                    <input
+                      style={inputStyle()}
+                      value={(editForm as any)[key] ?? ''}
+                      onChange={(e) => setEditForm((f) => ({ ...f, [key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Role</label>
+                  <select style={inputStyle()} value={editForm.role ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value as any }))}>
+                    <option value="">—</option>
+                    {['RN', 'LPN', 'LVN', 'CNA', 'RT', 'NP', 'PA', 'Other'].map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Years Experience</label>
+                  <input style={inputStyle()} type="number" value={editForm.years_experience ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, years_experience: Number(e.target.value) }))} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Specialties (comma-separated)</label>
+                  <input style={inputStyle()} value={editForm.specialties?.join(', ') ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, specialties: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Skills (comma-separated)</label>
+                  <input style={inputStyle()} value={editForm.skills?.join(', ') ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, skills: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Recruiter Notes</label>
+                  <textarea style={{ ...inputStyle(), height: 80, resize: 'vertical' }} value={editForm.recruiter_notes ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, recruiter_notes: e.target.value }))} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>HR Notes</label>
+                  <textarea style={{ ...inputStyle(), height: 80, resize: 'vertical' }} value={editForm.hr_notes ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, hr_notes: e.target.value }))} />
+                </div>
+              </div>
+              {saveError && <div style={{ color: '#c62828', fontSize: 13, marginTop: 12 }}>{saveError}</div>}
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button onClick={() => setEditing(false)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}>Cancel</button>
+                <button onClick={handleSave} disabled={saving} style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14 }}>
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              {[
+                { label: 'Full Name', value: `${candidate.first_name} ${candidate.last_name}` },
+                { label: 'Email', value: candidate.email },
+                { label: 'Phone', value: candidate.phone },
+                { label: 'Role', value: candidate.role },
+                { label: 'Years Experience', value: candidate.years_experience != null ? `${candidate.years_experience} years` : undefined },
+                { label: 'Source', value: candidate.source },
+                { label: 'Location', value: [candidate.city, candidate.state, candidate.zip].filter(Boolean).join(', ') || undefined },
+                { label: 'Recruiter', value: candidate.recruiter_name },
+                { label: 'Availability Type', value: candidate.availability_type?.replace('_', ' ') },
+                { label: 'Available From', value: candidate.availability_start ? new Date(candidate.availability_start).toLocaleDateString() : undefined },
+                { label: 'Desired Pay', value: candidate.desired_pay_rate != null ? `$${candidate.desired_pay_rate}/hr` : undefined },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 14, color: '#1a2b3c' }}>{value || '—'}</div>
+                </div>
+              ))}
+              {candidate.specialties?.length ? (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Specialties</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {candidate.specialties.map((s) => <span key={s} style={{ background: '#eff6ff', color: '#1565c0', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{s}</span>)}
+                  </div>
+                </div>
+              ) : null}
+              {candidate.skills?.length ? (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Skills</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {candidate.skills.map((s) => <span key={s} style={{ background: '#f0fdf4', color: '#2e7d32', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{s}</span>)}
+                  </div>
+                </div>
+              ) : null}
+              {candidate.certifications?.length ? (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Certifications</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {candidate.certifications.map((s) => <span key={s} style={{ background: '#fdf4ff', color: '#6a1b9a', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{s}</span>)}
+                  </div>
+                </div>
+              ) : null}
+              {candidate.recruiter_notes && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Recruiter Notes</div>
+                  <div style={{ fontSize: 14, color: '#374151', background: '#f8fafc', padding: '10px 14px', borderRadius: 8 }}>{candidate.recruiter_notes}</div>
+                </div>
+              )}
+              {candidate.hr_notes && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>HR Notes</div>
+                  <div style={{ fontSize: 14, color: '#374151', background: '#f8fafc', padding: '10px 14px', borderRadius: 8 }}>{candidate.hr_notes}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── PIPELINE TAB ─── */}
+      {activeTab === 'pipeline' && (
+        <>
+          <div style={cardStyle}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Stage Tracker</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto' }}>
+              {STAGES.map((stage, i) => {
+                const isActive = candidate.stage === stage;
+                const isPast = STAGES.indexOf(candidate.stage as PipelineStage) > i;
+                return (
+                  <div key={stage} style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{
+                      textAlign: 'center', minWidth: 100,
+                    }}>
+                      <div style={{
+                        width: 40, height: 40, borderRadius: '50%', margin: '0 auto 6px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: isActive ? STAGE_COLORS[stage] : isPast ? '#d1fae5' : '#f1f5f9',
+                        border: isActive ? `2px solid ${STAGE_COLORS[stage]}` : isPast ? '2px solid #86efac' : '2px solid #e8edf2',
+                        color: isActive ? '#fff' : isPast ? '#2e7d32' : '#64748b',
+                        fontWeight: 700, fontSize: 14,
+                      }}>
+                        {isPast ? '✓' : i + 1}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? STAGE_COLORS[stage] : '#64748b', textTransform: 'capitalize' }}>
+                        {stage}
+                      </div>
+                    </div>
+                    {i < STAGES.length - 1 && (
+                      <div style={{ height: 2, width: 40, background: isPast ? '#86efac' : '#e8edf2', marginBottom: 20 }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {can('candidate_stage_move') && (
+              <button
+                onClick={() => setShowMoveStage(true)}
+                style={{ marginTop: 20, background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                Move Stage →
+              </button>
+            )}
+          </div>
+
+          <div style={cardStyle}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1a2b3c', marginBottom: 16 }}>Stage History</div>
+            {history.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: 14 }}>No stage movements recorded yet.</div>
+            ) : (
+              <div>
+                {history.map((h, i) => (
+                  <div key={h.id} style={{ display: 'flex', gap: 14, paddingBottom: 16, marginBottom: i < history.length - 1 ? 16 : 0, borderBottom: i < history.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: STAGE_COLORS[h.to_stage] ?? '#64748b', marginTop: 3, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2b3c' }}>
+                        {h.from_stage ? `${h.from_stage} → ` : 'Started at '}{h.to_stage}
+                      </div>
+                      {h.moved_by_name && <div style={{ fontSize: 12, color: '#64748b' }}>by {h.moved_by_name}</div>}
+                      {h.notes && <div style={{ fontSize: 13, color: '#374151', marginTop: 4, background: '#f8fafc', padding: '6px 10px', borderRadius: 6 }}>{h.notes}</div>}
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{new Date(h.created_at).toLocaleString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ─── DOCUMENTS TAB ─── */}
+      {activeTab === 'documents' && (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1a2b3c' }}>Credentialing Documents</div>
+            {can('credentialing_manage') && (
+              <button
+                onClick={() => setShowAddDoc(true)}
+                style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+              >
+                + Add Document
+              </button>
+            )}
+          </div>
+          {documents.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#64748b', fontSize: 14 }}>No documents tracked yet.</div>
+          ) : (
+            <div>
+              {documents.map((doc) => (
+                <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#1a2b3c' }}>{doc.label}</span>
+                      {doc.required && <span style={{ fontSize: 11, color: '#c62828', background: '#fef2f2', padding: '2px 7px', borderRadius: 8, fontWeight: 600 }}>Required</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{doc.document_type}</div>
+                    {doc.expiry_date && <div style={{ fontSize: 12, color: '#e65100', marginTop: 2 }}>Expires: {new Date(doc.expiry_date).toLocaleDateString()}</div>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                      background: DOC_STATUS_COLORS[doc.status] ?? '#546e7a',
+                      color: '#fff', borderRadius: 10, padding: '3px 10px', fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
+                    }}>
+                      {doc.status}
+                    </span>
+                    {can('credentialing_manage') && (
+                      <select
+                        value={doc.status}
+                        onChange={(e) => handleUpdateDocStatus(doc.id, e.target.value)}
+                        style={{ padding: '4px 8px', border: '1px solid #e8edf2', borderRadius: 6, fontSize: 12, cursor: 'pointer', background: '#f8fafc' }}
+                      >
+                        {['missing', 'pending', 'received', 'approved', 'rejected', 'expired'].map((s) => (
+                          <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── ONBOARDING TAB ─── */}
+      {activeTab === 'onboarding' && (
+        <div style={cardStyle}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Onboarding Forms</div>
+          {(() => {
+            const allFormTypes: Array<OnboardingForm['form_type']> = ['w4', 'i9', 'direct_deposit', 'emergency_contact', 'hipaa', 'handbook'];
+            return allFormTypes.map((ft) => {
+              const existing = forms.find((f) => f.form_type === ft);
+              return (
+                <div key={ft} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2b3c' }}>{FORM_LABELS[ft]}</div>
+                    {existing?.sent_at && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sent: {new Date(existing.sent_at).toLocaleDateString()}</div>}
+                    {existing?.completed_at && <div style={{ fontSize: 12, color: '#2e7d32', marginTop: 2 }}>Completed: {new Date(existing.completed_at).toLocaleDateString()}</div>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {existing && (
+                      <span style={{
+                        background: FORM_STATUS_COLORS[existing.status] ?? '#546e7a',
+                        color: '#fff', borderRadius: 10, padding: '3px 10px', fontSize: 12, fontWeight: 600,
+                        textTransform: 'capitalize',
+                      }}>
+                        {existing.status.replace('_', ' ')}
+                      </span>
+                    )}
+                    {can('onboarding_manage') && (!existing || existing.status === 'not_sent' || existing.status === 'expired') && (
+                      <button
+                        onClick={() => handleSendForm(ft)}
+                        style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                      >
+                        Send Form
+                      </button>
+                    )}
+                    {can('onboarding_manage') && existing && existing.status === 'sent' && (
+                      <button
+                        onClick={() => handleSendForm(ft)}
+                        style={{ background: '#f1f5f9', color: '#374151', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                      >
+                        Resend
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+
+      {/* ─── COMPLIANCE TAB ─── */}
+      {activeTab === 'compliance' && (
+        <div>
+          {complianceLoading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#64748b', fontSize: 14 }}>Loading compliance data...</div>
+          ) : complianceData ? (
+            <>
+              {/* Summary Row */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+                {[
+                  { label: 'Total Assigned', value: complianceData.summary.total, color: '#546e7a', bg: '#f8fafc' },
+                  { label: 'Completed', value: complianceData.summary.completed, color: '#2e7d32', bg: '#f0fdf4' },
+                  { label: 'Pending', value: complianceData.summary.pending, color: '#1565c0', bg: '#eff6ff' },
+                  { label: 'Expired', value: complianceData.summary.expired, color: complianceData.summary.expired > 0 ? '#c62828' : '#546e7a', bg: complianceData.summary.expired > 0 ? '#fef2f2' : '#f8fafc' },
+                ].map(({ label, value, color, bg }) => (
+                  <div key={label} style={{ background: bg, border: `1px solid ${color}30`, borderRadius: 10, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+                    <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+                <div style={{ marginLeft: 8, textAlign: 'center' }}>
+                  <div style={{
+                    fontSize: 32, fontWeight: 800,
+                    color: complianceData.summary.completion_rate > 80 ? '#16a34a'
+                      : complianceData.summary.completion_rate > 50 ? '#ea580c'
+                      : '#dc2626',
+                  }}>
+                    {complianceData.summary.completion_rate}%
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Completion Rate</div>
+                </div>
+              </div>
+
+              {/* Assigned Bundles Section */}
+              <div style={{ ...cardStyle, marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2b3c' }}>Assigned Bundles</div>
+                  <button
+                    onClick={() => setShowBundleModal(true)}
+                    style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                  >
+                    Assign Bundle
+                  </button>
+                </div>
+                {complianceData.assigned_bundles.length === 0 ? (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e8edf2', borderRadius: 8, padding: '20px 16px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                    No bundles assigned yet
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {complianceData.assigned_bundles.map((b) => {
+                      const triggerColors: Record<string, { bg: string; color: string }> = {
+                        manual: { bg: '#eff6ff', color: '#1565c0' },
+                        stage_change: { bg: '#f0fdf4', color: '#2e7d32' },
+                        auto_rule: { bg: '#fdf4ff', color: '#6a1b9a' },
+                      };
+                      const tc = triggerColors[b.trigger_type] ?? { bg: '#f8fafc', color: '#546e7a' };
+                      return (
+                        <div key={b.bundle_id} style={{ border: '1px solid #e8edf2', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#1a2b3c' }}>{b.bundle_title}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, background: tc.bg, color: tc.color, borderRadius: 6, padding: '2px 8px', textTransform: 'capitalize' }}>
+                              {b.trigger_type.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 12, background: '#f1f5f9', color: '#374151', borderRadius: 6, padding: '2px 8px', fontWeight: 600 }}>
+                              {b.item_count} items
+                            </span>
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                              Assigned {new Date(b.assigned_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Compliance Records Section */}
+              <div style={cardStyle}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2b3c', marginBottom: 16 }}>Compliance Items</div>
+                {complianceData.records.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8', fontSize: 13 }}>No compliance items assigned</div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e8edf2' }}>
+                          {['Title', 'Type', 'Status', 'Due Date', 'Score'].map((h) => (
+                            <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {complianceData.records.map((rec: any) => (
+                          <tr key={rec.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1a2b3c' }}>{rec.title}</td>
+                            <td style={{ padding: '10px 12px', color: '#64748b', textTransform: 'capitalize' }}>{rec.item_type}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <span style={{
+                                background: COMPLIANCE_STATUS_COLORS[rec.status] ?? '#546e7a',
+                                color: '#fff', borderRadius: 8, padding: '2px 10px', fontSize: 11, fontWeight: 700, textTransform: 'capitalize',
+                              }}>
+                                {rec.status?.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 12px', color: '#64748b' }}>
+                              {rec.due_date ? new Date(rec.due_date).toLocaleDateString() : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', color: '#64748b' }}>
+                              {rec.score != null ? `${rec.score}%` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>No compliance data available.</div>
+          )}
+        </div>
+      )}
+
+      {/* Modals */}
+      {showMoveStage && (
+        <MoveStageModal
+          currentStage={candidate.stage}
+          onClose={() => setShowMoveStage(false)}
+          onMove={handleMoveStage}
+        />
+      )}
+      {showAddDoc && (
+        <AddDocumentModal
+          candidateId={candidate.id}
+          onClose={() => setShowAddDoc(false)}
+          onAdded={() => candidatesApi.getDocuments(candidate.id).then((r) => setDocuments(r.data?.documents ?? []))}
+        />
+      )}
+
+      {/* Bundle Assignment Modal */}
+      {showBundleModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Assign Compliance Bundle</div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Bundle *</label>
+              <select
+                style={inputStyle()}
+                value={selectedBundle}
+                onChange={(e) => setSelectedBundle(e.target.value)}
+              >
+                <option value="">— Select a bundle —</option>
+                {availableBundles.map((b) => (
+                  <option key={b.id} value={b.id}>{b.title}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Due Date (optional)</label>
+              <input
+                type="date"
+                style={inputStyle()}
+                value={bundleDueDate}
+                onChange={(e) => setBundleDueDate(e.target.value)}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowBundleModal(false); setSelectedBundle(''); setBundleDueDate(''); }}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={assignBundle}
+                disabled={assigningBundle || !selectedBundle}
+                style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: assigningBundle || !selectedBundle ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, opacity: !selectedBundle ? 0.6 : 1 }}
+              >
+                {assigningBundle ? 'Assigning...' : 'Assign Bundle'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

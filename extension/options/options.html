@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SentrixAI Time Tracker — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="page">
+
+    <!-- ===== SIDEBAR ===== -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <img src="../icons/icon48.png" alt="SentrixAI" class="brand-logo" />
+        <div>
+          <div class="brand-name">SentrixAI</div>
+          <div class="brand-sub">Time Tracker Settings</div>
+        </div>
+      </div>
+      <ul class="nav-list">
+        <li><a class="nav-link active" href="#authentication">Authentication</a></li>
+        <li><a class="nav-link" href="#tracking-mode">Tracking Mode</a></li>
+        <li><a class="nav-link" href="#idle-settings">Idle Settings</a></li>
+        <li><a class="nav-link" href="#domain-rules">Domain Rules</a></li>
+        <li><a class="nav-link" href="#privacy">Privacy</a></li>
+      </ul>
+    </nav>
+
+    <!-- ===== CONTENT ===== -->
+    <main class="content">
+
+      <!-- Status bar -->
+      <div class="status-bar hidden" id="statusBar"></div>
+
+      <!-- ===== SECTION: Authentication ===== -->
+      <section class="section" id="authentication">
+        <div class="section-header">
+          <h2 class="section-title">Authentication</h2>
+          <p class="section-desc">Connect the extension to your SentrixAI account.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="apiBase">API Base URL</label>
+          <input
+            class="input"
+            type="url"
+            id="apiBase"
+            placeholder="https://fnsai-backend-production.up.railway.app/api/v1"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="hint">Leave blank to use the default Railway backend.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="authToken">Auth Token</label>
+          <div class="input-group">
+            <input
+              class="input input--token"
+              type="password"
+              id="authToken"
+              placeholder="Paste your Bearer token here"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button class="btn btn--ghost btn--sm" id="btnToggleToken" type="button" title="Show/hide token">
+              👁
+            </button>
+          </div>
+          <p class="hint">
+            Get your token from the SentrixAI app: <strong>Profile → API Access → Copy Token</strong>.
+          </p>
+        </div>
+
+        <div class="form-row">
+          <button class="btn btn--secondary btn--sm" id="btnTestConnection" type="button">
+            Test Connection
+          </button>
+          <span class="connection-status" id="connectionStatus"></span>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ===== SECTION: Tracking Mode ===== -->
+      <section class="section" id="tracking-mode">
+        <div class="section-header">
+          <h2 class="section-title">Tracking Mode</h2>
+          <p class="section-desc">Choose how the extension decides when to count time.</p>
+        </div>
+
+        <div class="radio-card-group">
+          <label class="radio-card" id="cardBrowserProfile">
+            <input type="radio" name="trackingMode" value="browser_profile" id="modeBrowserProfile" />
+            <div class="radio-card__content">
+              <div class="radio-card__title">Browser Profile</div>
+              <div class="radio-card__desc">
+                Time is counted whenever you have an active browser session. Best for flexible / remote work.
+              </div>
+            </div>
+          </label>
+          <label class="radio-card" id="cardScheduled">
+            <input type="radio" name="trackingMode" value="scheduled" id="modeScheduled" />
+            <div class="radio-card__content">
+              <div class="radio-card__title">Scheduled Hours</div>
+              <div class="radio-card__desc">
+                Time is only counted within your defined work schedule window below.
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <!-- Schedule pickers — shown only in Scheduled mode -->
+        <div class="schedule-fields hidden" id="scheduleFields">
+          <div class="form-row">
+            <div class="form-group form-group--half">
+              <label class="label" for="scheduledStart">Work Start</label>
+              <input class="input" type="time" id="scheduledStart" value="09:00" />
+            </div>
+            <div class="form-group form-group--half">
+              <label class="label" for="scheduledEnd">Work End</label>
+              <input class="input" type="time" id="scheduledEnd" value="17:00" />
+            </div>
+          </div>
+          <p class="hint">Times are in your local timezone.</p>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ===== SECTION: Idle Settings ===== -->
+      <section class="section" id="idle-settings">
+        <div class="section-header">
+          <h2 class="section-title">Idle Settings</h2>
+          <p class="section-desc">Configure how the extension handles periods of inactivity.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="idleThreshold">
+            Idle Threshold:
+            <strong id="idleThresholdDisplay">5 minutes</strong>
+          </label>
+          <input
+            class="range"
+            type="range"
+            id="idleThreshold"
+            min="1"
+            max="30"
+            step="1"
+            value="5"
+          />
+          <div class="range-labels">
+            <span>1 min</span>
+            <span>30 min</span>
+          </div>
+        </div>
+
+        <div class="toggle-group">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Auto-deduct idle time</div>
+              <div class="toggle-desc">Automatically subtract idle periods from your active work time.</div>
+            </div>
+            <label class="toggle" for="autoDeductIdle">
+              <input type="checkbox" id="autoDeductIdle" />
+              <span class="toggle__track"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Notify when idle</div>
+              <div class="toggle-desc">Show a desktop notification when you go idle, asking if you were working.</div>
+            </div>
+            <label class="toggle" for="notifyOnIdle">
+              <input type="checkbox" id="notifyOnIdle" />
+              <span class="toggle__track"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ===== SECTION: Domain Rules ===== -->
+      <section class="section" id="domain-rules">
+        <div class="section-header">
+          <h2 class="section-title">Domain Rules</h2>
+          <p class="section-desc">
+            Control which websites count as work. Use <code>*.example.com</code> for wildcards.
+            One domain per line.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="approvedDomains">Approved Work Domains</label>
+          <textarea
+            class="textarea"
+            id="approvedDomains"
+            rows="8"
+            placeholder="github.com&#10;notion.so&#10;*.vercel.app"
+            spellcheck="false"
+          ></textarea>
+          <p class="hint">Time spent on these domains counts as active work time.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="excludedDomains">Excluded Domains</label>
+          <textarea
+            class="textarea"
+            id="excludedDomains"
+            rows="4"
+            placeholder="facebook.com&#10;twitter.com&#10;reddit.com"
+            spellcheck="false"
+          ></textarea>
+          <p class="hint">Time on these domains is never counted, even if they match approved patterns.</p>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ===== SECTION: Privacy ===== -->
+      <section class="section" id="privacy">
+        <div class="section-header">
+          <h2 class="section-title">Privacy</h2>
+          <p class="section-desc">
+            The extension never reads page content, form values, or passwords.
+            These settings control what metadata is recorded.
+          </p>
+        </div>
+
+        <div class="toggle-group">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Allow page title tracking</div>
+              <div class="toggle-desc">
+                Send page titles (e.g. "Q4 Report — Google Sheets") to the server for richer reports.
+                Disabled by default.
+              </div>
+            </div>
+            <label class="toggle" for="allowTitleTracking">
+              <input type="checkbox" id="allowTitleTracking" />
+              <span class="toggle__track"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Show domain in reports</div>
+              <div class="toggle-desc">Include the visited domain name in your time reports.</div>
+            </div>
+            <label class="toggle" for="showDomainInReports">
+              <input type="checkbox" id="showDomainInReports" />
+              <span class="toggle__track"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="privacy-notice">
+          <strong>What is never collected:</strong> form contents, passwords, clipboard data,
+          page body text, file contents, or any personally identifiable information beyond
+          what you explicitly configure above.
+        </div>
+      </section>
+
+      <!-- ===== SAVE BAR ===== -->
+      <div class="save-bar">
+        <button class="btn btn--primary" id="btnSave" type="button">Save Settings</button>
+        <button class="btn btn--ghost" id="btnReset" type="button">Reset to Defaults</button>
+        <span class="save-status hidden" id="saveStatus"></span>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="options.js" type="module"></script>
+</body>
+</html>

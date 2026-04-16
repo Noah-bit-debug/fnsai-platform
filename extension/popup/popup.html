@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SentrixAI Time Tracker</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="header-brand">
+      <img src="../icons/icon48.png" alt="SentrixAI" class="header-logo" />
+      <span class="header-title">SentrixAI</span>
+    </div>
+    <div class="header-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-label" id="statusLabel">Loading…</span>
+    </div>
+  </header>
+
+  <!-- ===== IDLE WARNING BANNER ===== -->
+  <div class="idle-banner hidden" id="idleBanner">
+    <p class="idle-banner__text">
+      <strong>You've been inactive.</strong> Were you working?
+    </p>
+    <div class="idle-banner__actions">
+      <button class="btn btn--sm btn--success" id="btnWasWorking">Yes, I was working</button>
+      <button class="btn btn--sm btn--danger" id="btnDeductIdle">No, deduct it</button>
+    </div>
+  </div>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <main class="main">
+    <!-- Timer -->
+    <div class="timer-block">
+      <div class="timer-display" id="timerDisplay">00:00:00</div>
+      <div class="timer-sub" id="timerSub">Active work time today</div>
+    </div>
+
+    <!-- Progress bars -->
+    <div class="progress-group">
+      <div class="progress-row">
+        <span class="progress-label">Active</span>
+        <div class="progress-track">
+          <div class="progress-bar progress-bar--active" id="barActive" style="width: 0%"></div>
+        </div>
+        <span class="progress-value" id="valActive">0:00</span>
+      </div>
+      <div class="progress-row">
+        <span class="progress-label">Idle</span>
+        <div class="progress-track">
+          <div class="progress-bar progress-bar--idle" id="barIdle" style="width: 0%"></div>
+        </div>
+        <span class="progress-value" id="valIdle">0:00</span>
+      </div>
+      <div class="progress-row">
+        <span class="progress-label">Break</span>
+        <div class="progress-track">
+          <div class="progress-bar progress-bar--break" id="barBreak" style="width: 0%"></div>
+        </div>
+        <span class="progress-value" id="valBreak">0:00</span>
+      </div>
+    </div>
+
+    <!-- Domain status -->
+    <div class="domain-status" id="domainStatus">
+      <span class="domain-icon" id="domainIcon">🌐</span>
+      <span class="domain-text" id="domainText">No active site</span>
+    </div>
+
+    <!-- Button row -->
+    <div class="button-row">
+      <button class="btn btn--primary btn--wide" id="btnSession">
+        <span class="btn-icon">▶</span>
+        <span class="btn-text" id="btnSessionText">Start Session</span>
+      </button>
+      <button class="btn btn--secondary" id="btnBreak" disabled>
+        <span class="btn-icon">☕</span>
+        <span class="btn-text" id="btnBreakText">Break</span>
+      </button>
+    </div>
+
+    <!-- Error / info message -->
+    <div class="msg hidden" id="msgBox"></div>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <button class="footer-link" id="linkSettings">⚙ Settings</button>
+    <button class="footer-link" id="linkReports">📊 View Reports</button>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

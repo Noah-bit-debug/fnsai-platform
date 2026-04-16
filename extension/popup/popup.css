@@ -1,0 +1,446 @@
+/* popup/popup.css — SentrixAI Time Tracker Popup Styles */
+
+/* ---------------------------------------------------------------------------
+   CSS Variables (light theme defaults)
+   --------------------------------------------------------------------------- */
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #f8f9fb;
+  --color-surface-raised: #ffffff;
+  --color-border: #e2e6ea;
+  --color-text-primary: #1a1d23;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+
+  --color-brand: #4f46e5;
+  --color-brand-light: #ede9fe;
+  --color-brand-hover: #4338ca;
+
+  --color-success: #10b981;
+  --color-success-light: #d1fae5;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-danger: #ef4444;
+  --color-danger-light: #fee2e2;
+  --color-idle: #f59e0b;
+  --color-break: #8b5cf6;
+
+  --color-dot-active: #10b981;
+  --color-dot-idle: #f59e0b;
+  --color-dot-paused: #9ca3af;
+  --color-dot-break: #8b5cf6;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+
+  --transition: 0.18s ease;
+}
+
+/* Dark theme */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111318;
+    --color-surface: #1c1f27;
+    --color-surface-raised: #242834;
+    --color-border: #2d3348;
+    --color-text-primary: #f1f3f7;
+    --color-text-secondary: #9ca3af;
+    --color-text-muted: #6b7280;
+    --color-brand-light: #2e2b5e;
+    --color-success-light: #064e38;
+    --color-warning-light: #78350f;
+    --color-danger-light: #7f1d1d;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reset & Base
+   --------------------------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 400px;
+  min-height: 100px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Header
+   --------------------------------------------------------------------------- */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-dot-paused);
+  flex-shrink: 0;
+  transition: background var(--transition);
+}
+
+.status-dot.active   { background: var(--color-dot-active); box-shadow: 0 0 0 3px rgba(16,185,129,0.20); }
+.status-dot.idle     { background: var(--color-dot-idle);   box-shadow: 0 0 0 3px rgba(245,158,11,0.20); }
+.status-dot.paused   { background: var(--color-dot-paused); }
+.status-dot.break    { background: var(--color-dot-break);  box-shadow: 0 0 0 3px rgba(139,92,246,0.20); }
+
+.status-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------------------------------------------------------------------------
+   Idle Warning Banner
+   --------------------------------------------------------------------------- */
+.idle-banner {
+  background: var(--color-warning-light);
+  border-bottom: 1px solid var(--color-warning);
+  padding: 10px 16px;
+}
+
+.idle-banner__text {
+  font-size: 12.5px;
+  color: var(--color-text-primary);
+  margin-bottom: 8px;
+}
+
+.idle-banner__actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   Main
+   --------------------------------------------------------------------------- */
+.main {
+  padding: 16px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------------------------------------------------------------------------
+   Timer
+   --------------------------------------------------------------------------- */
+.timer-block {
+  text-align: center;
+  padding: 14px 0 6px;
+}
+
+.timer-display {
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-text-primary);
+  line-height: 1;
+  transition: color var(--transition);
+}
+
+.timer-display.idle  { color: var(--color-idle); }
+.timer-display.break { color: var(--color-break); }
+
+.timer-sub {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ---------------------------------------------------------------------------
+   Progress bars
+   --------------------------------------------------------------------------- */
+.progress-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  width: 38px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+
+.progress-bar--active { background: var(--color-success); }
+.progress-bar--idle   { background: var(--color-idle); }
+.progress-bar--break  { background: var(--color-break); }
+
+.progress-value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Domain status
+   --------------------------------------------------------------------------- */
+.domain-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 11.5px;
+}
+
+.domain-icon { font-size: 13px; flex-shrink: 0; }
+
+.domain-text {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.domain-text.work     { color: var(--color-success); font-weight: 600; }
+.domain-text.non-work { color: var(--color-text-muted); }
+.domain-text.excluded { color: var(--color-danger); }
+
+/* ---------------------------------------------------------------------------
+   Buttons
+   --------------------------------------------------------------------------- */
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  padding: 9px 16px;
+  transition: background var(--transition), opacity var(--transition), transform 0.1s ease;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1;
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn--wide { flex: 1; }
+
+.btn--primary {
+  background: var(--color-brand);
+  color: #fff;
+}
+.btn--primary:hover:not(:disabled) { background: var(--color-brand-hover); }
+
+.btn--secondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+.btn--secondary:hover:not(:disabled) { background: var(--color-border); }
+
+.btn--danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+.btn--danger:hover:not(:disabled) { background: #dc2626; }
+
+.btn--success {
+  background: var(--color-success);
+  color: #fff;
+}
+.btn--success:hover:not(:disabled) { background: #059669; }
+
+.btn--sm {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-icon { font-size: 14px; line-height: 1; }
+
+/* Session button states */
+.btn--session-end {
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+.btn--session-end:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+/* Break button active state */
+.btn--break-active {
+  background: var(--color-break);
+  color: #fff;
+}
+.btn--break-active:hover:not(:disabled) { background: #7c3aed; }
+
+/* ---------------------------------------------------------------------------
+   Message box
+   --------------------------------------------------------------------------- */
+.msg {
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.msg--error   { background: var(--color-danger-light);  color: var(--color-danger);  border: 1px solid var(--color-danger); }
+.msg--success { background: var(--color-success-light); color: var(--color-success); border: 1px solid var(--color-success); }
+.msg--info    { background: var(--color-brand-light);   color: var(--color-brand);   border: 1px solid var(--color-brand); }
+
+/* ---------------------------------------------------------------------------
+   Footer
+   --------------------------------------------------------------------------- */
+.footer {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.footer-link {
+  flex: 1;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  padding: 10px 16px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.footer-link:last-child { border-right: none; }
+
+.footer-link:hover {
+  background: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   Offline pill
+   --------------------------------------------------------------------------- */
+.offline-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-warning);
+  background: var(--color-warning-light);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
