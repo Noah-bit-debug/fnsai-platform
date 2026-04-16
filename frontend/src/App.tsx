@@ -1,127 +1,156 @@
+import { lazy, Suspense } from 'react';
 import { useUser, SignIn, RedirectToSignIn } from '@clerk/clerk-react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { RBACProvider } from './contexts/RBACContext';
+import AppShell from './components/Layout/AppShell';
+
+// ─── Eager (hot-path pages) ─────────────────────────────────────────────────
+import Dashboard from './pages/Dashboard';
 import CandidateList from './pages/candidates/CandidateList';
-import CandidateNew from './pages/candidates/CandidateNew';
-import CandidateDetail from './pages/candidates/CandidateDetail';
-// ATS Phase 2
 import JobList from './pages/jobs/JobList';
-import JobNew from './pages/jobs/JobNew';
-import JobDetail from './pages/jobs/JobDetail';
 import SubmissionList from './pages/submissions/SubmissionList';
-import SubmissionDetail from './pages/submissions/SubmissionDetail';
-import ClientOrgList from './pages/clients/ClientOrgList';
-import ClientOrgDetail from './pages/clients/ClientOrgDetail';
+import Pipeline from './pages/Pipeline';
 import KanbanBoard from './pages/KanbanBoard';
 import Tasks from './pages/Tasks';
-import AtsReports from './pages/AtsReports';
-import Pipeline from './pages/Pipeline';
-import Reminders from './pages/Reminders';
-import RoleDashboard from './pages/RoleDashboard';
-import Integrations from './pages/Integrations';
-import Reports from './pages/Reports';
-import CompanyKnowledge from './pages/CompanyKnowledge';
-import ClarificationCenter from './pages/ClarificationCenter';
-import Templates from './pages/Templates';
-import Suggestions from './pages/Suggestions';
-import DailySummary from './pages/DailySummary';
-import TimeTracking from './pages/TimeTracking';
-import Attendance from './pages/Attendance';
-import TimeTrackingManager from './pages/TimeTrackingManager';
-import TimeTrackingAdmin from './pages/TimeTrackingAdmin';
 
-// DEV BYPASS — set localStorage.setItem('sentrix_dev_bypass','1') in console to skip auth
-const DEV_BYPASS = import.meta.env.DEV && localStorage.getItem('fnsai_dev_bypass') === '1';
-import AppShell from './components/Layout/AppShell';
-import ESign from './pages/ESign';
-import SignDocument from './pages/SignDocument';
-import ESignDashboard from './pages/esign/ESignDashboard';
-import ESignDocuments from './pages/esign/ESignDocuments';
-import ESignDocumentNew from './pages/esign/ESignDocumentNew';
-import ESignDocumentDetail from './pages/esign/ESignDocumentDetail';
-import ESignAnalytics from './pages/esign/ESignAnalytics';
-import ESignPrepare from './pages/esign/ESignPrepare';
-import ESignTemplates from './pages/esign/ESignTemplates';
-import ESignForms from './pages/esign/ESignForms';
+// ─── Lazy (loaded on demand) ────────────────────────────────────────────────
+// Recruiting
+const CandidateNew = lazy(() => import('./pages/candidates/CandidateNew'));
+const CandidateDetail = lazy(() => import('./pages/candidates/CandidateDetail'));
+const JobNew = lazy(() => import('./pages/jobs/JobNew'));
+const JobDetail = lazy(() => import('./pages/jobs/JobDetail'));
+const SubmissionDetail = lazy(() => import('./pages/submissions/SubmissionDetail'));
+const ClientOrgList = lazy(() => import('./pages/clients/ClientOrgList'));
+const ClientOrgDetail = lazy(() => import('./pages/clients/ClientOrgDetail'));
+const AtsReports = lazy(() => import('./pages/AtsReports'));
+const Reminders = lazy(() => import('./pages/Reminders'));
+const RoleDashboard = lazy(() => import('./pages/RoleDashboard'));
 
-import ComplianceReports from './pages/compliance/ComplianceReports';
-import MyCertificates from './pages/compliance/MyCertificates';
-import CertificateVerify from './pages/compliance/CertificateVerify';
-import ComplianceAdminHub from './pages/compliance/ComplianceAdminHub';
-import CategoryManager from './pages/compliance/CategoryManager';
-import PolicyList from './pages/compliance/PolicyList';
-import PolicyEditor from './pages/compliance/PolicyEditor';
-import DocumentList from './pages/compliance/DocumentList';
-import DocumentEditor from './pages/compliance/DocumentEditor';
-import MyCompliance from './pages/compliance/MyCompliance';
-import PolicySign from './pages/compliance/PolicySign';
-import DocumentView from './pages/compliance/DocumentView';
-import ComplianceRecords from './pages/compliance/ComplianceRecords';
-import ExamList from './pages/compliance/ExamList';
-import ExamEditor from './pages/compliance/ExamEditor';
-import ChecklistList from './pages/compliance/ChecklistList';
-import ChecklistEditor from './pages/compliance/ChecklistEditor';
-import BundleList from './pages/compliance/BundleList';
-import BundleEditor from './pages/compliance/BundleEditor';
-import BundleAssign from './pages/compliance/BundleAssign';
-import TakeExam from './pages/compliance/TakeExam';
-import CompleteChecklist from './pages/compliance/CompleteChecklist';
-import NotificationSettings from './pages/compliance/NotificationSettings';
-import PlacementReadinessAdmin from './pages/compliance/PlacementReadinessAdmin';
-import BulkAssign from './pages/compliance/BulkAssign';
-import MessageCenter from './pages/compliance/MessageCenter';
+// Intelligence / AI
+const Integrations = lazy(() => import('./pages/Integrations'));
+const Reports = lazy(() => import('./pages/Reports'));
+const CompanyKnowledge = lazy(() => import('./pages/CompanyKnowledge'));
+const ClarificationCenter = lazy(() => import('./pages/ClarificationCenter'));
+const Templates = lazy(() => import('./pages/Templates'));
+const Suggestions = lazy(() => import('./pages/Suggestions'));
+const DailySummary = lazy(() => import('./pages/DailySummary'));
+const AIAssistant = lazy(() => import('./pages/AIAssistant'));
+const AIKnowledgeBase = lazy(() => import('./pages/AIKnowledgeBase'));
+const AIBrain = lazy(() => import('./pages/AIBrain'));
+const TrainingHub = lazy(() => import('./pages/TrainingHub'));
+const SetupWizard = lazy(() => import('./pages/SetupWizard'));
+const AILearning = lazy(() => import('./pages/AILearning'));
+const DocumentQA = lazy(() => import('./pages/DocumentQA'));
+
+// Time Tracking
+const TimeTracking = lazy(() => import('./pages/TimeTracking'));
+const Attendance = lazy(() => import('./pages/Attendance'));
+const TimeTrackingManager = lazy(() => import('./pages/TimeTrackingManager'));
+const TimeTrackingAdmin = lazy(() => import('./pages/TimeTrackingAdmin'));
+
+// eSign — heavy (pdf + signature)
+const SignDocument = lazy(() => import('./pages/SignDocument'));
+const ESignDashboard = lazy(() => import('./pages/esign/ESignDashboard'));
+const ESignDocuments = lazy(() => import('./pages/esign/ESignDocuments'));
+const ESignDocumentNew = lazy(() => import('./pages/esign/ESignDocumentNew'));
+const ESignDocumentDetail = lazy(() => import('./pages/esign/ESignDocumentDetail'));
+const ESignAnalytics = lazy(() => import('./pages/esign/ESignAnalytics'));
+const ESignPrepare = lazy(() => import('./pages/esign/ESignPrepare'));
+const ESignTemplates = lazy(() => import('./pages/esign/ESignTemplates'));
+const ESignForms = lazy(() => import('./pages/esign/ESignForms'));
+
+// Compliance — 25+ pages, all lazy
+const ComplianceReports = lazy(() => import('./pages/compliance/ComplianceReports'));
+const MyCertificates = lazy(() => import('./pages/compliance/MyCertificates'));
+const CertificateVerify = lazy(() => import('./pages/compliance/CertificateVerify'));
+const ComplianceAdminHub = lazy(() => import('./pages/compliance/ComplianceAdminHub'));
+const CategoryManager = lazy(() => import('./pages/compliance/CategoryManager'));
+const PolicyList = lazy(() => import('./pages/compliance/PolicyList'));
+const PolicyEditor = lazy(() => import('./pages/compliance/PolicyEditor'));
+const DocumentList = lazy(() => import('./pages/compliance/DocumentList'));
+const DocumentEditor = lazy(() => import('./pages/compliance/DocumentEditor'));
+const MyCompliance = lazy(() => import('./pages/compliance/MyCompliance'));
+const PolicySign = lazy(() => import('./pages/compliance/PolicySign'));
+const DocumentView = lazy(() => import('./pages/compliance/DocumentView'));
+const ComplianceRecords = lazy(() => import('./pages/compliance/ComplianceRecords'));
+const ExamList = lazy(() => import('./pages/compliance/ExamList'));
+const ExamEditor = lazy(() => import('./pages/compliance/ExamEditor'));
+const ChecklistList = lazy(() => import('./pages/compliance/ChecklistList'));
+const ChecklistEditor = lazy(() => import('./pages/compliance/ChecklistEditor'));
+const BundleList = lazy(() => import('./pages/compliance/BundleList'));
+const BundleEditor = lazy(() => import('./pages/compliance/BundleEditor'));
+const BundleAssign = lazy(() => import('./pages/compliance/BundleAssign'));
+const TakeExam = lazy(() => import('./pages/compliance/TakeExam'));
+const CompleteChecklist = lazy(() => import('./pages/compliance/CompleteChecklist'));
+const NotificationSettings = lazy(() => import('./pages/compliance/NotificationSettings'));
+const PlacementReadinessAdmin = lazy(() => import('./pages/compliance/PlacementReadinessAdmin'));
+const BulkAssign = lazy(() => import('./pages/compliance/BulkAssign'));
+const MessageCenter = lazy(() => import('./pages/compliance/MessageCenter'));
 
 // Role dashboards
-import CEODashboard from './pages/dashboards/CEODashboard';
-import ManagementDashboard from './pages/dashboards/ManagementDashboard';
-import RecruitingDashboard from './pages/dashboards/RecruitingDashboard';
-import HRDashboard from './pages/dashboards/HRDashboard';
-import CredentialingDashboard from './pages/dashboards/CredentialingDashboard';
-import ComplianceDashboard from './pages/dashboards/ComplianceDashboard';
-
-// Always-built pages
-import Dashboard from './pages/Dashboard';
-import AIAssistant from './pages/AIAssistant';
-import StaffManagement from './pages/StaffManagement';
-import StaffProfile from './pages/StaffProfile';
-import DocumentChecker from './pages/DocumentChecker';
-import EmailMonitor from './pages/EmailMonitor';
-import SMSApprovals from './pages/SMSApprovals';
-import AILearning from './pages/AILearning';
-import DocumentQA from './pages/DocumentQA';
-
-// Business Dev
-import BusinessDev from './pages/BusinessDev';
-
-// Business Ops
-import ActionPlan from './pages/ActionPlan';
-import Insurance from './pages/Insurance';
-import Funding from './pages/Funding';
-import Timeline from './pages/Timeline';
-import Contracts from './pages/Contracts';
+const CEODashboard = lazy(() => import('./pages/dashboards/CEODashboard'));
+const ManagementDashboard = lazy(() => import('./pages/dashboards/ManagementDashboard'));
+const RecruitingDashboard = lazy(() => import('./pages/dashboards/RecruitingDashboard'));
+const HRDashboard = lazy(() => import('./pages/dashboards/HRDashboard'));
+const CredentialingDashboard = lazy(() => import('./pages/dashboards/CredentialingDashboard'));
+const ComplianceDashboard = lazy(() => import('./pages/dashboards/ComplianceDashboard'));
 
 // Workforce
-import Onboarding from './pages/Onboarding';
-import Credentialing from './pages/Credentialing';
-import Placements from './pages/Placements';
-import Checklists from './pages/Checklists';
+const StaffManagement = lazy(() => import('./pages/StaffManagement'));
+const StaffProfile = lazy(() => import('./pages/StaffProfile'));
+const Onboarding = lazy(() => import('./pages/Onboarding'));
+const Credentialing = lazy(() => import('./pages/Credentialing'));
+const Placements = lazy(() => import('./pages/Placements'));
+const Checklists = lazy(() => import('./pages/Checklists'));
 
 // Operations & Controls
-import Clients from './pages/Clients';
-import Incidents from './pages/Incidents';
-import Timekeeping from './pages/Timekeeping';
-import DocumentLogs from './pages/DocumentLogs';
+const Clients = lazy(() => import('./pages/Clients'));
+const DocumentChecker = lazy(() => import('./pages/DocumentChecker'));
+const EmailMonitor = lazy(() => import('./pages/EmailMonitor'));
+const SMSApprovals = lazy(() => import('./pages/SMSApprovals'));
+const Incidents = lazy(() => import('./pages/Incidents'));
+const Timekeeping = lazy(() => import('./pages/Timekeeping'));
+const DocumentLogs = lazy(() => import('./pages/DocumentLogs'));
 
-// Admin
-import UserManagement from './pages/admin/UserManagement';
-import NotificationPrefs from './pages/admin/NotificationPrefs';
+// Business
+const BusinessDev = lazy(() => import('./pages/BusinessDev'));
+const ActionPlan = lazy(() => import('./pages/ActionPlan'));
+const Insurance = lazy(() => import('./pages/Insurance'));
+const Funding = lazy(() => import('./pages/Funding'));
+const Timeline = lazy(() => import('./pages/Timeline'));
+const Contracts = lazy(() => import('./pages/Contracts'));
 
-// AI System & Account
-import AIBrain from './pages/AIBrain';
-import TrainingHub from './pages/TrainingHub';
-import SetupWizard from './pages/SetupWizard';
-import Security from './pages/Security';
-import AIKnowledgeBase from './pages/AIKnowledgeBase';
+// Admin / Account
+const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
+const NotificationPrefs = lazy(() => import('./pages/admin/NotificationPrefs'));
+const Security = lazy(() => import('./pages/Security'));
+
+// DEV BYPASS — set localStorage.setItem('fnsai_dev_bypass','1') in console to skip auth
+const DEV_BYPASS = import.meta.env.DEV && localStorage.getItem('fnsai_dev_bypass') === '1';
+
+// ─── Fallbacks ──────────────────────────────────────────────────────────────
+function PageSpinner() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60 }}>
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          border: '3px solid rgba(0,0,0,0.08)',
+          borderTopColor: 'var(--pr)',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }}
+      />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+// Unused AILearning + DocumentQA references (old redirects use Navigate, but TS flags them)
+// are silenced by re-exporting — kept in case any route is re-added later.
+void AILearning;
+void DocumentQA;
 
 function App() {
   const { isLoaded, isSignedIn } = useUser();
@@ -188,152 +217,154 @@ function App() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<AppShell />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
+    <Suspense fallback={<PageSpinner />}>
+      <Routes>
+        <Route path="/" element={<AppShell />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
 
-        {/* Business Dev */}
-        <Route path="business-dev" element={<BusinessDev />} />
+          {/* Business Dev */}
+          <Route path="business-dev" element={<BusinessDev />} />
 
-        {/* Business Ops */}
-        <Route path="action-plan" element={<ActionPlan />} />
-        <Route path="insurance" element={<Insurance />} />
-        <Route path="funding" element={<Funding />} />
-        <Route path="timeline" element={<Timeline />} />
-        <Route path="contracts" element={<Contracts />} />
+          {/* Business Ops */}
+          <Route path="action-plan" element={<ActionPlan />} />
+          <Route path="insurance" element={<Insurance />} />
+          <Route path="funding" element={<Funding />} />
+          <Route path="timeline" element={<Timeline />} />
+          <Route path="contracts" element={<Contracts />} />
 
-        {/* Workforce */}
-        <Route path="staff" element={<StaffManagement />} />
-        <Route path="staff/:id" element={<StaffProfile />} />
-        <Route path="onboarding" element={<Onboarding />} />
-        <Route path="credentialing" element={<Credentialing />} />
-        <Route path="placements" element={<Placements />} />
-        <Route path="checklists" element={<Checklists />} />
+          {/* Workforce */}
+          <Route path="staff" element={<StaffManagement />} />
+          <Route path="staff/:id" element={<StaffProfile />} />
+          <Route path="onboarding" element={<Onboarding />} />
+          <Route path="credentialing" element={<Credentialing />} />
+          <Route path="placements" element={<Placements />} />
+          <Route path="checklists" element={<Checklists />} />
 
-        {/* Operations */}
-        <Route path="clients" element={<Clients />} />
-        <Route path="email-monitor" element={<EmailMonitor />} />
-        <Route path="sms" element={<SMSApprovals />} />
-        <Route path="documents" element={<DocumentChecker />} />
+          {/* Operations */}
+          <Route path="clients" element={<Clients />} />
+          <Route path="email-monitor" element={<EmailMonitor />} />
+          <Route path="sms" element={<SMSApprovals />} />
+          <Route path="documents" element={<DocumentChecker />} />
 
-        {/* Internal Controls */}
-        <Route path="incidents" element={<Incidents />} />
-        <Route path="timekeeping" element={<Timekeeping />} />
-        <Route path="logs" element={<DocumentLogs />} />
+          {/* Internal Controls */}
+          <Route path="incidents" element={<Incidents />} />
+          <Route path="timekeeping" element={<Timekeeping />} />
+          <Route path="logs" element={<DocumentLogs />} />
 
-        {/* Intelligence */}
-        <Route path="integrations" element={<Integrations />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="knowledge" element={<CompanyKnowledge />} />
-        <Route path="clarification" element={<ClarificationCenter />} />
-        <Route path="templates" element={<Templates />} />
-        <Route path="suggestions" element={<Suggestions />} />
-        <Route path="daily-summary" element={<DailySummary />} />
+          {/* Intelligence */}
+          <Route path="integrations" element={<Integrations />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="knowledge" element={<CompanyKnowledge />} />
+          <Route path="clarification" element={<ClarificationCenter />} />
+          <Route path="templates" element={<Templates />} />
+          <Route path="suggestions" element={<Suggestions />} />
+          <Route path="daily-summary" element={<DailySummary />} />
 
-        {/* AI System */}
-        <Route path="ai-assistant" element={<AIAssistant />} />
-        <Route path="ai-knowledge" element={<AIKnowledgeBase />} />
-        {/* Redirect old AI URLs → consolidated AI Knowledge Base */}
-        <Route path="knowledge"    element={<Navigate to="/ai-knowledge" replace />} />
-        <Route path="ai-learning"  element={<Navigate to="/ai-knowledge" replace />} />
-        <Route path="ai-brain" element={<AIBrain />} />
-        <Route path="document-qa"  element={<Navigate to="/ai-knowledge" replace />} />
-        <Route path="training"     element={<TrainingHub />} />
-        <Route path="setup-wizard" element={<SetupWizard />} />
+          {/* AI System */}
+          <Route path="ai-assistant" element={<AIAssistant />} />
+          <Route path="ai-knowledge" element={<AIKnowledgeBase />} />
+          {/* Redirect old AI URLs → consolidated AI Knowledge Base */}
+          <Route path="knowledge"    element={<Navigate to="/ai-knowledge" replace />} />
+          <Route path="ai-learning"  element={<Navigate to="/ai-knowledge" replace />} />
+          <Route path="ai-brain" element={<AIBrain />} />
+          <Route path="document-qa"  element={<Navigate to="/ai-knowledge" replace />} />
+          <Route path="training"     element={<TrainingHub />} />
+          <Route path="setup-wizard" element={<SetupWizard />} />
 
-        {/* Recruiting */}
-        <Route path="candidates" element={<CandidateList />} />
-        <Route path="candidates/new" element={<CandidateNew />} />
-        <Route path="candidates/:id" element={<CandidateDetail />} />
-        <Route path="pipeline" element={<Pipeline />} />
-        <Route path="reminders" element={<Reminders />} />
-        <Route path="role-dashboard" element={<RoleDashboard />} />
+          {/* Recruiting */}
+          <Route path="candidates" element={<CandidateList />} />
+          <Route path="candidates/new" element={<CandidateNew />} />
+          <Route path="candidates/:id" element={<CandidateDetail />} />
+          <Route path="pipeline" element={<Pipeline />} />
+          <Route path="reminders" element={<Reminders />} />
+          <Route path="role-dashboard" element={<RoleDashboard />} />
 
-        {/* ATS Phase 2 */}
-        <Route path="jobs" element={<JobList />} />
-        <Route path="jobs/new" element={<JobNew />} />
-        <Route path="jobs/:id" element={<JobDetail />} />
-        <Route path="submissions" element={<SubmissionList />} />
-        <Route path="submissions/:id" element={<SubmissionDetail />} />
-        <Route path="clients-orgs" element={<ClientOrgList />} />
-        <Route path="clients-orgs/:id" element={<ClientOrgDetail />} />
-        <Route path="kanban" element={<KanbanBoard />} />
-        <Route path="tasks" element={<Tasks />} />
-        <Route path="ats-reports" element={<AtsReports />} />
+          {/* ATS Phase 2+ */}
+          <Route path="jobs" element={<JobList />} />
+          <Route path="jobs/new" element={<JobNew />} />
+          <Route path="jobs/:id" element={<JobDetail />} />
+          <Route path="submissions" element={<SubmissionList />} />
+          <Route path="submissions/:id" element={<SubmissionDetail />} />
+          <Route path="clients-orgs" element={<ClientOrgList />} />
+          <Route path="clients-orgs/:id" element={<ClientOrgDetail />} />
+          <Route path="kanban" element={<KanbanBoard />} />
+          <Route path="tasks" element={<Tasks />} />
+          <Route path="ats-reports" element={<AtsReports />} />
 
-        {/* Compliance */}
-        <Route path="/compliance/my" element={<MyCompliance />} />
-        <Route path="/compliance/policy/:id" element={<PolicySign />} />
-        <Route path="/compliance/document/:id" element={<DocumentView />} />
-        <Route path="/compliance/admin" element={<ComplianceAdminHub />} />
-        <Route path="/compliance/admin/categories" element={<CategoryManager />} />
-        <Route path="/compliance/admin/policies" element={<PolicyList />} />
-        <Route path="/compliance/admin/policies/new" element={<PolicyEditor />} />
-        <Route path="/compliance/admin/policies/:id/edit" element={<PolicyEditor />} />
-        <Route path="/compliance/admin/documents" element={<DocumentList />} />
-        <Route path="/compliance/admin/documents/new" element={<DocumentEditor />} />
-        <Route path="/compliance/admin/documents/:id/edit" element={<DocumentEditor />} />
-        <Route path="/compliance/admin/records" element={<ComplianceRecords />} />
-        <Route path="/compliance/exam/:id" element={<TakeExam />} />
-        <Route path="/compliance/checklist/:id" element={<CompleteChecklist />} />
-        <Route path="/compliance/admin/exams" element={<ExamList />} />
-        <Route path="/compliance/admin/exams/new" element={<ExamEditor />} />
-        <Route path="/compliance/admin/exams/:id/edit" element={<ExamEditor />} />
-        <Route path="/compliance/admin/checklists" element={<ChecklistList />} />
-        <Route path="/compliance/admin/checklists/new" element={<ChecklistEditor />} />
-        <Route path="/compliance/admin/checklists/:id/edit" element={<ChecklistEditor />} />
-        <Route path="/compliance/admin/bundles" element={<BundleList />} />
-        <Route path="/compliance/admin/bundles/new" element={<BundleEditor />} />
-        <Route path="/compliance/admin/bundles/:id/edit" element={<BundleEditor />} />
-        <Route path="/compliance/admin/bundles/:id/assign" element={<BundleAssign />} />
-        <Route path="/compliance/admin/notifications" element={<NotificationSettings />} />
-        <Route path="/compliance/admin/readiness" element={<PlacementReadinessAdmin />} />
-        <Route path="/compliance/admin/bulk-assign" element={<BulkAssign />} />
-        <Route path="/compliance/messages" element={<MessageCenter />} />
-        <Route path="/compliance/certificates" element={<MyCertificates />} />
-        <Route path="/compliance/admin/reports" element={<ComplianceReports />} />
+          {/* Compliance */}
+          <Route path="/compliance/my" element={<MyCompliance />} />
+          <Route path="/compliance/policy/:id" element={<PolicySign />} />
+          <Route path="/compliance/document/:id" element={<DocumentView />} />
+          <Route path="/compliance/admin" element={<ComplianceAdminHub />} />
+          <Route path="/compliance/admin/categories" element={<CategoryManager />} />
+          <Route path="/compliance/admin/policies" element={<PolicyList />} />
+          <Route path="/compliance/admin/policies/new" element={<PolicyEditor />} />
+          <Route path="/compliance/admin/policies/:id/edit" element={<PolicyEditor />} />
+          <Route path="/compliance/admin/documents" element={<DocumentList />} />
+          <Route path="/compliance/admin/documents/new" element={<DocumentEditor />} />
+          <Route path="/compliance/admin/documents/:id/edit" element={<DocumentEditor />} />
+          <Route path="/compliance/admin/records" element={<ComplianceRecords />} />
+          <Route path="/compliance/exam/:id" element={<TakeExam />} />
+          <Route path="/compliance/checklist/:id" element={<CompleteChecklist />} />
+          <Route path="/compliance/admin/exams" element={<ExamList />} />
+          <Route path="/compliance/admin/exams/new" element={<ExamEditor />} />
+          <Route path="/compliance/admin/exams/:id/edit" element={<ExamEditor />} />
+          <Route path="/compliance/admin/checklists" element={<ChecklistList />} />
+          <Route path="/compliance/admin/checklists/new" element={<ChecklistEditor />} />
+          <Route path="/compliance/admin/checklists/:id/edit" element={<ChecklistEditor />} />
+          <Route path="/compliance/admin/bundles" element={<BundleList />} />
+          <Route path="/compliance/admin/bundles/new" element={<BundleEditor />} />
+          <Route path="/compliance/admin/bundles/:id/edit" element={<BundleEditor />} />
+          <Route path="/compliance/admin/bundles/:id/assign" element={<BundleAssign />} />
+          <Route path="/compliance/admin/notifications" element={<NotificationSettings />} />
+          <Route path="/compliance/admin/readiness" element={<PlacementReadinessAdmin />} />
+          <Route path="/compliance/admin/bulk-assign" element={<BulkAssign />} />
+          <Route path="/compliance/messages" element={<MessageCenter />} />
+          <Route path="/compliance/certificates" element={<MyCertificates />} />
+          <Route path="/compliance/admin/reports" element={<ComplianceReports />} />
 
-        {/* eSign — full module */}
-        <Route path="esign" element={<ESignDashboard />} />
-        <Route path="esign/documents" element={<ESignDocuments />} />
-        <Route path="esign/documents/new" element={<ESignDocumentNew />} />
-        <Route path="esign/documents/:id" element={<ESignDocumentDetail />} />
-        <Route path="esign/documents/:id/prepare" element={<ESignPrepare />} />
-        <Route path="esign/templates" element={<ESignTemplates />} />
-        <Route path="esign/forms" element={<ESignForms />} />
-        <Route path="esign/analytics" element={<ESignAnalytics />} />
+          {/* eSign — full module */}
+          <Route path="esign" element={<ESignDashboard />} />
+          <Route path="esign/documents" element={<ESignDocuments />} />
+          <Route path="esign/documents/new" element={<ESignDocumentNew />} />
+          <Route path="esign/documents/:id" element={<ESignDocumentDetail />} />
+          <Route path="esign/documents/:id/prepare" element={<ESignPrepare />} />
+          <Route path="esign/templates" element={<ESignTemplates />} />
+          <Route path="esign/forms" element={<ESignForms />} />
+          <Route path="esign/analytics" element={<ESignAnalytics />} />
 
-        {/* Time Tracking */}
-        <Route path="time-tracking" element={<TimeTracking />} />
-        <Route path="attendance" element={<Attendance />} />
-        <Route path="time-tracking/team" element={<TimeTrackingManager />} />
-        <Route path="time-tracking/admin" element={<TimeTrackingAdmin />} />
+          {/* Time Tracking */}
+          <Route path="time-tracking" element={<TimeTracking />} />
+          <Route path="attendance" element={<Attendance />} />
+          <Route path="time-tracking/team" element={<TimeTrackingManager />} />
+          <Route path="time-tracking/admin" element={<TimeTrackingAdmin />} />
 
-        {/* Role Dashboards */}
-        <Route path="ceo-dashboard" element={<CEODashboard />} />
-        <Route path="management-dashboard" element={<ManagementDashboard />} />
-        <Route path="recruiting-dashboard" element={<RecruitingDashboard />} />
-        <Route path="hr-dashboard" element={<HRDashboard />} />
-        <Route path="credentialing-dashboard" element={<CredentialingDashboard />} />
-        <Route path="compliance-dashboard" element={<ComplianceDashboard />} />
+          {/* Role Dashboards */}
+          <Route path="ceo-dashboard" element={<CEODashboard />} />
+          <Route path="management-dashboard" element={<ManagementDashboard />} />
+          <Route path="recruiting-dashboard" element={<RecruitingDashboard />} />
+          <Route path="hr-dashboard" element={<HRDashboard />} />
+          <Route path="credentialing-dashboard" element={<CredentialingDashboard />} />
+          <Route path="compliance-dashboard" element={<ComplianceDashboard />} />
 
-        {/* Account */}
-        <Route path="security" element={<Security />} />
-        <Route path="settings/users" element={<UserManagement />} />
-        <Route path="settings/notifications" element={<NotificationPrefs />} />
+          {/* Account */}
+          <Route path="security" element={<Security />} />
+          <Route path="settings/users" element={<UserManagement />} />
+          <Route path="settings/notifications" element={<NotificationPrefs />} />
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Route>
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
 
-      {/* Public signing page — no auth wrapper */}
-      <Route path="/sign/:token" element={<SignDocument />} />
+        {/* Public signing page — no auth wrapper */}
+        <Route path="/sign/:token" element={<SignDocument />} />
 
-      {/* Public certificate verification — no auth */}
-      <Route path="/verify-cert/:number" element={<CertificateVerify />} />
+        {/* Public certificate verification — no auth */}
+        <Route path="/verify-cert/:number" element={<CertificateVerify />} />
 
-      <Route path="/sign-in/*" element={<RedirectToSignIn />} />
-    </Routes>
+        <Route path="/sign-in/*" element={<RedirectToSignIn />} />
+      </Routes>
+    </Suspense>
   );
 }
 

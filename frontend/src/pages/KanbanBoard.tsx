@@ -32,6 +32,11 @@ export default function KanbanBoard() {
   const [activeCard, setActiveCard] = useState<KanbanCard | null>(null);
   const [hideTerminal, setHideTerminal] = useState(true);
 
+  // Filters (Phase 6)
+  const [searchText, setSearchText] = useState('');
+  const [recruiterFilter, setRecruiterFilter] = useState<string>(''); // recruiter_name exact match
+  const [jobFilter, setJobFilter] = useState<string>('');              // job_id
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
@@ -85,17 +90,54 @@ export default function KanbanBoard() {
     }
   };
 
-  const visibleColumns = hideTerminal ? columns.filter((c) => !c.is_terminal) : columns;
-  const totalCards = columns.reduce((n, c) => n + c.count, 0);
+  // Build filter option sets from all currently-loaded cards
+  const allCards = columns.flatMap((c) => c.items);
+  const recruiterOptions = Array.from(
+    new Set(allCards.map((c) => c.recruiter_name).filter((v): v is string => !!v))
+  ).sort();
+  const jobOptions = Array.from(
+    new Map(
+      allCards.map((c) => [c.job_id, { job_id: c.job_id, job_title: c.job_title, job_code: c.job_code }])
+    ).values()
+  ).sort((a, b) => (a.job_title ?? '').localeCompare(b.job_title ?? ''));
+
+  // Apply filters (client-side — the /kanban endpoint returns up to 1000 rows)
+  const searchLower = searchText.trim().toLowerCase();
+  const cardMatches = (card: KanbanCard): boolean => {
+    if (recruiterFilter && card.recruiter_name !== recruiterFilter) return false;
+    if (jobFilter && card.job_id !== jobFilter) return false;
+    if (searchLower) {
+      const hay = [
+        card.candidate_name, card.job_title, card.job_code,
+        card.client_name, card.facility_name, card.candidate_role,
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(searchLower)) return false;
+    }
+    return true;
+  };
+
+  const filteredColumns = columns.map((col) => {
+    const items = col.items.filter(cardMatches);
+    return { ...col, items, count: items.length };
+  });
+
+  const visibleColumns = hideTerminal ? filteredColumns.filter((c) => !c.is_terminal) : filteredColumns;
+  const totalCards = filteredColumns.reduce((n, c) => n + c.count, 0);
+  const totalUnfiltered = columns.reduce((n, c) => n + c.count, 0);
+  const filtersActive = !!(searchText || recruiterFilter || jobFilter);
 
   return (
     <div style={{ padding: '16px 24px', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexShrink: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexShrink: 0 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--t1)' }}>Pipeline — Kanban</h1>
           <div style={{ color: 'var(--t3)', fontSize: 13, marginTop: 2 }}>
-            {loading ? 'Loading…' : `${totalCards} submission${totalCards === 1 ? '' : 's'} across ${visibleColumns.length} stage${visibleColumns.length === 1 ? '' : 's'}`}
+            {loading
+              ? 'Loading…'
+              : filtersActive
+                ? `${totalCards} of ${totalUnfiltered} submission${totalUnfiltered === 1 ? '' : 's'} match filters`
+                : `${totalCards} submission${totalCards === 1 ? '' : 's'} across ${visibleColumns.length} stage${visibleColumns.length === 1 ? '' : 's'}`}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -107,6 +149,44 @@ export default function KanbanBoard() {
             Refresh
           </button>
         </div>
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder="Search candidate / job / client…"
+          style={{ flex: '1 1 240px', minWidth: 200, padding: '7px 10px', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 12, outline: 'none' }}
+        />
+        <select
+          value={recruiterFilter}
+          onChange={(e) => setRecruiterFilter(e.target.value)}
+          style={{ padding: '7px 10px', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 12, background: 'var(--sf)', minWidth: 140 }}
+        >
+          <option value="">All recruiters</option>
+          {recruiterOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <select
+          value={jobFilter}
+          onChange={(e) => setJobFilter(e.target.value)}
+          style={{ padding: '7px 10px', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 12, background: 'var(--sf)', minWidth: 180, maxWidth: 260 }}
+        >
+          <option value="">All jobs</option>
+          {jobOptions.map((j) => (
+            <option key={j.job_id} value={j.job_id}>
+              {j.job_code ? `${j.job_code} — ` : ''}{j.job_title}
+            </option>
+          ))}
+        </select>
+        {filtersActive && (
+          <button
+            onClick={() => { setSearchText(''); setRecruiterFilter(''); setJobFilter(''); }}
+            style={{ padding: '7px 12px', background: 'transparent', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 11, color: 'var(--t2)', cursor: 'pointer' }}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {error && <div style={{ padding: 10, background: '#fee2e2', color: '#991b1b', borderRadius: 8, marginBottom: 10 }}>{error}</div>}

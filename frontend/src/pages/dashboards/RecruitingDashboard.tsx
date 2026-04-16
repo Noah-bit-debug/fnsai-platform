@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { candidatesApi, placementsApi, pipelineApi } from '../../lib/api';
+import { candidatesApi, placementsApi, pipelineApi, atsReportsApi } from '../../lib/api';
 import DailySummaryWidget from '../../components/DailySummaryWidget';
 
 const STAGE_COLORS: Record<string, string> = {
@@ -38,6 +38,14 @@ export default function RecruitingDashboard() {
     queryKey: ['recruiting-placements-open'],
     queryFn: () => placementsApi.list({ status: 'unfilled' }),
   });
+
+  // ATS snapshot scoped to the current user
+  const [onlyMine, setOnlyMine] = useState(true);
+  const { data: atsData, isLoading: loadingAts } = useQuery({
+    queryKey: ['recruiting-ats-overview', onlyMine],
+    queryFn: () => atsReportsApi.overview(onlyMine ? { me: true } : undefined),
+  });
+  const ats = atsData?.data;
 
   const stats = statsData?.data;
   const byStage = stats?.by_stage ?? {};
@@ -80,6 +88,77 @@ export default function RecruitingDashboard() {
 
       {/* Daily Intelligence Widget */}
       <DailySummaryWidget />
+
+      {/* ATS snapshot (per-recruiter) */}
+      <div style={{ background: 'var(--sf)', borderRadius: 'var(--br)', border: '1px solid var(--bd)', padding: 16, marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>ATS snapshot</h3>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>
+              {onlyMine ? 'Filtered to your jobs, submissions, tasks' : 'All team activity'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              onClick={() => setOnlyMine(true)}
+              style={{ padding: '5px 11px', background: onlyMine ? 'var(--pr)' : 'var(--sf2)', color: onlyMine ? 'var(--sf)' : 'var(--t2)', border: '1px solid var(--bd)', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            >
+              My work
+            </button>
+            <button
+              onClick={() => setOnlyMine(false)}
+              style={{ padding: '5px 11px', background: !onlyMine ? 'var(--pr)' : 'var(--sf2)', color: !onlyMine ? 'var(--sf)' : 'var(--t2)', border: '1px solid var(--bd)', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Team
+            </button>
+            <button
+              onClick={() => navigate('/ats-reports')}
+              style={{ padding: '5px 11px', background: 'transparent', color: 'var(--pr)', border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Full reports →
+            </button>
+          </div>
+        </div>
+
+        {loadingAts ? (
+          <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 12 }}>Loading…</div>
+        ) : !ats ? (
+          <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 12 }}>No data</div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 }}>
+              <AtsKpi label="Open jobs" value={ats.active_jobs_summary.open_jobs ?? 0} accent="#10b981" onClick={() => navigate('/jobs')} subtitle={`${ats.active_jobs_summary.urgent_open ?? 0} urgent`} />
+              <AtsKpi label="Placement rate" value={`${ats.submission_to_placement.placement_rate}%`} accent="#059669" subtitle={`${ats.submission_to_placement.placed}/${ats.submission_to_placement.total} (90d)`} />
+              <AtsKpi label="Tasks open" value={ats.tasks.open_tasks ?? 0} accent={(ats.tasks.overdue ?? 0) > 0 ? '#ef4444' : '#6b7280'} onClick={() => navigate('/tasks')} subtitle={`${ats.tasks.overdue ?? 0} overdue · ${ats.tasks.due_today ?? 0} today`} />
+              <AtsKpi label="Jobs at risk" value={ats.jobs_at_risk.length} accent="#f59e0b" subtitle=">14d, <3 subs" />
+            </div>
+
+            {ats.jobs_at_risk.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                  Jobs at risk ({ats.jobs_at_risk.length})
+                </div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {ats.jobs_at_risk.slice(0, 5).map((j) => (
+                    <div
+                      key={j.id}
+                      onClick={() => navigate(`/jobs/${j.id}`)}
+                      style={{ padding: 8, background: 'var(--sf2)', borderRadius: 6, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}
+                    >
+                      <div style={{ minWidth: 0, fontSize: 13, color: 'var(--t1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {j.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--t3)', whiteSpace: 'nowrap' }}>
+                        {j.age_days}d · {j.submission_count} sub{j.submission_count === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* 5 Stat Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
@@ -358,6 +437,23 @@ export default function RecruitingDashboard() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AtsKpi({ label, value, accent, subtitle, onClick }: { label: string; value: string | number; accent: string; subtitle?: string; onClick?: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: 'var(--sf2)', borderRadius: 8, padding: 12,
+        borderLeft: `3px solid ${accent}`,
+        cursor: onClick ? 'pointer' : 'default',
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)' }}>{value}</div>
+      {subtitle && <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>{subtitle}</div>}
     </div>
   );
 }

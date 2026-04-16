@@ -5,6 +5,7 @@ import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '
 import { query } from '../db/client';
 import { runGate } from '../services/credentialGate';
 import { scoreCandidateForJob, type ScoringCandidate, type ScoringJob } from '../services/candidateScoring';
+import { applyOnboardingBundlesForPlacement } from '../services/complianceAssignment';
 
 const router = Router();
 
@@ -248,6 +249,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
     // a staff record. Onboarding/compliance downstream can watch for these.
     let placement_created = false;
     let placement_id: string | null = null;
+    let compliance_bundles_assigned: { bundle_id: string; bundle_title?: string; created: number; skipped: number }[] = [];
     if (stage_key === 'placed') {
       try {
         const existing = await query(
@@ -295,6 +297,30 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
             'placement.auto_create', placement_id,
             { submission_id: sub.id, candidate_id: sub.candidate_id, job_id: sub.job_id }
           );
+
+          // Auto-assign onboarding compliance bundles (non-fatal on error)
+          try {
+            compliance_bundles_assigned = await applyOnboardingBundlesForPlacement({
+              job_id: sub.job_id,
+              candidate_id: sub.candidate_id,
+              start_date: j?.start_date ?? null,
+            });
+            if (compliance_bundles_assigned.length > 0) {
+              await logAudit(
+                req.userRecord?.id ?? null, getAuth(req).userId ?? 'system',
+                'compliance.auto_assign', placement_id,
+                {
+                  candidate_id: sub.candidate_id, job_id: sub.job_id,
+                  bundles: compliance_bundles_assigned.map((b) => ({
+                    bundle_id: b.bundle_id, bundle_title: b.bundle_title,
+                    created: b.created, skipped: b.skipped,
+                  })),
+                }
+              );
+            }
+          } catch (compErr) {
+            console.error('[move-stage] Compliance auto-assign failed:', compErr);
+          }
         } else {
           placement_id = existing.rows[0].id as string;
         }
@@ -305,7 +331,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
     }
 
     await logAudit(req.userRecord?.id ?? null, getAuth(req).userId ?? 'system', 'submission.stage_move', req.params.id, { from: fromStage, to: stage_key });
-    res.json({ submission: updated.rows[0], placement_created, placement_id });
+    res.json({ submission: updated.rows[0], placement_created, placement_id, compliance_bundles_assigned });
   } catch (err) {
     console.error('Submission move-stage error:', err);
     res.status(500).json({ error: 'Failed to move stage' });

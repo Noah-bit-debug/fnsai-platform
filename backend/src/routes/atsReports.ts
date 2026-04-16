@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { getAuth } from '@clerk/express';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { query } from '../db/client';
 
@@ -10,7 +11,23 @@ const router = Router();
  *   { funnel, recruiter_leaderboard, jobs_at_risk, submission_to_placement,
  *     active_jobs_summary, tasks }
  */
-router.get('/overview', requireAuth, requirePermission('candidates_view'), async (_req: Request, res: Response) => {
+router.get('/overview', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
+  // Optional recruiter filter — scopes funnel, conversion, jobs-at-risk, active-jobs, tasks
+  // to records owned by this recruiter (submissions.recruiter_id, jobs.primary_recruiter_id,
+  // recruiter_tasks.assigned_to). Leaderboard ignores this filter so top recruiters are always visible.
+  // Uses bound `$1::uuid` with an IS-NULL short-circuit so each query can take an optional filter.
+  let rid: string | null = null;
+  if (typeof req.query.recruiter_id === 'string' && req.query.recruiter_id.trim().length > 0) {
+    rid = req.query.recruiter_id;
+  } else if (req.query.me === 'true' || req.query.me === '1') {
+    // Resolve the authenticated user to their DB id
+    const auth = getAuth(req);
+    if (auth?.userId) {
+      const userRes = await query<{ id: string }>(`SELECT id FROM users WHERE clerk_user_id = $1`, [auth.userId]);
+      if (userRes.rows.length > 0) rid = userRes.rows[0].id;
+    }
+  }
+
   try {
     const [
       funnelRes,
@@ -26,9 +43,11 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
                 COUNT(s.id)::INT AS count
          FROM pipeline_stages ps
          LEFT JOIN submissions s ON s.stage_key = ps.key
+           AND ($1::uuid IS NULL OR s.recruiter_id = $1::uuid)
          WHERE ps.tenant_id = 'default' AND ps.active = TRUE
          GROUP BY ps.key, ps.label, ps.color, ps.sort_order, ps.is_terminal
-         ORDER BY ps.sort_order ASC`
+         ORDER BY ps.sort_order ASC`,
+        [rid]
       ),
       // 2. Recruiter leaderboard — top 10 by submission count last 30 days
       query(
@@ -58,8 +77,10 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
          WHERE j.status = 'open'
            AND j.created_at < NOW() - INTERVAL '14 days'
            AND (SELECT COUNT(*) FROM submissions s WHERE s.job_id = j.id) < 3
+           AND ($1::uuid IS NULL OR j.primary_recruiter_id = $1::uuid)
          ORDER BY j.priority DESC, age_days DESC
-         LIMIT 20`
+         LIMIT 20`,
+        [rid]
       ),
       // 4. Submission → placement conversion
       query(
@@ -71,7 +92,9 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
            COUNT(*) FILTER (WHERE stage_key = 'offer')::INT AS offer,
            COUNT(*) FILTER (WHERE stage_key IN ('rejected', 'withdrawn', 'not_joined'))::INT AS lost
          FROM submissions
-         WHERE created_at >= NOW() - INTERVAL '90 days'`
+         WHERE created_at >= NOW() - INTERVAL '90 days'
+           AND ($1::uuid IS NULL OR recruiter_id = $1::uuid)`,
+        [rid]
       ),
       // 5. Active jobs summary
       query(
@@ -81,7 +104,9 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
            COUNT(*) FILTER (WHERE status = 'filled')::INT AS filled_jobs,
            COUNT(*) FILTER (WHERE priority = 'urgent' AND status = 'open')::INT AS urgent_open,
            SUM(positions) FILTER (WHERE status = 'open')::INT AS total_positions_open
-         FROM jobs`
+         FROM jobs
+         WHERE ($1::uuid IS NULL OR primary_recruiter_id = $1::uuid)`,
+        [rid]
       ),
       // 6. Tasks summary
       query(
@@ -90,7 +115,9 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
            COUNT(*) FILTER (WHERE status = 'open' AND due_at < NOW())::INT AS overdue,
            COUNT(*) FILTER (WHERE status = 'open' AND due_at::date = CURRENT_DATE)::INT AS due_today,
            COUNT(*) FILTER (WHERE status = 'done' AND completed_at >= NOW() - INTERVAL '7 days')::INT AS completed_7d
-         FROM recruiter_tasks`
+         FROM recruiter_tasks
+         WHERE ($1::uuid IS NULL OR assigned_to = $1::uuid)`,
+        [rid]
       ),
     ]);
 

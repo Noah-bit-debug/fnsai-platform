@@ -1549,7 +1549,14 @@ export interface AtsReportsOverview {
 }
 
 export const atsReportsApi = {
-  overview: () => api.get<AtsReportsOverview>('/ats-reports/overview'),
+  overview: (params?: { recruiter_id?: string; me?: boolean }) =>
+    api.get<AtsReportsOverview>('/ats-reports/overview', {
+      params: params?.me
+        ? { me: 'true' }
+        : params?.recruiter_id
+          ? { recruiter_id: params.recruiter_id }
+          : undefined,
+    }),
 };
 
 // ─── Saved candidate views (Phase 4) ────────────────────────────────────────
