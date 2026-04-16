@@ -58,9 +58,12 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator'],
     defaultOpen: true,
     items: [
-      { to: '/candidates', icon: '👤', label: 'Candidates', roles: null },
-      { to: '/pipeline',   icon: '🔄', label: 'Pipeline',   roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/reminders',  icon: '🔔', label: 'Reminders',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/candidates',    icon: '👤', label: 'Candidates',  roles: null },
+      { to: '/jobs',          icon: '📋', label: 'Jobs',        roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/submissions',   icon: '📤', label: 'Submissions', roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/clients-orgs',  icon: '🏢', label: 'Clients',     roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/pipeline',      icon: '🔄', label: 'Pipeline',    roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/reminders',     icon: '🔔', label: 'Reminders',   roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
     ],
   },
   {

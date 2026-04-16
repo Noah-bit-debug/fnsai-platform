@@ -1153,4 +1153,366 @@ export const complianceBulkAssignApi = {
   ),
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ATS Phase 2 — Clients (orgs), Jobs, Submissions, Pipeline Stages, Tasks
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Client orgs ─────────────────────────────────────────────────────────────
+export interface ClientOrg {
+  id: string;
+  name: string;
+  website?: string | null;
+  business_unit?: string | null;
+  offerings?: string[];
+  submission_format?: string | null;
+  submission_format_notes?: string | null;
+  primary_contact_name?: string | null;
+  primary_contact_email?: string | null;
+  primary_contact_phone?: string | null;
+  status: 'active' | 'inactive' | 'prospect' | 'churned';
+  notes?: string | null;
+  facility_count?: number;
+  open_jobs?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientContact {
+  id: string;
+  client_id: string;
+  facility_id?: string | null;
+  name: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  is_primary: boolean;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface ClientRequirementTemplate {
+  id: string;
+  client_id: string;
+  kind: 'submission' | 'onboarding';
+  bundle_id?: string | null;
+  bundle_title?: string | null;
+  ad_hoc: Array<{ type?: string; kind?: string; label: string; required?: boolean; notes?: string }>;
+  notes?: string | null;
+  created_at: string;
+}
+
+export const clientsOrgsApi = {
+  list: (params?: { status?: string; search?: string }) =>
+    api.get<{ clients: ClientOrg[] }>('/clients/orgs', { params }),
+  get: (id: string) => api.get<{
+    client: ClientOrg;
+    facilities: Array<{ id: string; name: string; type?: string; address?: string }>;
+    contacts: ClientContact[];
+    requirement_templates: ClientRequirementTemplate[];
+  }>(`/clients/orgs/${id}`),
+  create: (data: Partial<ClientOrg>) => api.post<{ client: ClientOrg }>('/clients/orgs', data),
+  update: (id: string, data: Partial<ClientOrg>) => api.put<{ client: ClientOrg }>(`/clients/orgs/${id}`, data),
+  delete: (id: string) => api.delete(`/clients/orgs/${id}`),
+  addContact: (id: string, data: Partial<ClientContact>) =>
+    api.post<{ contact: ClientContact }>(`/clients/orgs/${id}/contacts`, data),
+  updateContact: (id: string, contactId: string, data: Partial<ClientContact>) =>
+    api.put<{ contact: ClientContact }>(`/clients/orgs/${id}/contacts/${contactId}`, data),
+  deleteContact: (id: string, contactId: string) =>
+    api.delete(`/clients/orgs/${id}/contacts/${contactId}`),
+  addRequirementTemplate: (id: string, data: Partial<ClientRequirementTemplate>) =>
+    api.post<{ template: ClientRequirementTemplate }>(`/clients/orgs/${id}/requirement-templates`, data),
+  deleteRequirementTemplate: (id: string, tplId: string) =>
+    api.delete(`/clients/orgs/${id}/requirement-templates/${tplId}`),
+};
+
+// ─── Jobs ────────────────────────────────────────────────────────────────────
+export interface Job {
+  id: string;
+  job_code?: string | null;
+  title: string;
+  client_id?: string | null;
+  client_name?: string | null;
+  facility_id?: string | null;
+  facility_name?: string | null;
+  client_job_id?: string | null;
+  profession?: string | null;
+  specialty?: string | null;
+  sub_specialty?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  duration_weeks?: number | null;
+  job_type?: string | null;
+  shift?: string | null;
+  hours_per_week?: number | null;
+  remote?: boolean;
+  positions?: number;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  primary_recruiter_id?: string | null;
+  primary_recruiter_name?: string | null;
+  account_manager_id?: string | null;
+  account_manager_name?: string | null;
+  recruitment_manager_id?: string | null;
+  recruitment_manager_name?: string | null;
+  bill_rate?: number | null;
+  pay_rate?: number | null;
+  margin?: number | null;
+  stipend?: number | null;
+  description?: string | null;
+  summary?: string | null;
+  job_ad?: string | null;
+  boolean_search?: string | null;
+  status: 'draft' | 'open' | 'on_hold' | 'filled' | 'closed' | 'cancelled';
+  submission_count?: number;
+  age_days?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobRequirement {
+  id: string;
+  job_id: string;
+  kind: 'submission' | 'onboarding';
+  bundle_id?: string | null;
+  bundle_title?: string | null;
+  ad_hoc: Array<{ type?: string; label: string; required?: boolean; notes?: string }>;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface MatchingCandidate {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email?: string;
+  role?: string;
+  specialties?: string[];
+  city?: string;
+  state?: string;
+  years_experience?: number;
+  match_score: number;
+}
+
+export const jobsApi = {
+  list: (params?: {
+    status?: string;
+    client_id?: string;
+    facility_id?: string;
+    profession?: string;
+    specialty?: string;
+    priority?: string;
+    recruiter_id?: string;
+    search?: string;
+  }) => api.get<{ jobs: Job[] }>('/jobs', { params }),
+  get: (id: string) => api.get<{ job: Job; requirements: JobRequirement[] }>(`/jobs/${id}`),
+  create: (data: Partial<Job>) => api.post<{ job: Job }>('/jobs', data),
+  update: (id: string, data: Partial<Job>) => api.put<{ job: Job }>(`/jobs/${id}`, data),
+  delete: (id: string) => api.delete(`/jobs/${id}`),
+  addRequirement: (id: string, data: Partial<JobRequirement>) =>
+    api.post<{ requirement: JobRequirement }>(`/jobs/${id}/requirements`, data),
+  deleteRequirement: (id: string, reqId: string) => api.delete(`/jobs/${id}/requirements/${reqId}`),
+  generateBoolean: (id: string) => api.post<{ boolean_search: string }>(`/jobs/${id}/ai/boolean`),
+  generateJobAd: (id: string) => api.post<{ job_ad: string }>(`/jobs/${id}/ai/job-ad`),
+  generateSummary: (id: string) => api.post<{ summary: string }>(`/jobs/${id}/ai/summary`),
+  matchingCandidates: (id: string) =>
+    api.get<{ candidates: MatchingCandidate[] }>(`/jobs/${id}/matching-candidates`),
+};
+
+// ─── Submissions ─────────────────────────────────────────────────────────────
+export type FitLabel = 'excellent' | 'strong' | 'moderate' | 'weak' | 'poor';
+export type GateStatus = 'ok' | 'missing' | 'pending' | 'unknown';
+
+export interface SubmissionGap {
+  category: string;
+  gap: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+export interface SubmissionGateMissing {
+  source: 'bundle' | 'ad_hoc';
+  kind: string;
+  item_id?: string;
+  label: string;
+  required: boolean;
+  status?: string;
+}
+
+export interface Submission {
+  id: string;
+  candidate_id: string;
+  candidate_name?: string;
+  candidate_role?: string;
+  job_id: string;
+  job_title?: string;
+  job_code?: string;
+  client_name?: string;
+  facility_name?: string;
+  recruiter_id?: string | null;
+  recruiter_name?: string;
+  stage_key?: string | null;
+  stage_label?: string;
+  stage_color?: string;
+  candidate_summary?: string | null;
+  skill_ratings?: Array<{ skill: string; rating: number; notes?: string }>;
+  bill_rate?: number | null;
+  pay_rate?: number | null;
+  stipend?: number | null;
+  expenses?: number | null;
+  margin?: number | null;
+  pdf_url?: string | null;
+  ai_score?: number | null;
+  ai_score_breakdown?: {
+    title: number;
+    skills: number;
+    certifications: number;
+    experience: number;
+    education: number;
+    location: number;
+  } | null;
+  ai_fit_label?: FitLabel | null;
+  ai_summary?: string | null;
+  ai_gaps?: SubmissionGap[];
+  gate_status?: GateStatus;
+  gate_missing?: SubmissionGateMissing[];
+  interview_scheduled_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmissionStageHistoryEntry {
+  id: string;
+  submission_id: string;
+  from_stage?: string | null;
+  to_stage: string;
+  changed_by_name?: string;
+  note?: string | null;
+  created_at: string;
+}
+
+export const submissionsApi = {
+  list: (params?: {
+    candidate_id?: string;
+    job_id?: string;
+    recruiter_id?: string;
+    stage_key?: string;
+    fit_label?: string;
+    gate_status?: string;
+  }) => api.get<{ submissions: Submission[] }>('/submissions', { params }),
+  get: (id: string) =>
+    api.get<{ submission: Submission; stage_history: SubmissionStageHistoryEntry[] }>(`/submissions/${id}`),
+  create: (data: { candidate_id: string; job_id: string } & Partial<Submission>) =>
+    api.post<{
+      submission: Submission;
+      gate: { status: GateStatus; missing: SubmissionGateMissing[]; total_required: number; satisfied: number };
+      score: Submission['ai_score_breakdown'] | null;
+    }>('/submissions', data),
+  update: (id: string, data: Partial<Submission>) =>
+    api.put<{ submission: Submission }>(`/submissions/${id}`, data),
+  moveStage: (id: string, stage_key: string, note?: string) =>
+    api.post<{ submission: Submission }>(`/submissions/${id}/move-stage`, { stage_key, note }),
+  rescore: (id: string) => api.post<{ score: NonNullable<Submission['ai_score_breakdown']> }>(`/submissions/${id}/score`),
+  recheckGate: (id: string) =>
+    api.post<{ gate: { status: GateStatus; missing: SubmissionGateMissing[] } }>(`/submissions/${id}/recheck-gate`),
+  generatePdf: (id: string) => api.post<{ pdf_url: string | null; status: string; message: string }>(`/submissions/${id}/pdf`),
+};
+
+// ─── Pipeline stages (configurable) ──────────────────────────────────────────
+export interface PipelineStage {
+  id: string;
+  tenant_id: string;
+  key: string;
+  label: string;
+  sort_order: number;
+  color?: string | null;
+  is_terminal: boolean;
+  stale_after_days?: number | null;
+  active: boolean;
+  description?: string | null;
+}
+
+export const pipelineStagesApi = {
+  list: () => api.get<{ stages: PipelineStage[] }>('/pipeline-stages'),
+  create: (data: Partial<PipelineStage>) => api.post<{ stage: PipelineStage }>('/pipeline-stages', data),
+  update: (key: string, data: Partial<PipelineStage>) =>
+    api.put<{ stage: PipelineStage }>(`/pipeline-stages/${key}`, data),
+  disable: (key: string) => api.delete(`/pipeline-stages/${key}`),
+};
+
+export interface KanbanColumn extends PipelineStage {
+  count: number;
+  items: Array<{
+    id: string;
+    candidate_id: string;
+    candidate_name: string;
+    candidate_role?: string;
+    job_id: string;
+    job_title: string;
+    job_code?: string;
+    client_name?: string;
+    facility_name?: string;
+    recruiter_name?: string;
+    stage_key?: string;
+    ai_score?: number | null;
+    ai_fit_label?: FitLabel | null;
+    gate_status?: GateStatus;
+    days_in_stage: number;
+    is_stale: boolean;
+    updated_at: string;
+  }>;
+}
+
+export const kanbanApi = {
+  get: () => api.get<{ stages: KanbanColumn[]; total: number }>('/pipeline/kanban'),
+};
+
+// ─── Recruiter tasks ────────────────────────────────────────────────────────
+export interface RecruiterTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  task_type?: 'call' | 'meeting' | 'todo' | 'follow_up' | 'email' | 'sms' | 'other' | null;
+  due_at?: string | null;
+  timezone?: string | null;
+  assigned_to?: string | null;
+  assigned_to_name?: string;
+  escalate_to?: string | null;
+  reminder_minutes_before?: number | null;
+  recurrence?: string | null;
+  notify_email?: boolean;
+  notify_sms?: boolean;
+  candidate_id?: string | null;
+  candidate_name?: string;
+  job_id?: string | null;
+  job_title?: string;
+  submission_id?: string | null;
+  client_id?: string | null;
+  client_name?: string;
+  status: 'open' | 'done' | 'snoozed' | 'cancelled';
+  is_overdue?: boolean;
+  completed_at?: string | null;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const tasksApi = {
+  list: (params?: {
+    assigned_to?: string;
+    candidate_id?: string;
+    job_id?: string;
+    submission_id?: string;
+    client_id?: string;
+    status?: string;
+    overdue?: string;
+    due_today?: string;
+  }) => api.get<{ tasks: RecruiterTask[] }>('/tasks', { params }),
+  create: (data: Partial<RecruiterTask>) => api.post<{ task: RecruiterTask }>('/tasks', data),
+  update: (id: string, data: Partial<RecruiterTask>) => api.put<{ task: RecruiterTask }>(`/tasks/${id}`, data),
+  complete: (id: string) => api.post<{ task: RecruiterTask }>(`/tasks/${id}/complete`),
+  cancel: (id: string) => api.delete(`/tasks/${id}`),
+};
+
 export default api;

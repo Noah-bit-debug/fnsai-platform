@@ -4,6 +4,14 @@ import { RBACProvider } from './contexts/RBACContext';
 import CandidateList from './pages/candidates/CandidateList';
 import CandidateNew from './pages/candidates/CandidateNew';
 import CandidateDetail from './pages/candidates/CandidateDetail';
+// ATS Phase 2
+import JobList from './pages/jobs/JobList';
+import JobNew from './pages/jobs/JobNew';
+import JobDetail from './pages/jobs/JobDetail';
+import SubmissionList from './pages/submissions/SubmissionList';
+import SubmissionDetail from './pages/submissions/SubmissionDetail';
+import ClientOrgList from './pages/clients/ClientOrgList';
+import ClientOrgDetail from './pages/clients/ClientOrgDetail';
 import Pipeline from './pages/Pipeline';
 import Reminders from './pages/Reminders';
 import RoleDashboard from './pages/RoleDashboard';
@@ -238,6 +246,15 @@ function AppRoutes() {
         <Route path="pipeline" element={<Pipeline />} />
         <Route path="reminders" element={<Reminders />} />
         <Route path="role-dashboard" element={<RoleDashboard />} />
+
+        {/* ATS Phase 2 */}
+        <Route path="jobs" element={<JobList />} />
+        <Route path="jobs/new" element={<JobNew />} />
+        <Route path="jobs/:id" element={<JobDetail />} />
+        <Route path="submissions" element={<SubmissionList />} />
+        <Route path="submissions/:id" element={<SubmissionDetail />} />
+        <Route path="clients-orgs" element={<ClientOrgList />} />
+        <Route path="clients-orgs/:id" element={<ClientOrgDetail />} />
 
         {/* Compliance */}
         <Route path="/compliance/my" element={<MyCompliance />} />
