@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '@clerk/express';
-import { Pool } from 'pg';
+import { pool } from '../db/client';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import multer from 'multer';
@@ -9,7 +9,6 @@ import fs from 'fs';
 import { SYSTEM_TEMPLATES, generateSignedPDF } from '../services/esignService';
 
 const router = Router();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ─── Multer file upload config ────────────────────────────────────────────────
 const uploadDir = path.join(process.cwd(), 'uploads', 'esign');
@@ -194,6 +193,7 @@ async function initEsignTables() {
     `ALTER TABLE esign_documents ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ`,
     `ALTER TABLE esign_documents ADD COLUMN IF NOT EXISTS void_reason TEXT`,
     `ALTER TABLE esign_templates ADD COLUMN IF NOT EXISTS content TEXT DEFAULT ''`,
+    `ALTER TABLE esign_documents ADD COLUMN IF NOT EXISTS correction_reason TEXT`,
   ];
   for (const q of alterQueries) {
     try { await pool.query(q); } catch (_) { /* column already exists */ }
@@ -648,20 +648,47 @@ router.get('/documents/:id', requireAuth(), async (req: Request, res: Response) 
   }
 });
 
-// PUT /esign/documents/:id — update title/message/expires
+// PUT /esign/documents/:id — update title/message/expires/status/correction_reason
 router.put('/documents/:id', requireAuth(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, message, expires_at, signing_order, field_values } = req.body;
+    const { title, message, expires_at, signing_order, field_values, status, correction_reason } = req.body;
+    const userId = getUserId(req);
+
     const { rows } = await pool.query(
       `UPDATE esign_documents
        SET title=COALESCE($1,title), message=COALESCE($2,message),
            expires_at=COALESCE($3,expires_at), signing_order=COALESCE($4,signing_order),
-           field_values=COALESCE($5,field_values), updated_at=NOW()
-       WHERE id=$6 RETURNING *`,
-      [title, message, expires_at, signing_order, field_values ? JSON.stringify(field_values) : null, id]
+           field_values=COALESCE($5,field_values),
+           status=COALESCE($6,status),
+           correction_reason=COALESCE($7,correction_reason),
+           updated_at=NOW()
+       WHERE id=$8 RETURNING *`,
+      [
+        title ?? null,
+        message ?? null,
+        expires_at ?? null,
+        signing_order ?? null,
+        field_values ? JSON.stringify(field_values) : null,
+        status ?? null,
+        correction_reason ?? null,
+        id,
+      ]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Document not found' });
+
+    // Write audit trail for status transitions
+    if (status === 'approved') {
+      await auditLog(id, 'document_approved', userId, getClientIp(req), null, {
+        approved_by: userId,
+      });
+    } else if (status === 'needs_correction') {
+      await auditLog(id, 'sent_back_for_correction', userId, getClientIp(req), null, {
+        reason: correction_reason ?? '',
+        sent_back_by: userId,
+      });
+    }
+
     res.json({ document: rows[0] });
   } catch (err: any) {
     console.error('PUT /documents/:id error:', err);
@@ -766,7 +793,8 @@ router.post('/documents/:id/remind-all', requireAuth(), async (req: Request, res
       signing_url: buildSigningUrl(s.token),
     }));
 
-    res.json({ pendingSigners, message: 'Share these signing links with pending signers' });
+    // Return as both `signers` and `pendingSigners` for frontend compatibility
+    res.json({ signers: pendingSigners, pendingSigners, message: 'Share these signing links with pending signers' });
   } catch (err: any) {
     console.error('POST /documents/:id/remind-all error:', err);
     res.status(500).json({ error: 'Failed to get signing links' });

@@ -75,7 +75,12 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
       params
     );
     res.json({ candidates: result.rows });
-  } catch (err) {
+  } catch (err: any) {
+    // Table not yet migrated — return empty list rather than 500
+    if (err?.code === '42P01') {
+      res.json({ candidates: [] });
+      return;
+    }
     console.error('Candidates list error:', err);
     res.status(500).json({ error: 'Failed to fetch candidates' });
   }

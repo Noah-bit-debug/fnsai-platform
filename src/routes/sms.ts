@@ -39,7 +39,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     );
 
     res.json({ approvals: result.rows });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ approvals: [] }); return; }
     console.error('SMS list error:', err);
     res.status(500).json({ error: 'Failed to fetch SMS approvals' });
   }

@@ -1,6 +1,18 @@
 -- Candidates Migration
 -- Run this against your Railway PostgreSQL database
 
+-- Ensure users table exists before referencing it
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  clerk_user_id TEXT UNIQUE NOT NULL,
+  email TEXT NOT NULL,
+  name TEXT,
+  role TEXT DEFAULT 'coordinator',
+  mfa_enabled BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Update users role constraint to support new roles
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check

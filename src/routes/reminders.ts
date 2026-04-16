@@ -43,7 +43,8 @@ router.get('/', requireAuth, requirePermission('reminders_manage'), async (req: 
       params
     );
     res.json({ reminders: result.rows });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ reminders: [] }); return; }
     console.error('Reminders list error:', err);
     res.status(500).json({ error: 'Failed to fetch reminders' });
   }

@@ -38,7 +38,11 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
     }
 
     res.json({ stages, total: result.rows.length });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === '42P01') {
+      res.json({ stages: { application: [], interview: [], credentialing: [], onboarding: [] }, total: 0 });
+      return;
+    }
     console.error('Pipeline overview error:', err);
     res.status(500).json({ error: 'Failed to fetch pipeline' });
   }

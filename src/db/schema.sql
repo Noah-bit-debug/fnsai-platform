@@ -264,6 +264,11 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure columns exist on tables that may have been created by older schema versions
+ALTER TABLE ai_rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE esign_documents ADD COLUMN IF NOT EXISTS correction_reason TEXT;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_staff_status ON staff(status);
 CREATE INDEX IF NOT EXISTS idx_credentials_expiry ON credentials(expiry_date);

@@ -35,6 +35,20 @@ import templatesRouter from './routes/templates';
 import suggestionsRouter from './routes/suggestions';
 import dailySummaryRouter from './routes/dailySummary';
 import timeTrackingRouter from './routes/timeTracking';
+import usersRouter from './routes/users';
+import complianceRouter from './routes/compliance';
+import complianceExamsRouter from './routes/complianceExams';
+import complianceChecklistsRouter from './routes/complianceChecklists';
+import complianceBundlesRouter from './routes/complianceBundles';
+import complianceJobsRouter from './routes/complianceJobs';
+import complianceReportsRouter from './routes/complianceReports';
+import complianceCertificatesRouter from './routes/complianceCertificates';
+import complianceIntegrationsRouter from './routes/complianceIntegrations';
+import compliancePlacementReadinessRouter from './routes/compliancePlacementReadiness';
+import complianceMessagingRouter from './routes/complianceMessaging';
+import aiEmailSearchRouter from './routes/aiEmailSearch';
+import aiOneDriveRouter from './routes/aiOneDrive';
+import aiBrainRouter from './routes/aiBrain';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -78,6 +92,50 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Clerk auth middleware — must be before routes
 app.use(clerkMiddleware());
 
+// ─── Auto-role middleware: assign pre-configured roles on first login ──────────
+app.use(async (req: Request, _res, next) => {
+  try {
+    const auth = (req as any).auth;
+    const userId: string | undefined = auth?.userId;
+    if (!userId) return next();
+
+    // Only run this check for authenticated users — lazy import to avoid circular deps
+    const { getAuth } = await import('@clerk/express');
+    const { clerkClient: cc } = await import('@clerk/express');
+
+    // Check if user already has a role set
+    const user = await cc.users.getUser(userId);
+    const existingRole = user.publicMetadata?.role as string | undefined;
+    if (existingRole) return next(); // already has a role, skip
+
+    // Look up their primary email in pre_role_assignments
+    const email = user.emailAddresses?.[0]?.emailAddress?.toLowerCase();
+    if (!email) return next();
+
+    const result = await pool.query(
+      'SELECT role FROM pre_role_assignments WHERE LOWER(email) = $1 AND applied = FALSE',
+      [email]
+    );
+    if (result.rows.length === 0) return next();
+
+    const assignedRole = result.rows[0].role;
+
+    // Set the role in Clerk
+    await cc.users.updateUserMetadata(userId, { publicMetadata: { role: assignedRole } });
+
+    // Mark as applied
+    await pool.query(
+      'UPDATE pre_role_assignments SET applied = TRUE, applied_at = NOW() WHERE LOWER(email) = $1',
+      [email]
+    );
+
+    console.log(`[auto-role] Assigned role '${assignedRole}' to ${email} (${userId})`);
+  } catch {
+    // Never block a request over this
+  }
+  next();
+});
+
 // Health check (no auth)
 app.get('/health', (_req: Request, res: Response) => {
   res.json({
@@ -115,6 +173,20 @@ app.use('/api/v1/templates', templatesRouter);
 app.use('/api/v1/suggestions', suggestionsRouter);
 app.use('/api/v1/daily-summary', dailySummaryRouter);
 app.use('/api/v1/time-tracking', timeTrackingRouter);
+app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/compliance', complianceRouter);
+app.use('/api/v1/compliance/exams', complianceExamsRouter);
+app.use('/api/v1/compliance/checklists', complianceChecklistsRouter);
+app.use('/api/v1/compliance/bundles', complianceBundlesRouter);
+app.use('/api/v1/compliance/jobs', complianceJobsRouter);
+app.use('/api/v1/compliance/reports', complianceReportsRouter);
+app.use('/api/v1/compliance/certificates', complianceCertificatesRouter);
+app.use('/api/v1/compliance/integration', complianceIntegrationsRouter);
+app.use('/api/v1/compliance/readiness', compliancePlacementReadinessRouter);
+app.use('/api/v1/compliance/messages', complianceMessagingRouter);
+app.use('/api/v1/ai-email', aiEmailSearchRouter);
+app.use('/api/v1/ai-onedrive', aiOneDriveRouter);
+app.use('/api/v1/ai-brain', aiBrainRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -137,6 +209,14 @@ async function runMigrations(): Promise<void> {
     'candidates_migration.sql',
     'intelligence_migration.sql',
     'time_tracking_migration.sql',
+    'compliance_phase1_migration.sql',
+    'compliance_phase2_migration.sql',
+    'compliance_phase3_migration.sql',
+    'compliance_phase4_migration.sql',
+    'compliance_phase5_migration.sql',
+    'compliance_phase6_migration.sql',
+    'pre_role_assignments_migration.sql',
+    'ai_brain_migration.sql',
   ];
 
   const client = await pool.connect();
@@ -167,6 +247,21 @@ runMigrations()
       console.log(`FNS AI API running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV ?? 'development'}`);
       console.log(`Frontend URL: ${process.env.FRONTEND_URL ?? 'http://localhost:5173'}`);
+
+      // Run compliance jobs daily (every 24h)
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      setInterval(async () => {
+        try {
+          console.log('[compliance-jobs] Running daily jobs...');
+          await fetch(`http://localhost:${PORT}/api/v1/compliance/jobs/run-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          console.log('[compliance-jobs] Daily jobs completed');
+        } catch (err) {
+          console.error('[compliance-jobs] Daily job error:', err);
+        }
+      }, TWENTY_FOUR_HOURS);
     });
   })
   .catch((err) => {

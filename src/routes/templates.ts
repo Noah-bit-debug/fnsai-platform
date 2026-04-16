@@ -31,10 +31,9 @@ const templateSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Seed default templates at module load time
+// Default seed templates — extracted so they can be called on-demand from GET /
 // ---------------------------------------------------------------------------
-(async () => {
-  const seeds = [
+const SEED_TEMPLATES = [
     {
       name: 'Missing Credentials Reminder',
       type: 'reminder',
@@ -80,14 +79,112 @@ const templateSchema = z.object({
       variables: ['candidate_name', 'facility_name', 'days_placed', 'recruiter_name', 'recruiter_phone', 'agency_name'],
       tags: ['follow-up', 'retention', 'placement', 'recruiter'],
     },
-  ];
+    // ── HR / Onboarding Document Templates ───────────────────────────────────
+    {
+      name: 'Offer Letter',
+      type: 'document_request',
+      category: 'hr',
+      subject: 'Your Offer Letter – {{position_title}} at {{agency_name}}',
+      content: `Dear {{candidate_name}},\n\nWe are pleased to offer you the position of {{position_title}} with {{agency_name}}, effective {{start_date}}.\n\nPosition Details:\n- Title: {{position_title}}\n- Start Date: {{start_date}}\n- Pay Rate: \${{pay_rate}} per {{pay_period}}\n- Assignment Location: {{facility_name}}\n- Shift: {{shift_type}}\n\nThis offer is contingent upon successful completion of your background check, drug screening, and verification of all required credentials.\n\nPlease sign and return this offer letter by {{response_deadline}} to confirm your acceptance.\n\nWe look forward to having you on our team.\n\nSincerely,\n{{recruiter_name}}\n{{agency_name}}`,
+      variables: ['candidate_name', 'position_title', 'start_date', 'agency_name', 'pay_rate', 'pay_period', 'facility_name', 'shift_type', 'response_deadline', 'recruiter_name'],
+      tags: ['offer', 'hr', 'onboarding', 'document'],
+    },
+    {
+      name: 'I-9 Employment Eligibility Verification Request',
+      type: 'document_request',
+      category: 'onboarding',
+      subject: 'Action Required: Complete Your I-9 Verification – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nAs part of your onboarding with {{agency_name}}, federal law requires all new employees to complete Form I-9 (Employment Eligibility Verification).\n\nYou must bring original documents from List A, OR a combination of documents from List B AND List C to your scheduled appointment on {{appointment_date}} at {{appointment_location}}.\n\nCommon acceptable documents:\n• List A: U.S. Passport, Permanent Resident Card, Employment Authorization Document\n• List B + C: Driver's License + Social Security Card (or Birth Certificate)\n\nPlease complete Section 1 of the I-9 form before your appointment by accessing the link below:\n{{portal_url}}\n\nIf you have questions, contact {{coordinator_name}} at {{coordinator_email}}.\n\nThank you,\n{{agency_name}} HR Team`,
+      variables: ['candidate_name', 'agency_name', 'appointment_date', 'appointment_location', 'portal_url', 'coordinator_name', 'coordinator_email'],
+      tags: ['i-9', 'onboarding', 'compliance', 'federal', 'document'],
+    },
+    {
+      name: 'W-4 Federal Tax Withholding Request',
+      type: 'document_request',
+      category: 'onboarding',
+      subject: 'Complete Your W-4 Federal Tax Form – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nTo ensure accurate federal income tax withholding from your paychecks, please complete the IRS Form W-4 (Employee's Withholding Certificate).\n\nSteps to complete:\n1. Visit: {{portal_url}}\n2. Navigate to "Documents" → "W-4"\n3. Complete all required fields\n4. Submit by {{due_date}}\n\nIf you have questions about how to fill out the W-4, we recommend visiting the IRS Tax Withholding Estimator at https://www.irs.gov/individuals/tax-withholding-estimator.\n\nFor HR questions, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} Payroll Team`,
+      variables: ['candidate_name', 'portal_url', 'due_date', 'agency_name', 'coordinator_name', 'coordinator_email'],
+      tags: ['w-4', 'tax', 'payroll', 'onboarding', 'document'],
+    },
+    {
+      name: 'Direct Deposit Authorization',
+      type: 'document_request',
+      category: 'hr',
+      subject: 'Set Up Direct Deposit for Your Paychecks – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nTo receive your paychecks via direct deposit, please complete the Direct Deposit Authorization form.\n\nYou will need:\n• Your bank routing number (9-digit number on your checks)\n• Your account number\n• Account type (checking or savings)\n\nTo complete the form:\n1. Log in to the payroll portal at: {{portal_url}}\n2. Navigate to "Payment Settings" → "Direct Deposit"\n3. Enter your banking information\n4. Submit before {{due_date}} to ensure your first paycheck is deposited directly\n\nNote: Initial setup may take 1–2 pay cycles to activate. Paper checks will be issued during this transition period.\n\nFor assistance, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} Payroll Team`,
+      variables: ['candidate_name', 'portal_url', 'due_date', 'agency_name', 'coordinator_name', 'coordinator_email'],
+      tags: ['direct-deposit', 'payroll', 'banking', 'hr'],
+    },
+    {
+      name: 'BLS Certification Renewal Reminder',
+      type: 'compliance_request',
+      category: 'credentialing',
+      subject: 'BLS Certification Renewal Required – Expires {{expiry_date}}',
+      content: `Dear {{candidate_name}},\n\nThis is a reminder that your Basic Life Support (BLS) certification is set to expire on {{expiry_date}}.\n\nBLS certification is a mandatory requirement for your role as {{position_title}}. Failure to renew before the expiration date will result in an automatic compliance hold on your placement.\n\nTo renew:\n1. Complete an AHA-approved BLS for Healthcare Providers course\n2. Ensure the course covers adult, child, and infant CPR plus AED use\n3. Upload your updated certification card to your profile at {{portal_url}} immediately upon completion\n\nCourse options near you can be found at: https://www.heart.org/en/cpr/find-a-course\n\nRenewal Deadline: {{expiry_date}}\n\nFor questions, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} Credentialing Team`,
+      variables: ['candidate_name', 'expiry_date', 'position_title', 'portal_url', 'coordinator_name', 'coordinator_email', 'agency_name'],
+      tags: ['bls', 'cpr', 'certification', 'credentialing', 'compliance'],
+    },
+    {
+      name: 'TB Test Requirement Notice',
+      type: 'compliance_request',
+      category: 'credentialing',
+      subject: 'TB Test Required for Placement – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nAs a condition of your healthcare placement through {{agency_name}}, you are required to provide documentation of a current tuberculosis (TB) test or screening.\n\nAcceptable forms of TB documentation:\n• Negative 2-step PPD tuberculin skin test (within the past 12 months)\n• Negative QuantiFERON-TB Gold blood test (within the past 12 months)\n• Documented history of positive TB test with negative chest X-ray (within the past 5 years)\n\nYour current TB documentation {{tb_status}}.\n\nPlease complete your TB test and upload results to {{portal_url}} no later than {{due_date}}.\n\nIf you have questions about testing locations, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} Credentialing Team`,
+      variables: ['candidate_name', 'tb_status', 'due_date', 'portal_url', 'coordinator_name', 'coordinator_email', 'agency_name'],
+      tags: ['tb-test', 'tuberculosis', 'credentialing', 'compliance', 'health-screening'],
+    },
+    {
+      name: 'Background Check Authorization',
+      type: 'document_request',
+      category: 'onboarding',
+      subject: 'Authorization Required: Background Check – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nAs part of the pre-employment process with {{agency_name}}, we are required to conduct a background screening. This check is standard for all healthcare professionals.\n\nThe background check will include:\n• Criminal history (national, state, and county)\n• Sex offender registry check\n• OIG/SAM exclusion list verification\n• Employment history verification\n• License and credential verification\n\nTo authorize and initiate the background check:\n1. Visit: {{background_check_url}}\n2. Enter your access code: {{access_code}}\n3. Complete the authorization form\n4. Submit by {{due_date}}\n\nResults are typically available within 3–5 business days.\n\nFor questions, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} HR Team`,
+      variables: ['candidate_name', 'agency_name', 'background_check_url', 'access_code', 'due_date', 'coordinator_name', 'coordinator_email'],
+      tags: ['background-check', 'onboarding', 'hr', 'compliance', 'pre-employment'],
+    },
+    {
+      name: 'Employee Handbook Acknowledgment',
+      type: 'document_request',
+      category: 'onboarding',
+      subject: 'Please Review and Sign the Employee Handbook – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nWelcome to {{agency_name}}! As part of your onboarding, please review our Employee Handbook, which outlines company policies, procedures, and your rights and responsibilities as a team member.\n\nThe handbook covers:\n• Code of conduct and professional standards\n• Attendance and punctuality policies\n• Time reporting and payroll procedures\n• HIPAA compliance and patient confidentiality\n• Incident reporting procedures\n• Dress code and facility policies\n• Grievance and complaint procedures\n\nTo access and sign the handbook:\n1. Visit: {{portal_url}}\n2. Navigate to "Documents" → "Employee Handbook"\n3. Read the complete handbook\n4. Sign the acknowledgment form\n5. Submit by {{due_date}}\n\nFor questions, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} HR Team`,
+      variables: ['candidate_name', 'agency_name', 'portal_url', 'due_date', 'coordinator_name', 'coordinator_email'],
+      tags: ['handbook', 'onboarding', 'policy', 'acknowledgment', 'hr'],
+    },
+    {
+      name: 'Incident Report Notification',
+      type: 'compliance_request',
+      category: 'compliance',
+      subject: 'Incident Report Filed – {{incident_date}} – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nThis message confirms that an incident report has been filed regarding an event that occurred on {{incident_date}} at {{facility_name}}.\n\nIncident Reference #: {{incident_id}}\nDate of Incident: {{incident_date}}\nLocation: {{facility_name}}\nReported By: {{reporter_name}}\n\nNext Steps:\n1. Please review the incident report on file at {{portal_url}}\n2. Provide your written account of the events within {{response_deadline}} business days\n3. A member of our HR/Compliance team will follow up with you at {{coordinator_email}}\n\nAll incident reports are handled confidentially in accordance with {{agency_name}} policy and applicable regulations.\n\nFor questions or concerns, contact {{coordinator_name}} at {{coordinator_email}}.\n\n{{agency_name}} Compliance Team`,
+      variables: ['candidate_name', 'incident_date', 'facility_name', 'incident_id', 'reporter_name', 'portal_url', 'response_deadline', 'coordinator_name', 'coordinator_email', 'agency_name'],
+      tags: ['incident', 'compliance', 'hr', 'report'],
+    },
+    {
+      name: 'Annual Performance Review Notice',
+      type: 'document_request',
+      category: 'hr',
+      subject: 'Annual Performance Review – {{review_period}} – {{candidate_name}}',
+      content: `Dear {{candidate_name}},\n\nIt is time for your annual performance review for the period of {{review_period}}.\n\nYour review is scheduled for:\nDate: {{review_date}}\nTime: {{review_time}}\nFormat: {{review_format}}\nWith: {{reviewer_name}}, {{reviewer_title}}\n\nTo prepare for your review, please complete the self-evaluation form by {{self_eval_deadline}}:\n{{portal_url}}\n\nThe self-evaluation covers:\n• Performance against goals set at the beginning of the review period\n• Clinical competencies and professional development\n• Communication and teamwork\n• Areas for growth and development goals for the coming year\n\nAnnual reviews directly inform compensation adjustments and advancement opportunities.\n\nFor questions, contact {{reviewer_name}} at {{coordinator_email}}.\n\n{{agency_name}} HR Team`,
+      variables: ['candidate_name', 'review_period', 'review_date', 'review_time', 'review_format', 'reviewer_name', 'reviewer_title', 'self_eval_deadline', 'portal_url', 'coordinator_email', 'agency_name'],
+      tags: ['annual-review', 'performance', 'hr', 'evaluation'],
+    },
+];
 
-  for (const seed of seeds) {
+async function runSeedTemplates(): Promise<void> {
+  for (const seed of SEED_TEMPLATES) {
     try {
+      // Check existence first to avoid type-ambiguity with SELECT...WHERE NOT EXISTS
+      const exists = await query<{ count: string }>(
+        'SELECT COUNT(*) AS count FROM templates WHERE name = $1',
+        [seed.name]
+      );
+      if (Number(exists.rows[0].count) > 0) continue;
+
       await query(
         `INSERT INTO templates (name, type, category, subject, content, variables, tags, ai_generated, is_active, version, use_count)
-         SELECT $1, $2, $3, $4, $5, $6, $7, false, true, 1, 0
-         WHERE NOT EXISTS (SELECT 1 FROM templates WHERE name = $1)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, false, true, 1, 0)`,
         [
           seed.name,
           seed.type,
@@ -99,14 +196,16 @@ const templateSchema = z.object({
         ]
       );
     } catch (err) {
-      // Table may not exist yet during initial setup — suppress gracefully
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes('does not exist') && !msg.includes('relation')) {
         console.error('[templates] Seed error for', seed.name, err);
       }
     }
   }
-})();
+}
+
+// Try seeding at startup (best effort — table may not exist yet)
+runSeedTemplates().catch(() => { /* silently skip if table missing */ });
 
 // ---------------------------------------------------------------------------
 // GET /types/list — must be defined before /:id to avoid route conflict
@@ -205,6 +304,17 @@ router.get('/', requireAuth, requirePermission('templates_view'), async (req: Re
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
+    // Check total count first (without filters) to detect if seeding is needed
+    const countCheck = await query('SELECT COUNT(*) FROM templates');
+    const totalCount = Number(countCheck.rows[0].count);
+
+    if (totalCount === 0) {
+      // Table exists but is empty — seed defaults now
+      console.log('[templates] Table empty, seeding defaults…');
+      await runSeedTemplates();
+      console.log('[templates] Seeding complete.');
+    }
+
     const result = await query(
       `SELECT id, name, type, category, subject, variables, tags,
               ai_generated, is_active, version, use_count, created_at, updated_at
@@ -214,7 +324,8 @@ router.get('/', requireAuth, requirePermission('templates_view'), async (req: Re
       params
     );
     res.json({ templates: result.rows });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ templates: [] }); return; }
     console.error('Templates list error:', err);
     res.status(500).json({ error: 'Failed to fetch templates' });
   }

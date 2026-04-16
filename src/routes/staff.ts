@@ -70,7 +70,22 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       staff: result.rows,
       total: Number(countResult.rows[0].count),
     });
-  } catch (err) {
+  } catch (err: any) {
+    // If credentials/facilities table missing, fall back to simple staff query
+    if (err?.code === '42P01') {
+      try {
+        const fallbackLimitIdx = params.length + 1;
+        const fallbackOffsetIdx = params.length + 2;
+        const fallback = await query(
+          `SELECT * FROM staff ${whereClause} ORDER BY last_name ASC, first_name ASC LIMIT $${fallbackLimitIdx} OFFSET $${fallbackOffsetIdx}`,
+          [...params, Number(limit), Number(offset)]
+        );
+        const countFallback = await query(`SELECT COUNT(*) FROM staff ${whereClause}`, params);
+        return res.json({ staff: fallback.rows, total: Number(countFallback.rows[0].count) });
+      } catch (inner: any) {
+        if (inner?.code === '42P01') return res.json({ staff: [], total: 0 });
+      }
+    }
     console.error('Staff list error:', err);
     res.status(500).json({ error: 'Failed to fetch staff' });
   }
@@ -94,32 +109,43 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    const credentialsResult = await query(
-      'SELECT * FROM credentials WHERE staff_id = $1 ORDER BY expiry_date ASC',
-      [id]
-    );
+    let credentials: unknown[] = [];
+    let placements: unknown[] = [];
+    let onboarding: unknown[] = [];
 
-    const placementsResult = await query(
-      `SELECT p.*, f.name AS facility_name
-       FROM placements p
-       JOIN facilities f ON p.facility_id = f.id
-       WHERE p.staff_id = $1
-       ORDER BY p.created_at DESC LIMIT 10`,
-      [id]
-    );
+    try {
+      const r = await query('SELECT * FROM credentials WHERE staff_id = $1 ORDER BY expiry_date ASC', [id]);
+      credentials = r.rows;
+    } catch (_) { /* table may not exist yet */ }
 
-    const onboardingResult = await query(
-      'SELECT * FROM onboarding_items WHERE staff_id = $1 ORDER BY created_at ASC',
-      [id]
-    );
+    try {
+      const r = await query(
+        `SELECT p.*, f.name AS facility_name
+         FROM placements p
+         JOIN facilities f ON p.facility_id = f.id
+         WHERE p.staff_id = $1
+         ORDER BY p.created_at DESC LIMIT 10`,
+        [id]
+      );
+      placements = r.rows;
+    } catch (_) { /* table may not exist yet */ }
+
+    try {
+      const r = await query('SELECT * FROM onboarding_items WHERE staff_id = $1 ORDER BY created_at ASC', [id]);
+      onboarding = r.rows;
+    } catch (_) { /* table may not exist yet */ }
 
     res.json({
       ...staffResult.rows[0],
-      credentials: credentialsResult.rows,
-      placements: placementsResult.rows,
-      onboarding: onboardingResult.rows,
+      credentials,
+      placements,
+      onboarding,
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === '42P01') {
+      res.status(503).json({ error: 'Database tables are still initializing. Please try again in a moment.' });
+      return;
+    }
     console.error('Staff get error:', err);
     res.status(500).json({ error: 'Failed to fetch staff member' });
   }
@@ -144,13 +170,13 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       [
         data.first_name,
         data.last_name,
-        data.email,
-        data.phone,
-        data.role,
-        data.specialty,
-        data.status,
-        data.facility_id,
-        data.notes,
+        data.email ?? null,
+        data.phone ?? null,
+        data.role ?? null,
+        data.specialty ?? null,
+        data.status ?? 'onboarding',
+        data.facility_id ?? null,
+        data.notes ?? null,
       ]
     );
 
@@ -164,8 +190,12 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     );
 
     res.status(201).json(result.rows[0]);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Staff create error:', err);
+    if (err?.code === '42P01') {
+      res.status(503).json({ error: 'Database tables are still initializing. Please try again in a moment.' });
+      return;
+    }
     res.status(500).json({ error: 'Failed to create staff member' });
   }
 });

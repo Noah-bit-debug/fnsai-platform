@@ -40,7 +40,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     );
 
     res.json({ emails: result.rows, total: Number(countResult.rows[0].count) });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ emails: [], total: 0 }); return; }
     console.error('Email list error:', err);
     res.status(500).json({ error: 'Failed to fetch emails' });
   }
