@@ -251,10 +251,15 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
   const auth = getAuth(req);
   const { stage, notes } = parse.data;
   try {
-    const current = await query(`SELECT stage FROM candidates WHERE id = $1`, [id]);
+    const current = await query(
+      `SELECT stage, target_facility_id FROM candidates WHERE id = $1`,
+      [id]
+    );
     if (current.rows.length === 0) { res.status(404).json({ error: 'Candidate not found' }); return; }
 
-    const fromStage = current.rows[0].stage;
+    const fromStage = current.rows[0].stage as string;
+    const targetFacilityId = (current.rows[0].target_facility_id ?? null) as string | null;
+
     await query(`UPDATE candidates SET stage = $1, updated_at = NOW() WHERE id = $2`, [stage, id]);
     await query(
       `INSERT INTO candidate_stage_history (candidate_id, from_stage, to_stage, moved_by, moved_by_name, notes)
@@ -263,7 +268,90 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
     );
     await logAudit(null, auth?.userId ?? 'unknown', 'candidate.stageMove', id,
       { from: fromStage, to: stage }, (req.ip ?? 'unknown'));
-    res.json({ success: true, from: fromStage, to: stage });
+
+    // ─── Auto-create placement when candidate lands in 'placed' ─────────────
+    // Mirrors the submission-level auto-placement. Idempotent: skips if a
+    // placement for this candidate already exists. Preference order for the
+    // job/submission link:
+    //   1. Most-recent submission for this candidate (if ATS is in use)
+    //   2. Candidate.target_facility_id (older workflow)
+    //   3. Standalone placement with candidate_id only
+    // Failures are logged, never surface to the caller — the stage move
+    // itself is the primary contract of this endpoint.
+    let placement_created = false;
+    let placement_id: string | null = null;
+    if (stage === 'placed') {
+      try {
+        const existing = await query(`SELECT id FROM placements WHERE candidate_id = $1 LIMIT 1`, [id]);
+        if (existing.rows.length > 0) {
+          placement_id = existing.rows[0].id as string;
+        } else {
+          // Try to find a latest submission → gives us job_id + facility_id + client_id
+          let jobId: string | null = null;
+          let submissionId: string | null = null;
+          let facilityId: string | null = targetFacilityId;
+          let clientId: string | null = null;
+          let startDate: string | null = null;
+          let endDate: string | null = null;
+          let payRate: number | null = null;
+          let role: string = 'Placement';
+
+          const subRes = await query(
+            `SELECT s.id AS submission_id, s.job_id, s.pay_rate,
+                    j.facility_id, j.client_id, j.start_date, j.end_date, j.title
+             FROM submissions s
+             LEFT JOIN jobs j ON s.job_id = j.id
+             WHERE s.candidate_id = $1
+             ORDER BY s.created_at DESC
+             LIMIT 1`,
+            [id]
+          ).catch(() => ({ rows: [] as Array<Record<string, unknown>> }));
+
+          if (subRes.rows.length > 0) {
+            const r = subRes.rows[0] as {
+              submission_id: string; job_id: string; pay_rate: string | null;
+              facility_id: string | null; client_id: string | null;
+              start_date: string | null; end_date: string | null; title: string | null;
+            };
+            submissionId = r.submission_id;
+            jobId = r.job_id;
+            facilityId = r.facility_id ?? facilityId;
+            clientId = r.client_id;
+            startDate = r.start_date;
+            endDate = r.end_date;
+            payRate = r.pay_rate != null ? Number(r.pay_rate) : null;
+            if (r.title) role = r.title;
+          }
+
+          const placementCode = `P-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+          const ins = await query(
+            `INSERT INTO placements (
+               facility_id, role, staff_id, candidate_id, job_id, submission_id, client_id,
+               start_date, end_date, hourly_rate, status, contract_status, placement_code, notes
+             ) VALUES (
+               $1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, 'pending', 'not_sent', $10, $11
+             ) RETURNING id`,
+            [
+              facilityId, role, id, jobId, submissionId, clientId,
+              startDate, endDate, payRate, placementCode,
+              `Auto-created from candidate stage move to 'placed'.`,
+            ]
+          );
+          placement_id = ins.rows[0].id as string;
+          placement_created = true;
+
+          await logAudit(
+            req.userRecord?.id ?? null, auth?.userId ?? 'system',
+            'placement.auto_create_from_candidate', placement_id,
+            { candidate_id: id, job_id: jobId, submission_id: submissionId, facility_id: facilityId }
+          );
+        }
+      } catch (placementErr) {
+        console.error('[candidate.move-stage] Placement auto-create failed:', placementErr);
+      }
+    }
+
+    res.json({ success: true, from: fromStage, to: stage, placement_created, placement_id });
   } catch (err) {
     console.error('Stage move error:', err);
     res.status(500).json({ error: 'Failed to move stage' });

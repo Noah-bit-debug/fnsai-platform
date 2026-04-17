@@ -119,14 +119,25 @@ function MetricsSnapshot() {
 
   const metrics = data?.data;
 
+  // `—` fallback for any field the backend omits so we never render
+  // the literal string "undefined%" or "NaNd" in a KPI card.
+  const fmtInt = (n: unknown): string =>
+    typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString() : '—';
+  const fmtPct = (n: unknown): string =>
+    typeof n === 'number' && Number.isFinite(n) ? `${n}%` : '—';
+  const fmtDays = (n: unknown): string =>
+    typeof n === 'number' && Number.isFinite(n) ? `${n}d` : '—';
+  const fmtUsd = (n: unknown): string =>
+    typeof n === 'number' && Number.isFinite(n) ? `$${n.toLocaleString()}` : '—';
+
   const items = metrics
     ? [
-        { label: 'Active Placements',     value: metrics.active_placements,            icon: '👩‍⚕️', color: '#1565c0' },
-        { label: 'Candidates in Pipeline',value: metrics.candidates_pipeline,           icon: '🎯',  color: '#7c3aed' },
-        { label: 'Compliance Rate',       value: `${metrics.compliance_rate}%`,         icon: '🛡️',  color: '#166534' },
-        { label: 'Open Positions',        value: metrics.open_positions,               icon: '📋',  color: '#854d0e' },
-        { label: 'Avg. Days to Fill',     value: `${metrics.avg_time_to_fill}d`,        icon: '⏱️',  color: '#0e7490' },
-        { label: 'Revenue MTD',           value: `$${(metrics.revenue_mtd ?? 0).toLocaleString()}`, icon: '💰', color: '#065f46' },
+        { label: 'Active Placements',      value: fmtInt(metrics.active_placements),    icon: '👩‍⚕️', color: '#1565c0' },
+        { label: 'Candidates in Pipeline', value: fmtInt(metrics.candidates_pipeline),  icon: '🎯',  color: '#7c3aed' },
+        { label: 'Compliance Rate',        value: fmtPct(metrics.compliance_rate),      icon: '🛡️',  color: '#166534' },
+        { label: 'Open Positions',         value: fmtInt(metrics.open_positions),       icon: '📋',  color: '#854d0e' },
+        { label: 'Avg. Days to Fill',      value: fmtDays(metrics.avg_time_to_fill),    icon: '⏱️',  color: '#0e7490' },
+        { label: 'Revenue MTD',            value: fmtUsd(metrics.revenue_mtd),          icon: '💰',  color: '#065f46' },
       ]
     : [];
 
