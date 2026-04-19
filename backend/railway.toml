@@ -1,6 +1,10 @@
 [build]
 builder = "nixpacks"
-buildCommand = "echo 'Using pre-built dist'"
+# Compile TypeScript on every deploy. The old command
+# ('echo "Using pre-built dist"') assumed a pre-built dist/ was checked
+# in, but dist/ is .gitignore'd — Railway was running against a stale
+# cached dist that kept some routes out of sync with main.
+buildCommand = "npm install --include=dev && npm run build"
 
 [deploy]
 startCommand = "npm start"
