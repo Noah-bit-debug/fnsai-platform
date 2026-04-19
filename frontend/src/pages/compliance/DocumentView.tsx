@@ -48,8 +48,8 @@ export default function DocumentView() {
     setLoadError('');
     try {
       const [docRes, recordsRes] = await Promise.all([
-        api.get(`/api/v1/compliance/documents/${id}`),
-        api.get('/api/v1/compliance/competency-records?mine=true'),
+        api.get(`/compliance/documents/${id}`),
+        api.get('/compliance/competency-records?mine=true'),
       ]);
 
       const docData: ComplianceDocument = docRes.data?.document ?? docRes.data;
@@ -74,7 +74,7 @@ export default function DocumentView() {
     setConfirming(true);
     setConfirmError('');
     try {
-      await api.post(`/api/v1/compliance/documents/${id}/read`);
+      await api.post(`/compliance/documents/${id}/read`);
       const now = new Date().toISOString();
       setConfirmSuccess(true);
       setConfirmedAt(now);

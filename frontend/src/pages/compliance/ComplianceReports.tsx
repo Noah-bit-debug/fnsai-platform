@@ -181,8 +181,8 @@ function CompletionSummaryReport() {
     setLoading(true); setError(null);
     try {
       const [ovRes, contentRes] = await Promise.all([
-        api.get('/api/v1/compliance/reports/overview'),
-        api.get('/api/v1/compliance/reports/content'),
+        api.get('/compliance/reports/overview'),
+        api.get('/compliance/reports/content'),
       ]);
       setOverview(ovRes.data);
       setItems(contentRes.data?.items ?? contentRes.data ?? []);
@@ -391,7 +391,7 @@ function UserDetailReport() {
   const loadUsers = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await api.get('/api/v1/compliance/reports/users');
+      const res = await api.get('/compliance/reports/users');
       const raw = res.data?.users ?? res.data ?? [];
       setUsers(raw);
     } catch (e: any) {
@@ -406,7 +406,7 @@ function UserDetailReport() {
   const loadUserDetail = async (userId: string) => {
     setDetailLoading(true);
     try {
-      const res = await api.get(`/api/v1/compliance/reports/user/${userId}`);
+      const res = await api.get(`/compliance/reports/user/${userId}`);
       setUserDetail(res.data);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -622,7 +622,7 @@ function ExamAnalysisReport() {
   const loadExams = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await api.get('/api/v1/compliance/exams');
+      const res = await api.get('/compliance/exams');
       setExams(res.data?.exams ?? res.data ?? []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -638,7 +638,7 @@ function ExamAnalysisReport() {
     setExpanded(examId);
     if (analyses[examId]) return;
     try {
-      const res = await api.get(`/api/v1/compliance/reports/exam/${examId}`);
+      const res = await api.get(`/compliance/reports/exam/${examId}`);
       setAnalyses(prev => ({ ...prev, [examId]: res.data }));
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -762,8 +762,8 @@ function ExpirationReport() {
     setLoading(true); setError(null);
     try {
       const [expiringRes, overdueRes] = await Promise.all([
-        api.get(`/api/v1/compliance/reports/expiring?days=${days}`),
-        api.get('/api/v1/compliance/reports/overdue'),
+        api.get(`/compliance/reports/expiring?days=${days}`),
+        api.get('/compliance/reports/overdue'),
       ]);
       const ex = expiringRes.data?.items ?? expiringRes.data ?? [];
       setExpiring(Array.isArray(ex) ? ex : []);
@@ -928,7 +928,7 @@ function CompletionTrendsReport() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await api.get('/api/v1/compliance/reports/trends');
+      const res = await api.get('/compliance/reports/trends');
       setDays(res.data?.days ?? res.data ?? []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);

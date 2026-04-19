@@ -50,8 +50,8 @@ export default function PolicySign() {
     setLoadError('');
     try {
       const [policyRes, recordsRes] = await Promise.all([
-        api.get(`/api/v1/compliance/policies/${id}`),
-        api.get('/api/v1/compliance/competency-records?mine=true'),
+        api.get(`/compliance/policies/${id}`),
+        api.get('/compliance/competency-records?mine=true'),
       ]);
 
       const policyData: Policy = policyRes.data?.policy ?? policyRes.data;
@@ -75,7 +75,7 @@ export default function PolicySign() {
     setSigning(true);
     setSignError('');
     try {
-      await api.post(`/api/v1/compliance/policies/${id}/sign`, {
+      await api.post(`/compliance/policies/${id}/sign`, {
         typed_signature: signature.trim(),
       });
       setSignSuccess(true);

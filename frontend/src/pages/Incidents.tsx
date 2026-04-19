@@ -107,7 +107,7 @@ export default function Incidents() {
       facility_id: form.facility_id || undefined,
       type: form.type,
       description: form.description.trim(),
-      date: form.date || new Date().toISOString().slice(0, 10),
+      date: form.date || new Date().toLocaleDateString("en-CA"),
       workers_comp_claim: form.workers_comp_claim,
     });
   };

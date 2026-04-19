@@ -13,7 +13,7 @@ interface Summary {
 
 export default function DailySummaryWidget() {
   const navigate = useNavigate();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA");
 
   const { data, isLoading } = useQuery({
     queryKey: ['daily-summary-widget', today],

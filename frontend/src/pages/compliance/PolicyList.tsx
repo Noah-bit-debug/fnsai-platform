@@ -76,7 +76,7 @@ export default function PolicyList() {
       if (filterCat1) params.cat1_id = filterCat1;
 
       const query = new URLSearchParams(params).toString();
-      const res = await api.get(`/api/v1/compliance/policies${query ? '?' + query : ''}`);
+      const res = await api.get(`/compliance/policies${query ? '?' + query : ''}`);
       setPolicies(Array.isArray(res.data) ? res.data : (res.data.policies ?? []));
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -88,7 +88,7 @@ export default function PolicyList() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/v1/compliance/categories');
+        const res = await api.get('/compliance/categories');
         setCategories(Array.isArray(res.data) ? res.data : (res.data.categories ?? []));
       } catch {
         // non-fatal
@@ -105,7 +105,7 @@ export default function PolicyList() {
     if (!window.confirm('Archive this policy? It will no longer be visible to staff.')) return;
     setArchiving(id);
     try {
-      await api.delete(`/api/v1/compliance/policies/${id}`);
+      await api.delete(`/compliance/policies/${id}`);
       await fetchPolicies();
     } catch (e: any) {
       alert('Archive failed: ' + (e.response?.data?.error || e.message));

@@ -108,7 +108,7 @@ export default function DocumentEditor() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/v1/compliance/categories');
+        const res = await api.get('/compliance/categories');
         setCategories(Array.isArray(res.data) ? res.data : (res.data.categories ?? []));
       } catch {
         // non-fatal
@@ -122,7 +122,7 @@ export default function DocumentEditor() {
     (async () => {
       setLoading(true);
       try {
-        const res = await api.get(`/api/v1/compliance/documents/${id}`);
+        const res = await api.get(`/compliance/documents/${id}`);
         const d = res.data;
         setForm({
           title: d.title ?? '',
@@ -179,9 +179,9 @@ export default function DocumentEditor() {
 
     try {
       if (isEdit) {
-        await api.put(`/api/v1/compliance/documents/${id}`, payload);
+        await api.put(`/compliance/documents/${id}`, payload);
       } else {
-        await api.post('/api/v1/compliance/documents', payload);
+        await api.post('/compliance/documents', payload);
       }
       navigate('/compliance/admin/documents');
     } catch (e: any) {

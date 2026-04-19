@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
-import { staffApi, placementsApi, credentialsApi, onboardingApi } from '../lib/api';
+import { staffApi, placementsApi, credentialsApi, onboardingApi, candidatesApi } from '../lib/api';
 
 function relativeTimeAgo(ms: number): string {
   if (!ms) return 'never';
@@ -40,9 +40,25 @@ export default function Dashboard() {
     refetchInterval: 60000,
   });
 
-  const { data: onboardingStaff, dataUpdatedAt: onboardingUpdatedAt } = useQuery({
-    queryKey: ['staff-onboarding'],
-    queryFn: () => staffApi.list({ status: 'onboarding' }),
+  // Added so "Active Placements" KPI matches the Placements page exactly.
+  const { data: activePlacementsData } = useQuery({
+    queryKey: ['placements-active'],
+    queryFn: () => placementsApi.list({ status: 'active' }),
+    refetchInterval: 60000,
+  });
+
+  // CHANGED: previously counted staff.status='onboarding' which was
+  // populated separately from the Onboarding page (which pulls candidates
+  // by stage). Switched to the same data source the Onboarding page uses
+  // so the two always agree.
+  const { data: onbCandConfirmed } = useQuery({
+    queryKey: ['onboarding-candidates-confirmed'],
+    queryFn: () => candidatesApi.list({ stage: 'confirmed' }),
+    refetchInterval: 60000,
+  });
+  const { data: onbCandLegacy, dataUpdatedAt: onboardingUpdatedAt } = useQuery({
+    queryKey: ['onboarding-candidates-legacy'],
+    queryFn: () => candidatesApi.list({ stage: 'onboarding' }),
     refetchInterval: 60000,
   });
 
@@ -70,7 +86,12 @@ export default function Dashboard() {
 
   const activeEmployees = staffData?.data?.staff?.length ?? 0;
   const pendingPlacements = pendingData?.data?.placements?.length ?? 0;
-  const onboardingCount = onboardingStaff?.data?.staff?.length ?? 0;
+  const activePlacements = activePlacementsData?.data?.placements?.length ?? 0;
+  // In Onboarding = candidates in stages 'confirmed' + 'onboarding'
+  // (matches the Onboarding page exactly)
+  const onboardingCount =
+    (onbCandConfirmed?.data?.candidates?.length ?? 0) +
+    (onbCandLegacy?.data?.candidates?.length ?? 0);
   const expiringSoon = expiringData?.data?.expiringSoon ?? [];
   const alreadyExpired = expiringData?.data?.alreadyExpired ?? [];
   const expiringCreds = expiringSoon.length;
@@ -81,10 +102,15 @@ export default function Dashboard() {
     return days <= 7;
   }).length;
   const totalCredIssues = expiredCreds + expiringCreds;
-  const complianceRate =
-    totalCredIssues === 0
+  // If no staff AND no credentials at all, compliance rate is genuinely
+  // unknown — show '—' instead of a confusing 0% or misleading 100%.
+  const hasAnyCredData = activeEmployees > 0 || totalCredIssues > 0;
+  const complianceRate: number | null = !hasAnyCredData
+    ? null
+    : totalCredIssues === 0
       ? 100
       : Math.max(0, Math.round(100 - (totalCredIssues / Math.max(1, activeEmployees)) * 20));
+  const complianceRateDisplay = complianceRate == null ? '—' : `${complianceRate}%`;
   const criticalAlert = expiredCreds > 0 || expiringCreds >= 3;
 
   const quickLinks = [
@@ -192,7 +218,19 @@ export default function Dashboard() {
 
         <div
           className="sc"
-          style={{ borderTop: `3px solid ${complianceRate >= 90 ? 'var(--ac)' : complianceRate >= 70 ? 'var(--wn)' : 'var(--dg)'}`, cursor: 'pointer', transition: 'box-shadow 0.15s' }}
+          style={{
+            borderTop: `3px solid ${
+              complianceRate == null
+                ? 'var(--t3)'
+                : complianceRate >= 90
+                  ? 'var(--ac)'
+                  : complianceRate >= 70
+                    ? 'var(--wn)'
+                    : 'var(--dg)'
+            }`,
+            cursor: 'pointer',
+            transition: 'box-shadow 0.15s',
+          }}
           onClick={() => navigate('/compliance/admin/records')}
           onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 12px rgba(22,163,74,0.12)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
@@ -200,10 +238,24 @@ export default function Dashboard() {
         >
           <div className="sc-icon" style={{ background: 'rgba(22,163,74,0.1)', color: 'var(--ac)' }}>✅</div>
           <div className="sc-label">Compliance Rate</div>
-          <div className="sc-value" style={{ color: complianceRate >= 90 ? 'var(--ac)' : complianceRate >= 70 ? 'var(--wn)' : 'var(--dg)' }}>
-            {complianceRate}%
+          <div
+            className="sc-value"
+            style={{
+              color:
+                complianceRate == null
+                  ? 'var(--t3)'
+                  : complianceRate >= 90
+                    ? 'var(--ac)'
+                    : complianceRate >= 70
+                      ? 'var(--wn)'
+                      : 'var(--dg)',
+            }}
+          >
+            {complianceRateDisplay}
           </div>
-          <div className="sc-sub">Credential compliance</div>
+          <div className="sc-sub">
+            {complianceRate == null ? 'No credential data yet' : 'Credential compliance'}
+          </div>
         </div>
       </div>
 
@@ -379,8 +431,9 @@ export default function Dashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {[
                 { label: 'Active Employees', value: activeEmployees, color: 'var(--ac)', nav: '/staff' },
+                { label: 'Active Placements', value: activePlacements, color: activePlacements > 0 ? 'var(--ac)' : 'var(--t1)', nav: '/placements' },
                 { label: 'Pending Placements', value: pendingPlacements, color: pendingPlacements > 0 ? 'var(--wn)' : 'var(--t1)', nav: '/placements' },
-                { label: 'Onboarding Stage', value: onboardingCount, color: '#7c3aed', nav: '/onboarding' },
+                { label: 'Onboarding', value: onboardingCount, color: '#7c3aed', nav: '/onboarding' },
                 { label: 'Credential Alerts', value: totalCredIssues, color: totalCredIssues > 0 ? 'var(--dg)' : 'var(--ac)', nav: '/credentialing' },
               ].map((stat) => (
                 <div

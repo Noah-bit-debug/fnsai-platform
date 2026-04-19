@@ -462,8 +462,28 @@ export default function Integrations() {
 
       {/* Content */}
       {isLoading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
-          <div style={{ fontSize: 14, color: '#64748b' }}>Loading integrations...</div>
+        // Skeleton cards — match the real card grid so layout doesn't jump
+        // when data arrives.
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 18 }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              style={{
+                background: '#fff',
+                borderRadius: 12,
+                border: '1px solid #e2e8f0',
+                padding: 18,
+                minHeight: 140,
+                animation: 'skeleton-pulse 1.2s ease-in-out infinite',
+                opacity: 0.6,
+              }}
+            >
+              <div style={{ height: 18, width: '55%', background: '#e2e8f0', borderRadius: 4, marginBottom: 12 }} />
+              <div style={{ height: 12, width: '90%', background: '#f1f5f9', borderRadius: 4, marginBottom: 6 }} />
+              <div style={{ height: 12, width: '70%', background: '#f1f5f9', borderRadius: 4 }} />
+            </div>
+          ))}
+          <style>{`@keyframes skeleton-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.85; } }`}</style>
         </div>
       ) : integrations.length === 0 ? (
         <EmptyState onConnect={() => setShowConnect(true)} />

@@ -106,7 +106,7 @@ export default function PolicyEditor() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/v1/compliance/categories');
+        const res = await api.get('/compliance/categories');
         setCategories(Array.isArray(res.data) ? res.data : (res.data.categories ?? []));
       } catch {
         // non-fatal
@@ -120,7 +120,7 @@ export default function PolicyEditor() {
     (async () => {
       setLoading(true);
       try {
-        const res = await api.get(`/api/v1/compliance/policies/${id}`);
+        const res = await api.get(`/compliance/policies/${id}`);
         const p = res.data;
         setForm({
           title: p.title ?? '',
@@ -175,9 +175,9 @@ export default function PolicyEditor() {
 
     try {
       if (isEdit) {
-        await api.put(`/api/v1/compliance/policies/${id}`, payload);
+        await api.put(`/compliance/policies/${id}`, payload);
       } else {
-        await api.post('/api/v1/compliance/policies', payload);
+        await api.post('/compliance/policies', payload);
       }
       navigate('/compliance/admin/policies');
     } catch (e: any) {

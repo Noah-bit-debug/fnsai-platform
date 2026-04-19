@@ -51,7 +51,7 @@ export default function MyCompliance() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/api/v1/compliance/competency-records?mine=true');
+      const res = await api.get('/compliance/competency-records?mine=true');
       setRecords(res.data?.records ?? res.data ?? []);
     } catch {
       setError('Failed to load compliance records.');

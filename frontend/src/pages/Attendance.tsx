@@ -32,8 +32,14 @@ function calcHours(clockIn: string, clockOut: string, breakMin: number): number 
   return Math.max(0, Math.round(totalMin / 6) / 10);
 }
 
+// Returns YYYY-MM-DD in the user's LOCAL timezone. Previously we used
+// `new Date().toISOString().slice(0, 10)` which returns UTC — after ~7 PM
+// CDT that would roll the date forward by a day, so "today" defaulted to
+// tomorrow.
+const todayLocal = (): string => new Date().toLocaleDateString('en-CA');
+
 const EMPTY_FORM: Partial<AttendanceEntry> = {
-  date: new Date().toISOString().slice(0, 10),
+  date: todayLocal(),
   staff_name: '',
   staff_role: '',
   clock_in: '08:00',
@@ -47,7 +53,7 @@ export default function Attendance() {
   const [entries, setEntries] = useState<AttendanceEntry[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<Partial<AttendanceEntry>>(EMPTY_FORM);
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().slice(0, 10));
+  const [filterDate, setFilterDate] = useState(todayLocal());
   const [filterStatus, setFilterStatus] = useState('');
   const [search, setSearch] = useState('');
 
@@ -67,7 +73,7 @@ export default function Attendance() {
     const totalHours = calcHours(form.clock_in ?? '', form.clock_out ?? '', form.break_minutes ?? 0);
     const entry: AttendanceEntry = {
       id: Date.now().toString(),
-      date: form.date ?? new Date().toISOString().slice(0, 10),
+      date: form.date ?? todayLocal(),
       staff_name: form.staff_name ?? '',
       staff_role: form.staff_role ?? '',
       clock_in: form.clock_in ?? '',

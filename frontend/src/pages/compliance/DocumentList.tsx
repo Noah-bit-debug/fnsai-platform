@@ -74,7 +74,7 @@ export default function DocumentList() {
       if (filterCat1) params.cat1_id = filterCat1;
 
       const query = new URLSearchParams(params).toString();
-      const res = await api.get(`/api/v1/compliance/documents${query ? '?' + query : ''}`);
+      const res = await api.get(`/compliance/documents${query ? '?' + query : ''}`);
       setDocuments(Array.isArray(res.data) ? res.data : (res.data.documents ?? []));
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -86,7 +86,7 @@ export default function DocumentList() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/v1/compliance/categories');
+        const res = await api.get('/compliance/categories');
         setCategories(Array.isArray(res.data) ? res.data : (res.data.categories ?? []));
       } catch {
         // non-fatal
@@ -103,7 +103,7 @@ export default function DocumentList() {
     if (!window.confirm('Archive this document? It will no longer be visible to staff.')) return;
     setArchiving(id);
     try {
-      await api.delete(`/api/v1/compliance/documents/${id}`);
+      await api.delete(`/compliance/documents/${id}`);
       await fetchDocuments();
     } catch (e: any) {
       alert('Archive failed: ' + (e.response?.data?.error || e.message));

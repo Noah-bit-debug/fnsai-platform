@@ -210,8 +210,8 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
     setError(null);
     try {
       const [overviewRes, overdueRes] = await Promise.all([
-        api.get('/api/v1/compliance/reports/overview'),
-        api.get('/api/v1/compliance/reports/overdue'),
+        api.get('/compliance/reports/overview'),
+        api.get('/compliance/reports/overdue'),
       ]);
       setData(overviewRes.data);
       const od = overdueRes.data?.items ?? overdueRes.data ?? [];
@@ -232,7 +232,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
   const handleRunAllJobs = async () => {
     setRunningJobs(true);
     try {
-      const res = await api.post('/api/v1/compliance/jobs/run-all');
+      const res = await api.post('/compliance/jobs/run-all');
       addToast(res.data?.message || 'All jobs completed successfully.', 'success');
     } catch (e: any) {
       addToast(e.response?.data?.error || 'Failed to run jobs.', 'error');
@@ -422,7 +422,7 @@ function UsersTab() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await api.get('/api/v1/compliance/reports/users');
+      const res = await api.get('/compliance/reports/users');
       setUsers(res.data?.users ?? res.data ?? []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -572,8 +572,8 @@ function ContentTab() {
     setLoading(true); setError(null);
     try {
       const [contentRes, expiringRes] = await Promise.all([
-        api.get('/api/v1/compliance/reports/content'),
-        api.get('/api/v1/compliance/reports/expiring?days=30'),
+        api.get('/compliance/reports/content'),
+        api.get('/compliance/reports/expiring?days=30'),
       ]);
       setItems(contentRes.data?.items ?? contentRes.data ?? []);
       const ex = expiringRes.data?.items ?? expiringRes.data ?? [];
@@ -711,7 +711,7 @@ function ActivityTab({ addToast }: { addToast: (msg: string, type: Toast['type']
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await api.get('/api/v1/compliance/reports/notifications');
+      const res = await api.get('/compliance/reports/notifications');
       setNotifications(res.data?.notifications ?? res.data ?? []);
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -725,7 +725,7 @@ function ActivityTab({ addToast }: { addToast: (msg: string, type: Toast['type']
   const handleRunNotifications = async () => {
     setRunning(true);
     try {
-      const res = await api.post('/api/v1/compliance/jobs/process-notifications');
+      const res = await api.post('/compliance/jobs/process-notifications');
       addToast(res.data?.message || 'Notifications processed.', 'success');
       load();
     } catch (e: any) {

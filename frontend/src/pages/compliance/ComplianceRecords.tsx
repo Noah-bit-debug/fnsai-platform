@@ -81,7 +81,7 @@ function NoteModal({ recordId, onClose, onSaved }: NoteModalProps) {
     setSaving(true);
     setError('');
     try {
-      await api.post(`/api/v1/compliance/competency-records/${recordId}/notes`, { note: note.trim() });
+      await api.post(`/compliance/competency-records/${recordId}/notes`, { note: note.trim() });
       onSaved();
       onClose();
     } catch (err: any) {
@@ -238,7 +238,7 @@ export default function ComplianceRecords() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (typeFilter !== 'all') params.set('item_type', typeFilter);
 
-      const res = await api.get(`/api/v1/compliance/competency-records?${params.toString()}`);
+      const res = await api.get(`/compliance/competency-records?${params.toString()}`);
       const data = res.data;
       const recs: CompetencyRecord[] = data?.records ?? data ?? [];
       setRecords(recs);
@@ -262,7 +262,7 @@ export default function ComplianceRecords() {
   async function handleStatusChange(recordId: string, newStatus: string) {
     setUpdatingStatus(recordId);
     try {
-      await api.patch(`/api/v1/compliance/competency-records/${recordId}`, { status: newStatus });
+      await api.patch(`/compliance/competency-records/${recordId}`, { status: newStatus });
       setRecords(prev => prev.map(r => (r.id === recordId ? { ...r, status: newStatus as CompetencyRecord['status'] } : r)));
     } catch {
       showToast('Failed to update status.');

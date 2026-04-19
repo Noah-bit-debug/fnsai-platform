@@ -73,7 +73,10 @@ function formatTime(dateStr: string): string {
 }
 
 function toISODate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  // LOCAL-timezone YYYY-MM-DD. `toISOString()` returns UTC — after ~7 PM
+  // CDT that flips "today" forward a day, which confused daily-summary
+  // lookups.
+  return date.toLocaleDateString('en-CA');
 }
 
 // ─── Sidebar Recent List ──────────────────────────────────────────────────────

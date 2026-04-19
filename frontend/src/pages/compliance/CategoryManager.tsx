@@ -234,7 +234,7 @@ export default function CategoryManager() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/api/v1/compliance/categories');
+      const res = await api.get('/compliance/categories');
       setCategories(Array.isArray(res.data) ? res.data : (res.data.categories ?? []));
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);
@@ -256,13 +256,13 @@ export default function CategoryManager() {
     if (level === 2) parent_id = selectedCat1;
     if (level === 3) parent_id = selectedCat2;
 
-    await api.post('/api/v1/compliance/categories', { name, level, parent_id });
+    await api.post('/compliance/categories', { name, level, parent_id });
     await fetchCategories();
   }
 
   async function handleDelete(id: number) {
     try {
-      await api.delete(`/api/v1/compliance/categories/${id}`);
+      await api.delete(`/compliance/categories/${id}`);
       // Clear selection if deleted item was selected
       if (selectedCat1 === id) { setSelectedCat1(null); setSelectedCat2(null); }
       if (selectedCat2 === id) setSelectedCat2(null);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useRBAC } from '../../contexts/RBACContext';
-import axios from 'axios';
+import api from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────
 interface TeamMember {
@@ -180,15 +180,17 @@ export default function UserManagement() {
   // Accordion
   const [showMatrix, setShowMatrix] = useState(false);
 
-  const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
-
-  // Fetch team members
+  // Fetch team members.
+  // NOTE: previously used raw axios with a bare apiBase URL — that
+  // bypassed the Clerk Bearer-token interceptor, so the request went out
+  // unauthenticated and got redirected / rejected by the backend. Using
+  // the shared `api` instance (lib/api.ts) re-uses that interceptor.
   useEffect(() => {
     const fetchUsers = async () => {
       setLoadingMembers(true);
       setMembersError(null);
       try {
-        const res = await axios.get(`${apiBase}/api/v1/users`);
+        const res = await api.get<{ users: TeamMember[] }>('/users');
         setMembers(res.data.users ?? []);
       } catch (err: any) {
         setMembersError(err?.response?.data?.error ?? 'Failed to load team members.');
@@ -197,14 +199,14 @@ export default function UserManagement() {
       }
     };
     fetchUsers();
-  }, [apiBase]);
+  }, []);
 
   // Confirm role change
   const handleConfirmChange = async () => {
     if (!pendingChange) return;
     setSaving(true);
     try {
-      await axios.patch(`${apiBase}/api/v1/users/${pendingChange.member.id}`, {
+      await api.patch(`/users/${pendingChange.member.id}`, {
         role: pendingChange.newRole,
       });
       setMembers((prev) =>

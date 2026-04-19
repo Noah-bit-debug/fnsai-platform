@@ -73,7 +73,7 @@ export default function StaffProfile() {
   // Attendance state — reads from the shared attendance log, filtered to this staff member
   const [attendanceLog, setAttendanceLog] = useState<any[]>([]);
   const [showAttModal, setShowAttModal] = useState(false);
-  const [attForm, setAttForm] = useState<any>({ status: 'present', date: new Date().toISOString().slice(0, 10) });
+  const [attForm, setAttForm] = useState<any>({ status: 'present', date: new Date().toLocaleDateString("en-CA") });
 
   // Compliance state
   const [clerkUsers, setClerkUsers] = useState<Array<{ id: string; fullName: string; email: string; role: string }>>([]);
@@ -176,7 +176,7 @@ export default function StaffProfile() {
     e.preventDefault();
     const entry: WriteUp = {
       id: Date.now().toString(),
-      date: wuForm.date ?? new Date().toISOString().slice(0, 10),
+      date: wuForm.date ?? new Date().toLocaleDateString("en-CA"),
       type: wuForm.type ?? '',
       description: wuForm.description ?? '',
       severity: wuForm.severity ?? 'verbal',
@@ -192,7 +192,7 @@ export default function StaffProfile() {
     const entry: Review = {
       id: Date.now().toString(),
       period: revForm.period ?? '',
-      date: revForm.date ?? new Date().toISOString().slice(0, 10),
+      date: revForm.date ?? new Date().toLocaleDateString("en-CA"),
       rating: revForm.rating ?? 3,
       reviewer: revForm.reviewer ?? '',
       highlights: revForm.highlights ?? '',
@@ -346,7 +346,7 @@ export default function StaffProfile() {
             setAttendanceLog(updated.filter((x: any) => (x.staff_name ?? '').toLowerCase() === fullName).sort((a: any, b: any) => b.date.localeCompare(a.date)));
           } catch {}
           setShowAttModal(false);
-          setAttForm({ status: 'present', date: new Date().toISOString().slice(0, 10) });
+          setAttForm({ status: 'present', date: new Date().toLocaleDateString("en-CA") });
         };
 
         const removeEntry = (entryId: string) => {

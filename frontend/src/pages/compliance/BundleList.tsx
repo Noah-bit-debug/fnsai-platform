@@ -86,7 +86,7 @@ export default function BundleList() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/api/v1/compliance/categories');
+        const res = await api.get('/compliance/categories');
         const cats = Array.isArray(res.data) ? res.data : (res.data.categories ?? []);
         setHasCategories(cats.length > 0);
       } catch {
