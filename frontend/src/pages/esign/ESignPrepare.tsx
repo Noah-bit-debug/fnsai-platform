@@ -78,6 +78,63 @@ export default function ESignPrepare() {
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dragGhostEl = useRef<HTMLDivElement | null>(null);
 
+  // ─── Coordinate-based placement state ─────────────────────────────────────
+  // Scale-invariant: all values below are percentages of page width/height
+  // (0–100), matching the PlacedField storage model. Persisted prefs let
+  // users / agents keep their toolbar state across reloads.
+  const COORD_PREF_KEY = 'esignCoordPrefs';
+  type CoordPrefs = { gridEnabled: boolean; gridInterval: number; snapEnabled: boolean };
+  const loadPrefs = (): CoordPrefs => {
+    try {
+      const raw = localStorage.getItem(COORD_PREF_KEY);
+      if (raw) return { gridEnabled: false, gridInterval: 5, snapEnabled: false, ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return { gridEnabled: false, gridInterval: 5, snapEnabled: false };
+  };
+  const initPrefs = loadPrefs();
+
+  const [cursorPos, setCursorPos]         = useState<{ page: number; x: number; y: number } | null>(null);
+  const [captureMode, setCaptureMode]     = useState(false);
+  const [previewMode, setPreviewMode]     = useState(false);
+  const [gridEnabled, setGridEnabled]     = useState(initPrefs.gridEnabled);
+  const [gridInterval, setGridInterval]   = useState<number>(initPrefs.gridInterval);
+  const [snapEnabled, setSnapEnabled]     = useState(initPrefs.snapEnabled);
+  const [coordToast, setCoordToast]       = useState<string | null>(null);
+
+  // The in-progress "place by coordinates" form. Separate from the set of
+  // placed fields; only commits to `fields` when the user clicks Place.
+  const [placerForm, setPlacerForm] = useState<{
+    type: FieldType;
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    signer_id: string;
+    label: string;
+  }>(() => {
+    const first = FIELD_PALETTE[0];
+    return { type: first.type, page: 1, x: 20, y: 20, width: first.dw, height: first.dh, signer_id: '', label: first.label };
+  });
+
+  // Persist grid / snap prefs across sessions.
+  useEffect(() => {
+    try {
+      localStorage.setItem(COORD_PREF_KEY, JSON.stringify({ gridEnabled, gridInterval, snapEnabled }));
+    } catch { /* ignore storage errors */ }
+  }, [gridEnabled, gridInterval, snapEnabled]);
+
+  // ─── Coord helpers ────────────────────────────────────────────────────────
+  const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+  const applySnap = (v: number): number =>
+    snapEnabled && gridInterval > 0 ? Math.round(v / gridInterval) * gridInterval : v;
+  const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+  const flashCoordToast = (msg: string) => {
+    setCoordToast(msg);
+    window.setTimeout(() => setCoordToast(null), 2000);
+  };
+
   // Interaction state
   const interact = useRef<{
     mode: 'move' | 'resize';
@@ -230,6 +287,95 @@ export default function ESignPrepare() {
     };
     setFields(prev => [...prev, newField]);
     setSelectedId(newField.id);
+  };
+
+  // ─── Coordinate-based placement: capture, preview, place ─────────────────
+
+  /**
+   * Called on every mousemove inside a page container. Publishes the cursor's
+   * page-relative (x%, y%) to state so the live readout can display it.
+   * Coordinates are computed from the container's bounding rect, so they
+   * remain consistent regardless of page render scale or viewport zoom.
+   */
+  const onPageMouseMove = (e: React.MouseEvent, pageIdx: number) => {
+    const container = pageRefs.current[pageIdx];
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    setCursorPos({
+      page: pageIdx + 1,
+      x: round2(((e.clientX - rect.left) / rect.width)  * 100),
+      y: round2(((e.clientY - rect.top)  / rect.height) * 100),
+    });
+  };
+
+  const onPageMouseLeave = () => setCursorPos(null);
+
+  /**
+   * When capture mode is on, the next click on any page writes (x, y, page)
+   * into the placer form, then automatically turns capture mode off so a
+   * second click doesn't re-capture. The user (or agent) still has to
+   * explicitly click "Place" to create the field — this separation is
+   * deliberate: click-to-place would be indistinguishable from click-to-
+   * select in the existing UI.
+   */
+  const onPageCaptureClick = (e: React.MouseEvent, pageIdx: number): boolean => {
+    if (!captureMode) return false;
+    e.stopPropagation();
+    const container = pageRefs.current[pageIdx];
+    if (!container) return true;
+    const rect = container.getBoundingClientRect();
+    const x = round2(((e.clientX - rect.left) / rect.width)  * 100);
+    const y = round2(((e.clientY - rect.top)  / rect.height) * 100);
+    setPlacerForm(prev => ({ ...prev, page: pageIdx + 1, x, y }));
+    setCaptureMode(false);
+    flashCoordToast(`Captured: page ${pageIdx + 1} · x ${x} · y ${y}`);
+    return true;
+  };
+
+  /**
+   * Commits the placer form as a real PlacedField, respecting snap and
+   * clamping to keep the field fully inside the page.
+   */
+  const onClickPlaceByCoords = () => {
+    const f = placerForm;
+    if (![f.x, f.y, f.width, f.height].every(n => Number.isFinite(n))) {
+      flashCoordToast('Invalid coordinates');
+      return;
+    }
+    const w = clamp(applySnap(f.width),  0.5, 100);
+    const h = clamp(applySnap(f.height), 0.5, 100);
+    const x = clamp(applySnap(f.x), 0, 100 - w);
+    const y = clamp(applySnap(f.y), 0, 100 - h);
+    const newField: PlacedField = {
+      id: uid(),
+      type: f.type,
+      page: f.page,
+      x, y, width: w, height: h,
+      signer_id: f.signer_id || signers[0]?.id,
+      label: (f.label ?? '').trim() || (FIELD_PALETTE.find(p => p.type === f.type)?.label ?? f.type),
+      required: true,
+    };
+    setFields(prev => [...prev, newField]);
+    setSelectedId(newField.id);
+    flashCoordToast(`Placed ${newField.label} at (${x}, ${y})`);
+  };
+
+  /** Changing the type in the placer auto-fills w/h from the palette defaults
+   *  unless the user has already edited them away from the previous default. */
+  const onPlacerTypeChange = (type: FieldType) => {
+    const pal = FIELD_PALETTE.find(p => p.type === type)!;
+    setPlacerForm(prev => {
+      const prevPal = FIELD_PALETTE.find(p => p.type === prev.type)!;
+      const widthUnchanged  = prev.width  === prevPal.dw;
+      const heightUnchanged = prev.height === prevPal.dh;
+      return {
+        ...prev,
+        type,
+        width:  widthUnchanged  ? pal.dw : prev.width,
+        height: heightUnchanged ? pal.dh : prev.height,
+        label:  prev.label === prevPal.label ? pal.label : prev.label,
+      };
+    });
   };
 
   // ─── Drop onto page ────────────────────────────────────────────────────────
@@ -392,6 +538,69 @@ export default function ESignPrepare() {
 
   const pages = Array.from({ length: numPages }, (_, i) => i);
 
+  // ─── Copy / paste coordinates for the selected field ─────────────────────
+  const copySelectedCoords = async () => {
+    if (!selectedField) return;
+    const payload = {
+      x: round2(selectedField.x),
+      y: round2(selectedField.y),
+      width: round2(selectedField.width),
+      height: round2(selectedField.height),
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload));
+      flashCoordToast(`Copied coords to clipboard`);
+    } catch {
+      flashCoordToast('Clipboard unavailable');
+    }
+  };
+
+  const pasteCoordsToSelected = async () => {
+    if (!selectedField) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text);
+      const patch: Partial<PlacedField> = {};
+      (['x', 'y', 'width', 'height'] as const).forEach(k => {
+        const v = Number(parsed[k]);
+        if (Number.isFinite(v)) patch[k] = clamp(applySnap(v), 0, 100);
+      });
+      if (Object.keys(patch).length === 0) {
+        flashCoordToast('Clipboard did not contain coordinates');
+        return;
+      }
+      updateField(selectedField.id, patch);
+      flashCoordToast('Pasted coords');
+    } catch {
+      flashCoordToast('Could not parse clipboard');
+    }
+  };
+
+  // ─── Arrow-key nudging for the selected field ────────────────────────────
+  // Step size: 1% normally, 0.1% with Shift, 10% with Alt. Ignored when
+  // focus is inside a text/number input (so typing coords isn't hijacked).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!selectedField) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+
+      const key = e.key;
+      if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') return;
+
+      e.preventDefault();
+      const step = e.shiftKey ? 0.1 : e.altKey ? 10 : 1;
+      const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+      const dy = key === 'ArrowUp'   ? -step : key === 'ArrowDown'  ? step : 0;
+      const nx = clamp(selectedField.x + dx, 0, 100 - selectedField.width);
+      const ny = clamp(selectedField.y + dy, 0, 100 - selectedField.height);
+      updateField(selectedField.id, { x: round2(nx), y: round2(ny) });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedField?.id, selectedField?.x, selectedField?.y, selectedField?.width, selectedField?.height]);
+
   // ─── Loading / Error ───────────────────────────────────────────────────────
 
   if (loading) return (
@@ -465,6 +674,176 @@ export default function ESignPrepare() {
         <div style={{ padding: '4px 14px 8px', fontSize: 10, color: '#aaa', textAlign: 'center' }}>
           Click to place · Drag to position
         </div>
+
+        {/* ── Coordinate-based placement panel ─────────────────────────── */}
+        {/* All inputs carry stable ids for scripting by AI browser agents. */}
+        <div
+          data-coord-placer
+          style={{ padding: '12px 14px', borderTop: '1px solid #f0f0f0', background: '#fafbfd', display: 'flex', flexDirection: 'column', gap: 7 }}
+        >
+          <div style={{ ...sectionLabel, marginBottom: 4 }}>Place by coordinates</div>
+
+          <label htmlFor="coord-placer-type" style={coordLabelSt}>Type</label>
+          <select
+            id="coord-placer-type"
+            data-coord-placer-field="type"
+            value={placerForm.type}
+            onChange={e => onPlacerTypeChange(e.target.value as FieldType)}
+            style={coordInputSt}
+          >
+            {FIELD_PALETTE.map(p => (
+              <option key={p.type} value={p.type}>{p.icon} {p.label}</option>
+            ))}
+          </select>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            <div>
+              <label htmlFor="coord-placer-x" style={coordLabelSt}>X %</label>
+              <input
+                id="coord-placer-x"
+                data-coord-placer-field="x"
+                type="number" min={0} max={100} step={0.01}
+                value={placerForm.x}
+                onChange={e => setPlacerForm({ ...placerForm, x: parseFloat(e.target.value) || 0 })}
+                style={coordInputSt}
+              />
+            </div>
+            <div>
+              <label htmlFor="coord-placer-y" style={coordLabelSt}>Y %</label>
+              <input
+                id="coord-placer-y"
+                data-coord-placer-field="y"
+                type="number" min={0} max={100} step={0.01}
+                value={placerForm.y}
+                onChange={e => setPlacerForm({ ...placerForm, y: parseFloat(e.target.value) || 0 })}
+                style={coordInputSt}
+              />
+            </div>
+            <div>
+              <label htmlFor="coord-placer-width" style={coordLabelSt}>Width %</label>
+              <input
+                id="coord-placer-width"
+                data-coord-placer-field="width"
+                type="number" min={0.5} max={100} step={0.01}
+                value={placerForm.width}
+                onChange={e => setPlacerForm({ ...placerForm, width: parseFloat(e.target.value) || 0 })}
+                style={coordInputSt}
+              />
+            </div>
+            <div>
+              <label htmlFor="coord-placer-height" style={coordLabelSt}>Height %</label>
+              <input
+                id="coord-placer-height"
+                data-coord-placer-field="height"
+                type="number" min={0.5} max={100} step={0.01}
+                value={placerForm.height}
+                onChange={e => setPlacerForm({ ...placerForm, height: parseFloat(e.target.value) || 0 })}
+                style={coordInputSt}
+              />
+            </div>
+          </div>
+
+          <label htmlFor="coord-placer-page" style={coordLabelSt}>Page</label>
+          <select
+            id="coord-placer-page"
+            data-coord-placer-field="page"
+            value={placerForm.page}
+            onChange={e => setPlacerForm({ ...placerForm, page: parseInt(e.target.value) || 1 })}
+            style={coordInputSt}
+          >
+            {pages.map(i => <option key={i} value={i + 1}>Page {i + 1}</option>)}
+          </select>
+
+          {signers.length > 0 && (
+            <>
+              <label htmlFor="coord-placer-signer" style={coordLabelSt}>Signer</label>
+              <select
+                id="coord-placer-signer"
+                data-coord-placer-field="signer_id"
+                value={placerForm.signer_id}
+                onChange={e => setPlacerForm({ ...placerForm, signer_id: e.target.value })}
+                style={coordInputSt}
+              >
+                <option value="">— Unassigned —</option>
+                {signers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </>
+          )}
+
+          <label htmlFor="coord-placer-label" style={coordLabelSt}>Label</label>
+          <input
+            id="coord-placer-label"
+            data-coord-placer-field="label"
+            type="text"
+            value={placerForm.label}
+            onChange={e => setPlacerForm({ ...placerForm, label: e.target.value })}
+            style={coordInputSt}
+          />
+
+          {/* Capture + preview toggles */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <button
+              id="coord-placer-capture"
+              data-coord-placer-field="capture"
+              aria-pressed={captureMode}
+              onClick={() => setCaptureMode(v => !v)}
+              title="Click-to-capture: the next click on a page fills X/Y/Page"
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                background: captureMode ? '#1565c0' : '#f5f7fb',
+                color: captureMode ? '#fff' : '#555',
+                border: '1px solid ' + (captureMode ? '#1565c0' : '#e3e8f0'),
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {captureMode ? '● Capturing…' : '○ Click to capture'}
+            </button>
+            <button
+              id="coord-placer-preview"
+              data-coord-placer-field="preview"
+              aria-pressed={previewMode}
+              onClick={() => setPreviewMode(v => !v)}
+              title="Show a semi-transparent ghost of the field at the current X/Y before placing"
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                background: previewMode ? '#2e7d32' : '#f5f7fb',
+                color: previewMode ? '#fff' : '#555',
+                border: '1px solid ' + (previewMode ? '#2e7d32' : '#e3e8f0'),
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {previewMode ? '● Preview' : '○ Preview'}
+            </button>
+          </div>
+
+          <button
+            id="coord-placer-place"
+            data-coord-placer-field="place"
+            onClick={onClickPlaceByCoords}
+            style={{
+              marginTop: 4,
+              padding: '8px 10px',
+              background: '#1565c0',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 7,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Place field
+          </button>
+        </div>
+
         <div style={{ padding: '8px 16px', borderTop: '1px solid #f0f0f0', fontSize: 11, color: '#bbb' }}>
           {fields.length} field{fields.length !== 1 ? 's' : ''} placed
         </div>
@@ -502,6 +881,122 @@ export default function ESignPrepare() {
           </div>
         </div>
 
+        {/* ── Coordinate Tools toolbar ───────────────────────────────────── */}
+        <div
+          data-coord-toolbar
+          style={{
+            width: '100%', maxWidth: 840,
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            padding: '8px 12px',
+            background: '#fff',
+            border: '1px solid #e3e8f0',
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        >
+          {/* Live cursor readout */}
+          <span
+            data-coord-readout
+            data-coord-readout-page={cursorPos?.page ?? ''}
+            data-coord-readout-x={cursorPos?.x ?? ''}
+            data-coord-readout-y={cursorPos?.y ?? ''}
+            title="Hover over a page to see page-relative coordinates (0–100%)"
+            style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 11.5,
+              background: cursorPos ? '#eef4fc' : '#f5f5f5',
+              color: cursorPos ? '#1565c0' : '#999',
+              border: '1px solid ' + (cursorPos ? '#bcd6f0' : '#e3e8f0'),
+              padding: '5px 10px',
+              borderRadius: 6,
+              minWidth: 210,
+              fontWeight: 600,
+            }}
+          >
+            {cursorPos
+              ? `Page ${cursorPos.page} · X ${cursorPos.x.toFixed(2)} · Y ${cursorPos.y.toFixed(2)}`
+              : 'Hover to see coordinates'}
+          </span>
+          <button
+            onClick={async () => {
+              if (!cursorPos) return;
+              try {
+                await navigator.clipboard.writeText(JSON.stringify({ page: cursorPos.page, x: cursorPos.x, y: cursorPos.y }));
+                flashCoordToast('Cursor coords copied');
+              } catch { flashCoordToast('Clipboard unavailable'); }
+            }}
+            disabled={!cursorPos}
+            title="Copy cursor coords as JSON"
+            style={{ padding: '5px 9px', background: cursorPos ? '#f5f7fb' : '#fafafa', border: '1px solid #e3e8f0', borderRadius: 6, fontSize: 11, cursor: cursorPos ? 'pointer' : 'default', color: '#555' }}
+          >
+            Copy
+          </button>
+
+          <span style={{ flex: 1 }} />
+
+          {/* Grid toggle */}
+          <label
+            title="Show a % grid overlay on each page"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#555' }}
+          >
+            <input
+              id="coord-grid-toggle"
+              type="checkbox"
+              checked={gridEnabled}
+              onChange={e => setGridEnabled(e.target.checked)}
+              style={{ width: 14, height: 14 }}
+            />
+            Grid
+          </label>
+
+          {/* Snap toggle */}
+          <label
+            title="Round placements / moves / resizes to the nearest grid interval"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#555' }}
+          >
+            <input
+              id="coord-snap-toggle"
+              type="checkbox"
+              checked={snapEnabled}
+              onChange={e => setSnapEnabled(e.target.checked)}
+              style={{ width: 14, height: 14 }}
+            />
+            Snap
+          </label>
+
+          {/* Interval */}
+          <select
+            id="coord-grid-interval"
+            value={gridInterval}
+            onChange={e => setGridInterval(parseFloat(e.target.value))}
+            title="Grid interval (%)"
+            style={{ padding: '3px 6px', border: '1px solid #e3e8f0', borderRadius: 6, fontSize: 11, background: '#fff', color: '#555' }}
+          >
+            <option value={1}>1%</option>
+            <option value={5}>5%</option>
+            <option value={10}>10%</option>
+          </select>
+        </div>
+
+        {/* Transient coord-operation toast */}
+        {coordToast && (
+          <div
+            role="status"
+            style={{
+              width: '100%', maxWidth: 840,
+              padding: '6px 12px',
+              background: '#eef4fc',
+              border: '1px solid #bcd6f0',
+              borderRadius: 6,
+              fontSize: 12,
+              color: '#1565c0',
+              fontWeight: 600,
+            }}
+          >
+            {coordToast}
+          </div>
+        )}
+
         {pdfLoading && (
           <div style={{ color: '#999', fontSize: 13 }}>Rendering PDF pages…</div>
         )}
@@ -520,6 +1015,7 @@ export default function ESignPrepare() {
 
               {/* Page card */}
               <div
+                data-esign-page={pageIdx + 1}
                 style={{
                   position: 'relative',
                   background: '#fff',
@@ -528,12 +1024,19 @@ export default function ESignPrepare() {
                   overflow: 'hidden',
                   aspectRatio: bgImg ? 'unset' : '8.5 / 11',
                   minHeight: bgImg ? 'unset' : 400,
-                  cursor: draggingType ? 'copy' : 'default',
+                  cursor: captureMode ? 'crosshair' : draggingType ? 'copy' : 'default',
                 }}
                 ref={el => { pageRefs.current[pageIdx] = el; }}
                 onDrop={e => onPageDrop(e, pageIdx)}
                 onDragOver={onPageDragOver}
-                onClick={() => setSelectedId(null)}
+                onMouseMove={e => onPageMouseMove(e, pageIdx)}
+                onMouseLeave={onPageMouseLeave}
+                onClick={e => {
+                  // Capture-mode click is absorbed to populate placer x/y.
+                  // Normal click deselects as before.
+                  if (onPageCaptureClick(e, pageIdx)) return;
+                  setSelectedId(null);
+                }}
               >
                 {/* PDF image background */}
                 {bgImg ? (
@@ -552,6 +1055,52 @@ export default function ESignPrepare() {
                   )
                 )}
 
+                {/* Grid overlay — CSS gradient. Pure visual, no pointer events. */}
+                {gridEnabled && (
+                  <div
+                    aria-hidden
+                    style={{
+                      position: 'absolute', inset: 0,
+                      pointerEvents: 'none',
+                      backgroundImage:
+                        `linear-gradient(to right,  rgba(21, 101, 192, 0.10) 1px, transparent 1px),` +
+                        `linear-gradient(to bottom, rgba(21, 101, 192, 0.10) 1px, transparent 1px)`,
+                      backgroundSize: `${gridInterval}% ${gridInterval}%`,
+                      zIndex: 10,
+                    }}
+                  />
+                )}
+
+                {/* Preview ghost — shows where the placer would land before the user commits */}
+                {previewMode && placerForm.page === pageIdx + 1 && (() => {
+                  const w = clamp(applySnap(placerForm.width),  0.5, 100);
+                  const h = clamp(applySnap(placerForm.height), 0.5, 100);
+                  const x = clamp(applySnap(placerForm.x), 0, 100 - w);
+                  const y = clamp(applySnap(placerForm.y), 0, 100 - h);
+                  const color = FIELD_COLORS[placerForm.type];
+                  return (
+                    <div
+                      aria-hidden
+                      data-coord-preview
+                      style={{
+                        position: 'absolute',
+                        left: `${x}%`, top: `${y}%`,
+                        width: `${w}%`, height: `${h}%`,
+                        border: `2px dashed ${color}`,
+                        borderRadius: 4,
+                        background: color + '15',
+                        pointerEvents: 'none',
+                        zIndex: 25,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.65em', color, fontWeight: 700, opacity: 0.8 }}>
+                        preview · {placerForm.type}
+                      </span>
+                    </div>
+                  );
+                })()}
+
                 {/* Placed fields */}
                 {pageFields.map(field => {
                   const signer = signers.find(s => s.id === field.signer_id);
@@ -562,6 +1111,13 @@ export default function ESignPrepare() {
                   return (
                     <div
                       key={field.id}
+                      data-field-id={field.id}
+                      data-field-type={field.type}
+                      data-field-page={field.page}
+                      data-field-x={field.x}
+                      data-field-y={field.y}
+                      data-field-width={field.width}
+                      data-field-height={field.height}
                       onMouseDown={e => startMove(e, field.id, pageIdx)}
                       onClick={e => { e.stopPropagation(); setSelectedId(field.id); }}
                       style={{
@@ -663,17 +1219,45 @@ export default function ESignPrepare() {
               Required field
             </label>
 
-            {/* Position */}
+            {/* Position + Size + Copy / Paste — sub-percent precision */}
             <PropField label="Position & Size (%)">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
                 {(['x','y','width','height'] as const).map(k => (
                   <div key={k}>
                     <div style={{ fontSize: 10, color: '#aaa', marginBottom: 2 }}>{k.toUpperCase()}</div>
-                    <input type="number" step={0.5} min={0} max={100} style={{ ...inputSt, padding: '4px 7px' }}
-                      value={+(selectedField as any)[k].toFixed(1)}
-                      onChange={e => updateField(selectedField.id, { [k]: parseFloat(e.target.value) || 0 })} />
+                    <input
+                      id={`coord-selected-${k}`}
+                      data-coord-selected-field={k}
+                      type="number" step={0.01} min={0} max={100}
+                      style={{ ...inputSt, padding: '4px 7px' }}
+                      value={round2((selectedField as unknown as Record<string, number>)[k])}
+                      onChange={e => updateField(selectedField.id, { [k]: parseFloat(e.target.value) || 0 })}
+                    />
                   </div>
                 ))}
+              </div>
+              <div style={{ display: 'flex', gap: 5, marginTop: 6 }}>
+                <button
+                  id="coord-selected-copy"
+                  data-coord-selected-field="copy"
+                  onClick={copySelectedCoords}
+                  title="Copy this field's coordinates to clipboard as JSON"
+                  style={{ flex: 1, padding: '5px 0', background: '#f5f7fb', border: '1px solid #e3e8f0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#555' }}
+                >
+                  Copy coords
+                </button>
+                <button
+                  id="coord-selected-paste"
+                  data-coord-selected-field="paste"
+                  onClick={pasteCoordsToSelected}
+                  title="Paste coordinates from clipboard into this field"
+                  style={{ flex: 1, padding: '5px 0', background: '#f5f7fb', border: '1px solid #e3e8f0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#555' }}
+                >
+                  Paste coords
+                </button>
+              </div>
+              <div style={{ fontSize: 10, color: '#aaa', marginTop: 4, lineHeight: 1.4 }}>
+                Arrow keys nudge ±1% · Shift for ±0.1% · Alt for ±10%
               </div>
             </PropField>
 
@@ -774,6 +1358,16 @@ const sectionLabel: React.CSSProperties = {
 const inputSt: React.CSSProperties = {
   width: '100%', padding: '6px 9px', border: '1.5px solid #e3e8f0', borderRadius: 7,
   fontSize: 12, outline: 'none', boxSizing: 'border-box', background: '#fafafa',
+  fontFamily: 'inherit', color: '#333',
+};
+
+// Denser styles used inside the Coord Tools panel (smaller form for a lot of inputs)
+const coordLabelSt: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 2, display: 'block',
+};
+const coordInputSt: React.CSSProperties = {
+  width: '100%', padding: '5px 8px', border: '1.5px solid #e3e8f0', borderRadius: 6,
+  fontSize: 12, outline: 'none', boxSizing: 'border-box', background: '#fff',
   fontFamily: 'inherit', color: '#333',
 };
 
