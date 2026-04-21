@@ -66,6 +66,24 @@ async function requireClerkAdmin(req: Request, res: Response, next: NextFunction
 
 const router = Router();
 
+// Resolve a migration file's path across dev vs prod layouts.
+// - Prod: compiled dist/, SQL files copied there by scripts/copy-sql.js
+// - Dev:  tsx runs .ts directly; __dirname = src/routes/, SQL in ../db/
+// - Tolerant fallbacks for when someone moves the dist/ root around.
+// Returns the first existing path or null if nothing is found.
+function resolveMigrationPath(file: string): string | null {
+  const candidates = [
+    path.join(__dirname, '..', 'db', file),
+    path.join(__dirname, '..', '..', 'src', 'db', file),
+    path.join(process.cwd(), 'dist', 'db', file),
+    path.join(process.cwd(), 'src', 'db', file),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
 // Same ordered list as runMigrations() in index.ts. Keeping this in sync by
 // hand is fine — it changes every few months and the review process should
 // catch drift.
@@ -107,8 +125,8 @@ router.post('/migrate', requireAuth, requireClerkAdmin, async (_req: Request, re
   const client = await pool.connect();
   try {
     for (const file of MIGRATION_FILES) {
-      const filePath = path.join(__dirname, '..', 'db', file);
-      if (!fs.existsSync(filePath)) {
+      const filePath = resolveMigrationPath(file);
+      if (!filePath) {
         results.push({ file, status: 'skipped' });
         continue;
       }

@@ -352,9 +352,17 @@ async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
     for (const file of migrationFiles) {
-      const filePath = path.join(__dirname, 'db', file);
-      if (!fs.existsSync(filePath)) {
-        console.log(`[migrate] Skipping ${file} (not found)`);
+      // Try multiple candidate paths so the server works whether it's
+      // running from dist/ (prod) or src/ (dev/tsx).
+      const candidates = [
+        path.join(__dirname, 'db', file),
+        path.join(__dirname, '..', 'src', 'db', file),
+        path.join(process.cwd(), 'dist', 'db', file),
+        path.join(process.cwd(), 'src', 'db', file),
+      ];
+      const filePath = candidates.find(p => fs.existsSync(p));
+      if (!filePath) {
+        console.log(`[migrate] Skipping ${file} (not found — tried: ${candidates.join(', ')})`);
         continue;
       }
       try {
