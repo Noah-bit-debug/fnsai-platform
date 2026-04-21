@@ -95,8 +95,16 @@ VALUES
   ('default','withdrawn','Withdrawn',12,'#9ca3af',TRUE,NULL)
 ON CONFLICT (tenant_id, key) DO NOTHING;
 
--- Map old candidates.stage values → new keys. Existing values are text slugs
--- so this is a safe UPDATE; no enum to migrate.
+-- Map old candidates.stage values → new keys. The original candidates
+-- migration created a CHECK constraint on stage with the old list
+-- ('application','interview','credentialing','onboarding','placed',
+-- 'rejected','withdrawn'); the new list includes 'new_lead',
+-- 'internal_review', 'confirmed' which the old constraint rejected,
+-- blowing up this whole migration with a 23514 check-violation and
+-- leaving `clients` uncreated. Drop the old constraint first so the
+-- stage column becomes free-form text (authoritative list now lives in
+-- the pipeline_stages table above).
+ALTER TABLE candidates DROP CONSTRAINT IF EXISTS candidates_stage_check;
 UPDATE candidates SET stage = 'new_lead'        WHERE stage = 'application';
 UPDATE candidates SET stage = 'internal_review' WHERE stage = 'credentialing';
 UPDATE candidates SET stage = 'confirmed'       WHERE stage = 'onboarding';

@@ -65,6 +65,7 @@ import globalSearchRouter from './routes/globalSearch';
 import notificationPrefsRouter from './routes/notificationPrefs';
 // Stabilize phase 3
 import errorLogRouter, { errorCaptureMiddleware } from './routes/errorLog';
+import adminRouter from './routes/admin';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -308,6 +309,7 @@ app.use('/api/v1/search', globalSearchRouter);
 app.use('/api/v1/notification-prefs', notificationPrefsRouter);
 // Stabilize phase 3 — error log surface (admin-only read, authed write)
 app.use('/api/v1/error-log', errorLogRouter);
+app.use('/api/v1/admin', adminRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
