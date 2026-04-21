@@ -80,10 +80,45 @@ router.post('/', requireAuth, requirePermission('integrations_manage'), async (r
     res.status(500).json({ error: 'Failed to create integration' });
   }
 });
+// GET /status — env-var-driven readiness pills for Settings → Integrations
+router.get('/status', requireAuth, requirePermission('integrations_view'), async (_req: Request, res: Response) => {
+  const has = (...keys: string[]) =>
+    keys.every(k => !!(process.env[k] && process.env[k]!.trim()));
+
+  res.json({
+    integrations: [
+      { key: 'anthropic',  name: 'Anthropic (Claude)',
+        connected: has('ANTHROPIC_API_KEY'),
+        required_env: ['ANTHROPIC_API_KEY'],
+        description: 'AI features (drafting, summarization, AI Brain).' },
+      { key: 'clerkchat',  name: 'ClerkChat SMS',
+        connected: has('CLERKCHAT_API_KEY', 'CLERKCHAT_FROM_NUMBER'),
+        required_env: ['CLERKCHAT_API_KEY', 'CLERKCHAT_FROM_NUMBER'],
+        description: 'Outbound SMS & candidate messaging.' },
+      { key: 'microsoft',  name: 'Microsoft Graph (Outlook / Teams / SharePoint)',
+        connected: has('MICROSOFT_TENANT_ID', 'MICROSOFT_CLIENT_ID', 'MICROSOFT_CLIENT_SECRET'),
+        required_env: ['MICROSOFT_TENANT_ID', 'MICROSOFT_CLIENT_ID', 'MICROSOFT_CLIENT_SECRET'],
+        description: 'Calendar, email, Teams meetings, SharePoint docs.' },
+      { key: 'azure_blob', name: 'Azure Blob Storage',
+        connected: has('AZURE_STORAGE_CONNECTION_STRING'),
+        required_env: ['AZURE_STORAGE_CONNECTION_STRING'],
+        description: 'Attachments, signed documents, exports.' },
+      { key: 'postgres',   name: 'PostgreSQL (primary DB)',
+        connected: has('DATABASE_URL'),
+        required_env: ['DATABASE_URL'],
+        description: 'Application database.' },
+      { key: 'clerk',      name: 'Clerk Auth',
+        connected: has('CLERK_SECRET_KEY'),
+        required_env: ['CLERK_SECRET_KEY'],
+        description: 'User authentication & session management.' },
+    ],
+  });
+});
 
 // GET /:id — get integration details + recent sync logs
 router.get('/:id', requireAuth, requirePermission('integrations_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
+if (!/^\d+$/.test(id)) { res.status(404).json({ error: 'Integration not found' }); return; }
   try {
     const integration = await query(`SELECT * FROM integrations WHERE id = $1`, [id]);
     if (integration.rows.length === 0) {
