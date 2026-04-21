@@ -71,7 +71,7 @@ router.post('/', requireAuth, requirePermission('reminders_manage'), async (req:
        d.recipient_phone, d.recipient_name, d.subject, d.message,
        d.scheduled_at || null, auth?.userId ?? null]
     );
-    await logAudit(null, auth?.userId ?? 'unknown', 'reminder.create', result.rows[0].id,
+    await logAudit(null, auth?.userId ?? 'unknown', 'reminder.create', String(result.rows[0].id),
       { type: d.type, trigger_type: d.trigger_type }, (req.ip ?? 'unknown'));
     res.status(201).json(result.rows[0]);
   } catch (err) {

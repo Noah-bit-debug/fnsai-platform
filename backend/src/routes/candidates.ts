@@ -183,7 +183,7 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
       [candidate.id, auth?.userId ?? 'system']
     );
 
-    await logAudit(null, auth?.userId ?? 'unknown', 'candidate.create', candidate.id,
+    await logAudit(null, auth?.userId ?? 'unknown', 'candidate.create', String(candidate.id),
       { name: `${d.first_name} ${d.last_name}` }, (req.ip ?? 'unknown'));
 
     res.status(201).json(candidate);

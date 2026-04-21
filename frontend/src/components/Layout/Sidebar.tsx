@@ -62,8 +62,8 @@ const NAV_GROUPS: NavGroupDef[] = [
       { to: '/jobs',          icon: '📋', label: 'Jobs',        roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
       { to: '/submissions',   icon: '📤', label: 'Submissions', roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
       { to: '/clients-orgs',  icon: '🏢', label: 'Clients',     roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/pipeline',      icon: '🔄', label: 'Pipeline',    roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/kanban',        icon: '📊', label: 'Kanban',      roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/pipeline',      icon: '🔄', label: 'Candidate Pipeline',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/kanban',        icon: '📊', label: 'Submissions Kanban',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
       { to: '/tasks',         icon: '✅', label: 'Tasks',       roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator', 'hr'] },
       { to: '/ats-reports',   icon: '📈', label: 'ATS Reports', roles: ['ceo', 'admin', 'manager'] },
       { to: '/reminders',     icon: '🔔', label: 'Reminders',   roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
@@ -136,8 +136,11 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin', 'manager', 'coordinator'],
     defaultOpen: false,
     items: [
-      { to: '/clients',      icon: '🏢', label: 'Clients & Facilities',  roles: null },
-      { to: '/business-dev', icon: '💼', label: 'Business Development', roles: null },
+      // "Facilities" is the legacy flat list. Full client management now
+      // lives under Recruiting → Clients. This stays as a quick facility-
+      // only shortcut (contracts, addresses).
+      { to: '/clients',      icon: '🏥', label: 'Facilities',            roles: null },
+      { to: '/business-dev', icon: '💼', label: 'Business Development',  roles: null },
     ],
   },
   {
@@ -171,6 +174,7 @@ const NAV_GROUPS: NavGroupDef[] = [
       { to: '/settings/users',                  icon: '👥', label: 'User Management',        roles: ['ceo', 'admin', 'manager'] },
       { to: '/security',                        icon: '🔒', label: 'Security & MFA',         roles: null },
       { to: '/settings/integrations',           icon: '🔌', label: 'Integrations',           roles: ['ceo', 'admin'] },
+      { to: '/settings/error-log',              icon: '🪲', label: 'Error Log',              roles: ['ceo', 'admin'] },
       { to: '/compliance/admin/categories',     icon: '🗂️', label: 'Compliance Categories',  roles: ['ceo', 'admin'] },
       { to: '/compliance/admin/notifications',  icon: '🔔', label: 'Compliance Notifications', roles: ['ceo', 'admin'] },
       { to: '/settings/notifications',          icon: '🔕', label: 'My Notification Prefs',  roles: null },

@@ -1567,6 +1567,33 @@ export const searchApi = {
   query: (q: string) => api.get<{ results: SearchResult[] }>('/search', { params: { q } }),
 };
 
+// ─── Notification preferences (per-user) ────────────────────────────────────
+export interface NotificationPrefs {
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  inapp_enabled: boolean;
+  notify_credential_expiry: boolean;
+  notify_missing_document: boolean;
+  notify_compliance_assign: boolean;
+  notify_placement_change: boolean;
+  notify_task_reminder: boolean;
+  notify_submission_update: boolean;
+  notify_sms_approval: boolean;
+  notify_system_announcement: boolean;
+  digest_schedule: 'off' | 'daily' | 'weekly';
+  digest_time_of_day: string;
+  quiet_hours_enabled: boolean;
+  quiet_start: string;
+  quiet_end: string;
+  updated_at?: string;
+}
+
+export const notificationPrefsApi = {
+  get: () => api.get<{ prefs: NotificationPrefs }>('/notification-prefs/me'),
+  save: (patch: Partial<NotificationPrefs>) =>
+    api.put<{ prefs: NotificationPrefs }>('/notification-prefs/me', patch),
+};
+
 // ─── ATS Reports (Phase 4) ──────────────────────────────────────────────────
 export interface AtsReportsOverview {
   funnel: Array<{ key: string; label: string; color?: string; sort_order: number; is_terminal: boolean; count: number }>;

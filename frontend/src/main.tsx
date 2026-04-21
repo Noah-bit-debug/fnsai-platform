@@ -6,8 +6,13 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './styles/globals.css';
 import { setTokenGetter } from './lib/api';
+import { installErrorReporting } from './lib/errorReporting';
 import { ToastProvider } from './components/ToastHost';
 import { ConfirmProvider } from './components/ConfirmHost';
+
+// One-shot — attaches window.onerror + unhandledrejection listeners that
+// POST client-side errors to /api/v1/error-log/client for admin triage.
+installErrorReporting();
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string;
 

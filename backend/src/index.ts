@@ -61,6 +61,10 @@ import atsReportsRouter from './routes/atsReports';
 import integrationStatusRouter from './routes/integrationStatus';
 // QA Phase 9
 import globalSearchRouter from './routes/globalSearch';
+// Stabilize phase 2
+import notificationPrefsRouter from './routes/notificationPrefs';
+// Stabilize phase 3
+import errorLogRouter, { errorCaptureMiddleware } from './routes/errorLog';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -300,11 +304,20 @@ app.use('/api/v1/ats-reports', atsReportsRouter);
 app.use('/api/v1/integrations', integrationStatusRouter);
 // QA Phase 9
 app.use('/api/v1/search', globalSearchRouter);
+// Stabilize phase 2
+app.use('/api/v1/notification-prefs', notificationPrefsRouter);
+// Stabilize phase 3 — error log surface (admin-only read, authed write)
+app.use('/api/v1/error-log', errorLogRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not Found', message: 'The requested endpoint does not exist' });
 });
+
+// Error capture middleware — records every unhandled error into the
+// in-memory error log before the final handler responds. Does not alter
+// response shape.
+app.use(errorCaptureMiddleware);
 
 // Global error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -331,6 +344,7 @@ async function runMigrations(): Promise<void> {
     'pre_role_assignments_migration.sql',
     'ai_brain_migration.sql',
     'ats_phase1_migration.sql',
+    'notification_prefs_migration.sql',
   ];
 
   const client = await pool.connect();
