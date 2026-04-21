@@ -276,9 +276,17 @@ router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
     );
     res.json({ clients: result.rows });
   } catch (err: any) {
-    if (err?.code === '42P01') { res.json({ clients: [] }); return; }
-    console.error('Clients list error:', err);
-    res.status(500).json({ error: 'Failed to fetch clients' });
+    // Surface the real pg error details so the frontend alert actually
+    // tells us what's broken instead of just "Request failed with status 500".
+    const e = err as { code?: string; message?: string; detail?: string; hint?: string; table?: string; column?: string };
+    if (e?.code === '42P01') { res.json({ clients: [] }); return; }
+    console.error('Clients list error:', { code: e.code, message: e.message, detail: e.detail, hint: e.hint, table: e.table, column: e.column });
+    res.status(500).json({
+      error: `Failed to fetch clients: ${e.message?.slice(0, 200) ?? 'unknown error'}`,
+      code: e.code,
+      detail: e.detail,
+      hint: e.hint,
+    });
   }
 });
 
@@ -306,8 +314,14 @@ router.get('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
       requirement_templates: templates.rows,
     });
   } catch (err) {
-    console.error('Client fetch error:', err);
-    res.status(500).json({ error: 'Failed to fetch client' });
+    const e = err as { code?: string; message?: string; detail?: string; hint?: string; table?: string; column?: string };
+    console.error('Client fetch error:', { code: e.code, message: e.message, detail: e.detail, table: e.table, column: e.column });
+    res.status(500).json({
+      error: `Failed to fetch client: ${e.message?.slice(0, 200) ?? 'unknown error'}`,
+      code: e.code,
+      detail: e.detail,
+      hint: e.hint,
+    });
   }
 });
 
