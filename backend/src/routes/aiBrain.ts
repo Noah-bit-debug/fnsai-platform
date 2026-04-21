@@ -7,6 +7,184 @@ import Anthropic from '@anthropic-ai/sdk';
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// When the user is looking at a specific record (candidate, job, client,
+// placement, submission), pull that record's full shape + its related
+// records and inject them into the prompt. This is what "AI knows what
+// you're looking at" actually means — instead of the AI asking "which
+// candidate?", the AI already has the candidate's name, role, skills,
+// compliance status, submissions, etc.
+async function buildEntityContext(
+  entityType?: string,
+  entityId?: string,
+): Promise<string | null> {
+  if (!entityType || !entityId) return null;
+  const sections: string[] = [];
+
+  try {
+    switch (entityType) {
+      case 'candidate': {
+        const c = await pool.query(
+          `SELECT id, first_name, last_name, email, phone, role, specialties, skills,
+                  certifications, licenses, years_experience, education, stage,
+                  desired_pay_rate, availability_start, availability_type, source,
+                  created_at
+           FROM candidates WHERE id = $1`,
+          [entityId]
+        );
+        if (c.rows[0]) {
+          const r = c.rows[0];
+          sections.push(
+            `CURRENT CANDIDATE (the user is viewing this record):\n` +
+            `- Name: ${r.first_name} ${r.last_name}\n` +
+            `- Role: ${r.role ?? 'unknown'} | Stage: ${r.stage ?? 'unknown'}\n` +
+            `- Specialties: ${(r.specialties ?? []).join(', ') || 'none'}\n` +
+            `- Skills: ${(r.skills ?? []).slice(0, 15).join(', ') || 'none'}\n` +
+            `- Certifications: ${(r.certifications ?? []).join(', ') || 'none'}\n` +
+            `- Licenses: ${(r.licenses ?? []).join(', ') || 'none'}\n` +
+            `- Years experience: ${r.years_experience ?? 'unknown'}\n` +
+            `- Desired pay: ${r.desired_pay_rate ? `$${r.desired_pay_rate}` : 'not specified'}\n` +
+            `- Available: ${r.availability_start ?? 'unknown'} (${r.availability_type ?? 'any'})\n` +
+            `- Source: ${r.source ?? 'unknown'} | Added: ${new Date(r.created_at).toLocaleDateString()}`
+          );
+
+          // Submissions this candidate is in
+          const subs = await pool.query(
+            `SELECT s.stage_key, s.ai_score, s.ai_fit_label, j.title AS job_title, j.job_code
+             FROM submissions s LEFT JOIN jobs j ON j.id = s.job_id
+             WHERE s.candidate_id = $1 ORDER BY s.updated_at DESC LIMIT 5`,
+            [entityId]
+          );
+          if (subs.rows.length > 0) {
+            sections.push(
+              `CANDIDATE SUBMISSIONS:\n` +
+              subs.rows.map(s => `- ${s.job_title ?? 'Unknown job'} (${s.job_code ?? '—'}) @ ${s.stage_key ?? 'no stage'}${s.ai_score ? ` · AI fit: ${s.ai_fit_label ?? s.ai_score}` : ''}`).join('\n')
+            );
+          }
+        }
+        break;
+      }
+      case 'job': {
+        const j = await pool.query(
+          `SELECT id, job_code, title, profession, specialty, city, state, job_type,
+                  shift, hours_per_week, pay_rate, bill_rate, positions, status, priority,
+                  description, created_at
+           FROM jobs WHERE id = $1`,
+          [entityId]
+        );
+        if (j.rows[0]) {
+          const r = j.rows[0];
+          sections.push(
+            `CURRENT JOB (the user is viewing this requisition):\n` +
+            `- ${r.title} (${r.job_code}) — ${r.status} · priority: ${r.priority}\n` +
+            `- Profession: ${r.profession} | Specialty: ${r.specialty ?? '—'}\n` +
+            `- Location: ${r.city ?? '?'}, ${r.state ?? '?'}\n` +
+            `- Type: ${r.job_type ?? '?'} | Shift: ${r.shift ?? '?'} | Hours/wk: ${r.hours_per_week ?? '?'}\n` +
+            `- Pay rate: ${r.pay_rate ? `$${r.pay_rate}` : '?'} | Bill rate: ${r.bill_rate ? `$${r.bill_rate}` : '?'}\n` +
+            `- Positions open: ${r.positions}\n` +
+            `- Description: ${(r.description ?? '').slice(0, 400)}`
+          );
+
+          const subs = await pool.query(
+            `SELECT s.stage_key, s.ai_score, s.ai_fit_label, c.first_name, c.last_name, c.role
+             FROM submissions s LEFT JOIN candidates c ON c.id = s.candidate_id
+             WHERE s.job_id = $1 ORDER BY s.ai_score DESC NULLS LAST LIMIT 8`,
+            [entityId]
+          );
+          if (subs.rows.length > 0) {
+            sections.push(
+              `EXISTING SUBMISSIONS FOR THIS JOB:\n` +
+              subs.rows.map(s => `- ${s.first_name} ${s.last_name} (${s.role ?? '?'}) @ ${s.stage_key ?? '?'}${s.ai_score ? ` · AI: ${s.ai_fit_label ?? s.ai_score}` : ''}`).join('\n')
+            );
+          }
+        }
+        break;
+      }
+      case 'client': {
+        const cl = await pool.query(
+          `SELECT id, name, website, business_unit, offerings, primary_contact_name,
+                  primary_contact_email, status, notes
+           FROM clients WHERE id = $1`,
+          [entityId]
+        );
+        if (cl.rows[0]) {
+          const r = cl.rows[0];
+          sections.push(
+            `CURRENT CLIENT (the user is viewing this organization):\n` +
+            `- Name: ${r.name} | Status: ${r.status}\n` +
+            `- Business unit: ${r.business_unit ?? '?'}\n` +
+            `- Website: ${r.website ?? '?'}\n` +
+            `- Primary contact: ${r.primary_contact_name ?? '?'} (${r.primary_contact_email ?? '?'})\n` +
+            `- Offerings: ${(r.offerings ?? []).join(', ') || '?'}\n` +
+            `- Notes: ${(r.notes ?? '').slice(0, 300)}`
+          );
+
+          const jobs = await pool.query(
+            `SELECT title, job_code, status, profession FROM jobs WHERE client_id = $1 ORDER BY created_at DESC LIMIT 8`,
+            [entityId]
+          );
+          if (jobs.rows.length > 0) {
+            sections.push(
+              `CLIENT'S JOBS:\n` +
+              jobs.rows.map(j => `- ${j.title} (${j.job_code}) — ${j.profession} · ${j.status}`).join('\n')
+            );
+          }
+        }
+        break;
+      }
+      case 'placement': {
+        const p = await pool.query(
+          `SELECT p.id, p.start_date, p.end_date, p.status, p.pay_rate, p.bill_rate,
+                  s.first_name, s.last_name, s.role, f.name AS facility_name
+           FROM placements p
+           LEFT JOIN staff s ON s.id = p.staff_id
+           LEFT JOIN facilities f ON f.id = p.facility_id
+           WHERE p.id = $1`,
+          [entityId]
+        );
+        if (p.rows[0]) {
+          const r = p.rows[0];
+          sections.push(
+            `CURRENT PLACEMENT (the user is viewing this record):\n` +
+            `- Staff: ${r.first_name} ${r.last_name} (${r.role ?? '?'})\n` +
+            `- Facility: ${r.facility_name ?? '?'}\n` +
+            `- Dates: ${r.start_date ?? '?'} to ${r.end_date ?? '?'} | Status: ${r.status}\n` +
+            `- Pay: ${r.pay_rate ? `$${r.pay_rate}` : '?'} | Bill: ${r.bill_rate ? `$${r.bill_rate}` : '?'}`
+          );
+        }
+        break;
+      }
+      case 'submission': {
+        const s = await pool.query(
+          `SELECT s.*, c.first_name, c.last_name, c.role, j.title AS job_title, j.job_code
+           FROM submissions s
+           LEFT JOIN candidates c ON c.id = s.candidate_id
+           LEFT JOIN jobs j ON j.id = s.job_id
+           WHERE s.id = $1`,
+          [entityId]
+        );
+        if (s.rows[0]) {
+          const r = s.rows[0];
+          sections.push(
+            `CURRENT SUBMISSION (the user is viewing this):\n` +
+            `- Candidate: ${r.first_name} ${r.last_name} (${r.role ?? '?'})\n` +
+            `- Job: ${r.job_title ?? '?'} (${r.job_code ?? '?'})\n` +
+            `- Stage: ${r.stage_key ?? '?'}\n` +
+            `- AI score: ${r.ai_score ?? '?'} (${r.ai_fit_label ?? '?'})\n` +
+            `- Gate status: ${r.gate_status ?? '?'}\n` +
+            `- Notes: ${(r.notes ?? '').slice(0, 400)}`
+          );
+        }
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('[aiBrain] buildEntityContext error:', err);
+    return null;
+  }
+
+  return sections.length > 0 ? sections.join('\n\n') : null;
+}
+
 async function buildCompanyContext(userQuery: string): Promise<string> {
   const sections: string[] = [];
 
@@ -119,9 +297,13 @@ BEHAVIORAL RULES:
 6. Proactively mention urgent items`;
 
 router.post('/chat', requireAuth, async (req: Request, res: Response) => {
-  const { messages, sources } = req.body as {
+  const { messages, sources, pageContext } = req.body as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     sources?: string[];
+    // pageContext: {page: "/candidates/abc", entityType: "candidate", entityId: "abc"}
+    // Sent by the global AI sidebar so the assistant knows what the user is
+    // currently looking at without having to be told in natural language.
+    pageContext?: { page?: string; entityType?: string; entityId?: string };
   };
   const auth = getAuth(req);
 
@@ -133,8 +315,17 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   const userQuery = messages[messages.length - 1]?.content ?? '';
 
   try {
-    const companyContext = await buildCompanyContext(userQuery);
-    const systemWithContext = `${BRAIN_SYSTEM_PROMPT}\n\nLIVE COMPANY DATA:\n${companyContext}`;
+    const [companyContext, entityContext] = await Promise.all([
+      buildCompanyContext(userQuery),
+      buildEntityContext(pageContext?.entityType, pageContext?.entityId),
+    ]);
+
+    const contextBlocks: string[] = [];
+    if (pageContext?.page) contextBlocks.push(`CURRENT PAGE: ${pageContext.page}`);
+    if (entityContext) contextBlocks.push(entityContext);
+    contextBlocks.push(`LIVE COMPANY DATA:\n${companyContext}`);
+
+    const systemWithContext = `${BRAIN_SYSTEM_PROMPT}\n\n${contextBlocks.join('\n\n')}`;
 
     const response = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import TopBar from './Topbar';
 import Sidebar from './Sidebar';
+import AIAssistantSidebar from '../AIAssistantSidebar';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -51,6 +52,10 @@ export default function AppShell() {
       >
         <Outlet />
       </main>
+
+      {/* Global AI Brain sidebar — mounts once, available on every page,
+          auto-detects the route's entity (candidate/job/client/etc.) */}
+      <AIAssistantSidebar />
     </div>
   );
 }
