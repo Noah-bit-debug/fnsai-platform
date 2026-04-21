@@ -84,6 +84,9 @@ export interface Placement {
   end_date?: string;
   status: 'active' | 'pending' | 'unfilled' | 'completed' | 'cancelled';
   contract_status: 'not_sent' | 'pending_esign' | 'signed' | 'expired';
+  // Holds the built-in eSign document UUID for placements sent via /esign.
+  // Column name is historical (the system used to integrate with Foxit)
+  // and kept for backwards compatibility with existing rows.
   foxit_envelope_id?: string;
   hourly_rate?: number;
   notes?: string;
@@ -100,7 +103,12 @@ export const placementsApi = {
   get: (id: string) => api.get<Placement>(`/placements/${id}`),
   create: (data: Partial<Placement>) => api.post<Placement>('/placements', data),
   update: (id: string, data: Partial<Placement>) => api.put<Placement>(`/placements/${id}`, data),
-  sendContract: (id: string) => api.post(`/placements/${id}/send-contract`),
+  sendContract: (id: string) => api.post<{
+    success: boolean;
+    esign_document_id: string;
+    prepare_url: string;
+    smsSent: boolean;
+  }>(`/placements/${id}/send-contract`),
   approve: (id: string) => api.post(`/placements/${id}/approve`),
 };
 

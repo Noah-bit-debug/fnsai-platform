@@ -55,7 +55,6 @@ export default function SetupWizard() {
   /* Step 5 — track connected integrations */
   const [connected, setConnected] = useState<Record<string, boolean>>({
     sharepoint: true,
-    foxit: true,
     teams: true,
   });
 
@@ -331,18 +330,14 @@ export default function SetupWizard() {
               )}
             </div>
 
-            {/* Foxit eSign */}
+            {/* Built-in eSign — no third-party setup; the feature lives at /esign */}
             <div className="int-card">
               <div className="int-icon">✍️</div>
               <div className="int-info">
-                <div className="int-name">Foxit eSign</div>
-                <div className="int-desc">Send and track e-signatures</div>
+                <div className="int-name">eSign (built-in)</div>
+                <div className="int-desc">Send and track e-signatures with the built-in editor</div>
               </div>
-              {connected.foxit ? (
-                <button className="btn btn-ac btn-sm" onClick={() => toggleConnect('foxit')}>Connected ✓</button>
-              ) : (
-                <button className="btn btn-gh btn-sm" onClick={() => toggleConnect('foxit')}>Connect</button>
-              )}
+              <button className="btn btn-ac btn-sm" disabled>Included ✓</button>
             </div>
 
             {/* Teams */}

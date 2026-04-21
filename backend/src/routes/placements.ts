@@ -1,9 +1,9 @@
+import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
-import { createEnvelope } from '../services/foxit';
 import { sendApprovalRequest } from '../services/clerkchat';
 
 const router = Router();
@@ -175,7 +175,11 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /:id/send-contract - trigger Foxit eSign + SMS approval
+// POST /:id/send-contract
+// Creates an internal eSign document draft for this placement's contract and
+// links it back to the placement. The caller (frontend) should then route the
+// user to /esign/documents/:doc_id/prepare to place signature fields and send.
+// (Previously this posted to Foxit; we now use our own eSign stack.)
 router.post('/:id/send-contract', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -203,45 +207,75 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
       return;
     }
 
-    // Create a minimal PDF placeholder buffer (would be a real contract template)
-    const contractBuffer = Buffer.from(
-      `%PDF-1.4 PLACEMENT CONTRACT - ${placement.first_name} ${placement.last_name} at ${placement.facility_name}`
+    const fullName = [placement.first_name, placement.last_name].filter(Boolean).join(' ') || 'Staff member';
+    const docTitle = `Placement Contract — ${fullName} · ${placement.facility_name ?? 'Facility'}`;
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    // 1) Create the eSign document in draft state
+    const createdByUuid = await (async (): Promise<string | null> => {
+      if (!auth?.userId) return null;
+      try {
+        const r = await query<{ id: string }>(`SELECT id FROM users WHERE clerk_user_id = $1 LIMIT 1`, [auth.userId]);
+        return r.rows[0]?.id ?? null;
+      } catch { return null; }
+    })();
+
+    const docRes = await query<{ id: string }>(
+      `INSERT INTO esign_documents
+         (title, field_values, status, staff_id, created_by, signing_order, message, expires_at)
+       VALUES ($1, $2, 'draft', $3, $4, 'parallel', $5, $6)
+       RETURNING id`,
+      [
+        docTitle,
+        JSON.stringify({}),
+        placement.staff_id ?? null,
+        createdByUuid,
+        `Please review and sign your placement contract for ${placement.role} at ${placement.facility_name ?? 'the facility'}. Start date: ${placement.start_date ?? 'TBD'}.`,
+        expiresAt,
+      ]
+    );
+    const documentId = docRes.rows[0].id;
+
+    // 2) Create one signer row (the staff member) with a secure signing token
+    const token = randomBytes(32).toString('hex');
+    await query(
+      `INSERT INTO esign_signers
+         (document_id, name, email, role, order_index, token, auth_method)
+       VALUES ($1, $2, $3, 'signer', 0, $4, 'email_link')`,
+      [documentId, fullName, placement.staff_email, token]
     );
 
-    const envelope = await createEnvelope(
-      String(placement.staff_email),
-      `${placement.first_name} ${placement.last_name}`,
-      contractBuffer,
-      `Contract_${String(placement.last_name)}_${String(placement.facility_name).replace(/\s/g, '_')}.pdf`
-    );
-
-    // Update placement with envelope ID
+    // 3) Link the eSign doc to this placement + update contract status
     await query(
       `UPDATE placements SET foxit_envelope_id = $1, contract_status = 'pending_esign', updated_at = NOW()
        WHERE id = $2`,
-      [envelope.envelopeId, id]
+      [documentId, id]
     );
 
-    // Send SMS approval if staff has phone
+    // 4) Fire-and-forget SMS heads-up when the staff has a phone
     if (placement.staff_phone) {
-      const smsResult = await sendApprovalRequest(
-        String(placement.staff_phone),
-        `Placement Contract: ${placement.role} at ${placement.facility_name}`,
-        `Start: ${placement.start_date || 'TBD'} | Rate: $${placement.hourly_rate || 'TBD'}/hr\nPlease check your email to sign your contract.`,
-        id
-      );
-
-      // Store SMS approval record
-      await query(
-        `INSERT INTO sms_approvals (type, subject, message, recipient_phone, reference_id, reference_type)
-         VALUES ('contract', $1, $2, $3, $4, 'placement')`,
-        [
-          `Contract: ${placement.role} at ${placement.facility_name}`,
-          smsResult.messageId,
-          placement.staff_phone,
-          id,
-        ]
-      );
+      try {
+        const smsResult = await sendApprovalRequest(
+          String(placement.staff_phone),
+          `Placement Contract: ${placement.role} at ${placement.facility_name}`,
+          `Start: ${placement.start_date || 'TBD'} | Rate: $${placement.hourly_rate || 'TBD'}/hr\nPlease check your email to sign your contract.`,
+          id
+        );
+        await query(
+          `INSERT INTO sms_approvals (type, subject, message, recipient_phone, reference_id, reference_type)
+           VALUES ('contract', $1, $2, $3, $4, 'placement')`,
+          [
+            `Contract: ${placement.role} at ${placement.facility_name}`,
+            smsResult.messageId,
+            placement.staff_phone,
+            id,
+          ]
+        );
+      } catch (smsErr) {
+        console.warn('Contract SMS heads-up failed (non-fatal):', smsErr);
+      }
     }
 
     await logAudit(
@@ -249,18 +283,19 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
       auth?.userId ?? 'unknown',
       'placement.sendContract',
       id,
-      { envelopeId: envelope.envelopeId },
+      { esign_document_id: documentId },
       (req.ip ?? 'unknown')
     );
 
     res.json({
       success: true,
-      envelopeId: envelope.envelopeId,
+      esign_document_id: documentId,
+      prepare_url: `/esign/documents/${documentId}/prepare`,
       smsSent: !!placement.staff_phone,
     });
   } catch (err) {
     console.error('Send contract error:', err);
-    res.status(500).json({ error: 'Failed to send contract' });
+    res.status(500).json({ error: 'Failed to create eSign contract' });
   }
 });
 

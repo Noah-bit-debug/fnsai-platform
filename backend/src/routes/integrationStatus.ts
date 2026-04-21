@@ -62,14 +62,8 @@ router.get('/status', requireAuth, (_req: Request, res: Response) => {
       docs_url: 'https://portal.azure.com/',
       description: 'File search and document retrieval via OneDrive (via Graph).',
     },
-    {
-      key: 'foxit_esign',
-      name: 'Foxit eSign',
-      connected: present(env.FOXIT_API_KEY),
-      required_env: ['FOXIT_API_KEY', 'FOXIT_BASE_URL'],
-      docs_url: 'https://www.foxit.com/esign/',
-      description: 'Contract and offer letter e-signing for placements.',
-    },
+    // Foxit eSign is no longer used — replaced by the built-in eSign module
+    // at /esign. No external provider, no env vars, nothing to show here.
     {
       key: 'clerkchat_sms',
       name: 'ClerkChat SMS',

@@ -37,7 +37,7 @@ const HARRIS_ITEMS: CheckItem[] = [
   { id: 'h5', label: "Driver's License + Last 4 SSN pg 1", done: false, tag: 'td', tagLabel: 'Missing' },
   { id: 'h6', label: 'Face sheet within 90 days', done: false, tag: 'td', tagLabel: 'Missing' },
   { id: 'h7', label: 'Supervisor signature pg 2', done: false },
-  { id: 'h8', label: 'Foxit eSign contract returned', done: false },
+  { id: 'h8', label: 'eSign contract returned', done: false },
 ];
 
 const SECTION_COLORS: Record<string, string> = {

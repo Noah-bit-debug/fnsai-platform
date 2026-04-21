@@ -56,7 +56,7 @@ const ALL_LOGS: LogEntry[] = [
     user: 'Jamie S.',
     action: 'Contract sent',
     actionType: 'Contract',
-    subject: "Marcus Green RT — St. Luke's via Foxit eSign",
+    subject: "Marcus Green RT — St. Luke's via eSign",
   },
   {
     id: 7,

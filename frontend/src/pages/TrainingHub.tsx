@@ -13,7 +13,7 @@ const INITIAL_CARDS: TrainingCard[] = [
   { icon: '🏥', title: 'Placement Process', meta: 'From requisition to start date', pills: ['Placements', 'Beginner'], progress: 100 },
   { icon: '🏅', title: 'Credentialing 101', meta: 'Credentials, expiry, compliance', pills: ['Compliance'], progress: 60 },
   { icon: '📋', title: 'Harris Health Guide', meta: 'Specific Harris Health requirements', pills: ['Harris Health'], progress: 0 },
-  { icon: '✍️', title: 'Foxit eSign Guide', meta: 'Sending and tracking e-signatures', pills: ['Foxit', 'Contracts'], progress: 0 },
+  { icon: '✍️', title: 'eSign Guide', meta: 'Sending and tracking e-signatures', pills: ['eSign', 'Contracts'], progress: 0 },
   { icon: '📧', title: 'Client Communication', meta: 'Email templates and best practices', pills: ['Clients', 'Email'], progress: 40 },
   { icon: '👋', title: 'New Employee Guide', meta: 'Start here — everything a new hire needs', pills: ['New hire', 'Essential'], progress: 0 },
 ];
