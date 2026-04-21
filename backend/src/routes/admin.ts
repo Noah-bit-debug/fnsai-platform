@@ -1,8 +1,54 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { getAuth, clerkClient } from '@clerk/express';
+import { requireAuth } from '../middleware/auth';
 import { pool } from '../db/client';
+
+/**
+ * DB-free admin check. The regular requireRole middleware looks up the
+ * caller in the `users` SQL table, but the whole point of the admin
+ * endpoints below is to fix a broken DB — so relying on the DB to
+ * authorize is a chicken-and-egg problem. Instead, check Clerk's
+ * publicMetadata directly, which is where the frontend actually reads
+ * the role from.
+ *
+ * Also honors ADMIN_BOOTSTRAP_CLERK_USER_IDS env var (comma-separated
+ * Clerk user IDs) as a belt-and-suspenders allowlist for the very first
+ * bootstrap when no role has been assigned yet.
+ */
+async function requireClerkAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const auth = getAuth(req);
+  if (!auth?.userId) {
+    res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
+    return;
+  }
+
+  // Env-var allowlist for emergency bootstrap
+  const bootstrapIds = (process.env.ADMIN_BOOTSTRAP_CLERK_USER_IDS ?? '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  if (bootstrapIds.includes(auth.userId)) {
+    next();
+    return;
+  }
+
+  try {
+    const user = await clerkClient.users.getUser(auth.userId);
+    const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase();
+    if (role === 'admin' || role === 'ceo') {
+      next();
+      return;
+    }
+    res.status(403).json({
+      error: 'Forbidden',
+      message: `Clerk role '${role ?? 'none'}' does not have admin access`,
+      hint: 'Set publicMetadata.role = "admin" in Clerk, or add your Clerk user ID to ADMIN_BOOTSTRAP_CLERK_USER_IDS env var',
+    });
+  } catch (err) {
+    console.error('[admin] Clerk lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to verify admin role via Clerk' });
+  }
+}
 
 /**
  * Admin-only operational endpoints. Keep this small and tightly gated —
@@ -56,7 +102,7 @@ interface MigrationResult {
 // (all our migrations use CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT
 // EXISTS / ON CONFLICT DO NOTHING), so running this on a healthy DB is
 // a no-op. On a half-migrated DB, it patches the missing tables.
-router.post('/migrate', requireAuth, requireRole(['ceo', 'admin']), async (_req: Request, res: Response) => {
+router.post('/migrate', requireAuth, requireClerkAdmin, async (_req: Request, res: Response) => {
   const results: MigrationResult[] = [];
   const client = await pool.connect();
   try {
@@ -99,7 +145,7 @@ router.post('/migrate', requireAuth, requireRole(['ceo', 'admin']), async (_req:
 
 // GET /schema-check — quick sanity check that critical tables exist.
 // Useful for post-deploy verification without having to spin up a client.
-router.get('/schema-check', requireAuth, requireRole(['ceo', 'admin']), async (_req: Request, res: Response) => {
+router.get('/schema-check', requireAuth, requireClerkAdmin, async (_req: Request, res: Response) => {
   const criticalTables = [
     'users', 'candidates', 'staff', 'facilities',
     'clients', 'jobs', 'submissions', 'pipeline_stages', 'recruiter_tasks',
@@ -127,6 +173,33 @@ router.get('/schema-check', requireAuth, requireRole(['ceo', 'admin']), async (_
     res.status(500).json({ error: e.message });
   } finally {
     client.release();
+  }
+});
+
+// GET /whoami — DB-free identity echo. Returns the caller's Clerk user id,
+// email, and publicMetadata role. Useful for "why can't I access X" debugging
+// without having to paste the JWT into clerk.dev. No auth beyond a valid
+// session — this is identity-about-you, not privileged data.
+router.get('/whoami', requireAuth, async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  if (!auth?.userId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  try {
+    const user = await clerkClient.users.getUser(auth.userId);
+    res.json({
+      clerk_user_id: auth.userId,
+      email: user.emailAddresses?.[0]?.emailAddress ?? null,
+      name: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
+      role_in_clerk_metadata: user.publicMetadata?.role ?? null,
+      is_admin_via_clerk: ['admin', 'ceo'].includes(
+        ((user.publicMetadata?.role as string | undefined) ?? '').toLowerCase()
+      ),
+    });
+  } catch (err) {
+    console.error('[admin] whoami failed:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to load Clerk user' });
   }
 });
 
