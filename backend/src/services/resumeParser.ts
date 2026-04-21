@@ -1,6 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
+import mammoth from 'mammoth';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Sonnet handles resume parsing just as well as Opus at ~5× the speed and
+// ~5× the cost savings. Upgraded if we ever hit accuracy issues.
+const MODEL = process.env.ANTHROPIC_RESUME_MODEL || 'claude-sonnet-4-5';
 
 export interface ParsedResume {
   name: string | null;
@@ -24,6 +29,15 @@ export interface ParsedResume {
   summary: string | null;
 }
 
+// Explicit error types so the route can return helpful messages to the UI
+// instead of a generic "parsing failed" that tells the recruiter nothing.
+export class ResumeParseError extends Error {
+  constructor(message: string, public readonly userFacing: string) {
+    super(message);
+    this.name = 'ResumeParseError';
+  }
+}
+
 const PARSE_PROMPT = `You are a resume parser for a healthcare staffing agency. Extract ALL of the following from the resume content provided and return ONLY valid JSON with no markdown code blocks, no explanation, just raw JSON.
 
 Return exactly this structure:
@@ -45,15 +59,60 @@ Return exactly this structure:
 
 If any field cannot be determined, use null for scalars or [] for arrays. Do not fabricate information.`;
 
-export async function parseResume(fileBuffer: Buffer, mimeType: string): Promise<ParsedResume> {
+// Recognized MIME types + the fallback for whatever the browser actually sent
+// (some browsers send application/octet-stream for .docx from macOS, etc.).
+function classify(mimeType: string, fileName?: string): 'pdf' | 'docx' | 'text' | 'unknown' {
+  const lower = (mimeType || '').toLowerCase();
+  const name = (fileName || '').toLowerCase();
+  if (lower === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  if (lower === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      || name.endsWith('.docx')) return 'docx';
+  if (lower.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.md')) return 'text';
+  // .doc (old Word format) is not supported by mammoth — flag it explicitly
+  if (lower === 'application/msword' || name.endsWith('.doc')) return 'unknown';
+  return 'unknown';
+}
+
+// Claude sometimes wraps JSON in prose ("Here's the parsed data: { ... }").
+// Grab the first '{' through the matching last '}' instead of trusting
+// whitespace/markdown stripping.
+function extractJson(raw: string): string {
+  const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const first = cleaned.indexOf('{');
+  const last = cleaned.lastIndexOf('}');
+  if (first === -1 || last === -1 || last <= first) return cleaned;
+  return cleaned.slice(first, last + 1);
+}
+
+export async function parseResume(
+  fileBuffer: Buffer,
+  mimeType: string,
+  fileName?: string,
+): Promise<ParsedResume> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new ResumeParseError(
+      'ANTHROPIC_API_KEY is not configured on the server',
+      'AI parsing is not configured on this server. Please fill in candidate details manually.',
+    );
+  }
+
+  const kind = classify(mimeType, fileName);
+  if (kind === 'unknown') {
+    throw new ResumeParseError(
+      `Unsupported mime type: ${mimeType} (${fileName ?? 'no name'})`,
+      'This file type isn\'t supported. Please upload a PDF, DOCX, or plain-text resume. (Old .doc files are not supported — save as .docx or PDF first.)',
+    );
+  }
+
   let responseText: string;
 
   try {
-    if (mimeType === 'application/pdf') {
-      // Use Claude's document vision for PDFs
+    if (kind === 'pdf') {
+      // Claude's native document vision — reads the PDF directly including
+      // images, tables, and formatting. Much better than a text-only extract.
       const base64Data = fileBuffer.toString('base64');
       const response = await client.messages.create({
-        model: 'claude-opus-4-5',
+        model: MODEL,
         max_tokens: 4096,
         messages: [
           {
@@ -77,10 +136,31 @@ export async function parseResume(fileBuffer: Buffer, mimeType: string): Promise
       });
       responseText = (response.content[0] as any).text;
     } else {
-      // For DOCX, text files, or unknown types — try to extract as UTF-8 text
-      const textContent = fileBuffer.toString('utf-8');
+      // For DOCX, extract clean text with mammoth. For plain text, just decode.
+      // Critically, this is NOT fileBuffer.toString() for DOCX — that returned
+      // the zip-container binary gibberish that broke every DOCX upload.
+      let textContent: string;
+      if (kind === 'docx') {
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        textContent = (result.value || '').trim();
+        if (!textContent) {
+          throw new ResumeParseError(
+            'mammoth extracted no text from DOCX',
+            'Could not read any text from this DOCX. It may be image-only or corrupted. Try exporting to PDF.',
+          );
+        }
+      } else {
+        textContent = fileBuffer.toString('utf-8').trim();
+        if (!textContent) {
+          throw new ResumeParseError(
+            'Empty text file',
+            'This resume file appears to be empty.',
+          );
+        }
+      }
+
       const response = await client.messages.create({
-        model: 'claude-opus-4-5',
+        model: MODEL,
         max_tokens: 4096,
         messages: [
           {
@@ -92,11 +172,24 @@ export async function parseResume(fileBuffer: Buffer, mimeType: string): Promise
       responseText = (response.content[0] as any).text;
     }
 
-    // Strip markdown code blocks if Claude wrapped the JSON
-    const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned) as ParsedResume;
+    if (!responseText || !responseText.trim()) {
+      throw new ResumeParseError(
+        'Claude returned empty response',
+        'AI returned an empty response. Please retry or fill in manually.',
+      );
+    }
 
-    // Ensure arrays are arrays
+    const cleaned = extractJson(responseText);
+    let parsed: ParsedResume;
+    try {
+      parsed = JSON.parse(cleaned) as ParsedResume;
+    } catch (jsonErr) {
+      throw new ResumeParseError(
+        `JSON parse failed: ${(jsonErr as Error).message} | raw: ${responseText.slice(0, 300)}`,
+        'AI returned a malformed response. Please retry or fill in manually.',
+      );
+    }
+
     const safe = (val: any) => (Array.isArray(val) ? val : []);
     return {
       name: parsed.name || null,
@@ -110,16 +203,29 @@ export async function parseResume(fileBuffer: Buffer, mimeType: string): Promise
       licenses: safe(parsed.licenses),
       education: safe(parsed.education),
       work_history: safe(parsed.work_history),
-      years_experience: parsed.years_experience || null,
+      years_experience: parsed.years_experience ?? null,
       summary: parsed.summary || null,
     };
   } catch (err) {
+    if (err instanceof ResumeParseError) throw err;
+    // Anthropic SDK errors have a status code + message we can surface usefully
+    const anyErr = err as { status?: number; message?: string; error?: { message?: string } };
     console.error('Resume parsing error:', err);
-    // Return empty structure on failure
-    return {
-      name: null, email: null, phone: null, address: null, role: null,
-      specialties: [], skills: [], certifications: [], licenses: [],
-      education: [], work_history: [], years_experience: null, summary: null,
-    };
+    if (anyErr.status === 401 || anyErr.status === 403) {
+      throw new ResumeParseError(
+        `Anthropic auth error (${anyErr.status}): ${anyErr.message}`,
+        'AI parsing auth failed. Check ANTHROPIC_API_KEY on the server.',
+      );
+    }
+    if (anyErr.status === 429) {
+      throw new ResumeParseError(
+        'Anthropic rate limit hit',
+        'AI is busy right now. Please try again in a minute.',
+      );
+    }
+    throw new ResumeParseError(
+      `Unexpected parsing error: ${anyErr.message ?? String(err)}`,
+      'Resume parsing failed. Please retry or fill in manually.',
+    );
   }
 }

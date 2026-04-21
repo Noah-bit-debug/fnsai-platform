@@ -4,7 +4,7 @@ import multer from 'multer';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
-import { parseResume } from '../services/resumeParser';
+import { parseResume, ResumeParseError } from '../services/resumeParser';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -368,7 +368,11 @@ router.post('/:id/parse-resume', requireAuth, requirePermission('resume_upload')
       return;
     }
     try {
-      const parsed = await parseResume(req.file.buffer, req.file.mimetype);
+      const parsed = await parseResume(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname,
+      );
 
       // Save parsed data to candidate if id is not 'new'
       if (id !== 'new') {
@@ -382,8 +386,16 @@ router.post('/:id/parse-resume', requireAuth, requirePermission('resume_upload')
         { fileName: req.file.originalname }, (req.ip ?? 'unknown'));
       res.json({ success: true, parsed });
     } catch (err) {
+      // ResumeParseError carries a user-facing message we can pass straight
+      // through. Everything else is a real 500 and stays generic.
+      if (err instanceof ResumeParseError) {
+        console.error('Parse resume error:', err.message);
+        // 422 = the request was valid but we couldn't process the content
+        res.status(422).json({ error: err.userFacing });
+        return;
+      }
       console.error('Parse resume error:', err);
-      res.status(500).json({ error: 'Resume parsing failed' });
+      res.status(500).json({ error: 'Resume parsing failed. Please retry or fill in manually.' });
     }
   }
 );

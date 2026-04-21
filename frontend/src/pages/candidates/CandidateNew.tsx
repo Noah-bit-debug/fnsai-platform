@@ -272,11 +272,11 @@ export default function CandidateNew() {
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2b3c', marginBottom: 4 }}>
                     {resumeFile ? resumeFile.name : 'Click to upload resume'}
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>PDF or DOCX, max 10MB</div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>PDF, DOCX, or TXT — max 10MB. (Old .doc not supported — save as .docx or PDF first.)</div>
                   <input
                     ref={fileRef}
                     type="file"
-                    accept=".pdf,.docx,.doc"
+                    accept=".pdf,.docx,.txt"
                     style={{ display: 'none' }}
                     onChange={(e) => {
                       setResumeFile(e.target.files?.[0] ?? null);
