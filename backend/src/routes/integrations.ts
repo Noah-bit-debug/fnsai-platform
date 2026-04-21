@@ -37,7 +37,7 @@ router.get('/', requireAuth, requirePermission('integrations_view'), async (_req
     const result = await query(
       `SELECT i.*,
               COUNT(sl.id)::INT AS total_syncs,
-              MAX(sl.created_at) AS last_sync_attempt
+              MAX(sl.started_at) AS last_sync_attempt
        FROM integrations i
        LEFT JOIN integration_sync_logs sl ON sl.integration_id = i.id
        GROUP BY i.id
