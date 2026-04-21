@@ -66,8 +66,16 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// Constrain :id to a UUID-shaped path segment so non-UUID paths like
+// "/orgs" don't accidentally get matched by /:id and routed to the
+// facility-by-id handler. Without this, GET /api/v1/clients/orgs hits
+// `GET /:id` with id="orgs", tries SELECT * FROM facilities WHERE id='orgs'
+// → pg invalid-UUID error → 500. The pattern below requires 36 chars of
+// hex + dashes, so "orgs" (4 chars) falls through to the /orgs route.
+const UUID_ID = ':id([0-9a-fA-F-]{36})';
+
 // GET /:id
-router.get('/:id', requireAuth, async (req: Request, res: Response) => {
+router.get(`/${UUID_ID}`, requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
@@ -144,7 +152,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 });
 
 // PUT /:id - update facility
-router.put('/:id', requireAuth, async (req: Request, res: Response) => {
+router.put(`/${UUID_ID}`, requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const parse = facilityUpdateSchema.safeParse(req.body);
   if (!parse.success) {
@@ -187,7 +195,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
 });
 
 // DELETE /:id
-router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
+router.delete(`/${UUID_ID}`, requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
 
