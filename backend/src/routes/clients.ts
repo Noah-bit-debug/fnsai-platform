@@ -332,8 +332,27 @@ router.post('/orgs', requireAuth, async (req: Request, res: Response) => {
     await logAudit(null, auth?.userId ?? 'unknown', 'client.create', result.rows[0].id as string, { name: d.name }, req.ip ?? 'unknown');
     res.status(201).json({ client: result.rows[0] });
   } catch (err) {
-    console.error('Client create error:', err);
-    res.status(500).json({ error: 'Failed to create client' });
+    // Specific pg error codes → specific user-facing messages. The
+    // ats_phase1 migration creates the `clients` table; if it failed
+    // silently at startup, 42P01 is what we'd see here.
+    const e = err as { code?: string; message?: string; detail?: string };
+    console.error('Client create error:', { code: e.code, message: e.message, detail: e.detail });
+    if (e.code === '42P01') {
+      res.status(503).json({
+        error: 'Clients table is missing — the ats_phase1 database migration has not been applied. Contact your server admin to run migrations.',
+        code: e.code,
+      });
+      return;
+    }
+    if (e.code === '23505') {
+      res.status(409).json({ error: 'A client with that name already exists.', code: e.code });
+      return;
+    }
+    // Include the pg error code + short message so the UI can actually show something useful
+    res.status(500).json({
+      error: `Failed to create client: ${e.message?.slice(0, 200) ?? 'unknown error'}`,
+      code: e.code,
+    });
   }
 });
 

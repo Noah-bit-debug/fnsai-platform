@@ -360,8 +360,17 @@ async function runMigrations(): Promise<void> {
         await client.query(sql);
         console.log(`[migrate] ✓ ${file}`);
       } catch (err) {
-        // Log but do NOT crash — partial migrations are better than no server
-        console.error(`[migrate] ✗ ${file}:`, (err as Error).message?.slice(0, 200));
+        // Log but do NOT crash — partial migrations are better than no server.
+        // Full pg error detail (code, position, message) so we can actually
+        // see what broke instead of the first 200 chars.
+        const e = err as { code?: string; message?: string; position?: string; detail?: string; hint?: string };
+        console.error(`[migrate] ✗ ${file}:`, JSON.stringify({
+          code: e.code,
+          message: e.message,
+          detail: e.detail,
+          hint: e.hint,
+          position: e.position,
+        }, null, 2));
       }
     }
   } finally {

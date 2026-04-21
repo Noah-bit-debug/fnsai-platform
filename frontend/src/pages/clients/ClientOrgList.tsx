@@ -39,8 +39,14 @@ export default function ClientOrgList() {
     try {
       const res = await clientsOrgsApi.create({ name: newName.trim() });
       nav(`/clients-orgs/${res.data.client.id}`);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to create client');
+    } catch (err: unknown) {
+      // Axios errors come through with the backend's actual error message in
+      // response.data.error. Fall back to the generic message otherwise.
+      const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
+      const msg = axiosErr?.response?.data?.error
+        ?? axiosErr?.message
+        ?? 'Failed to create client';
+      alert(msg);
     }
   };
 
