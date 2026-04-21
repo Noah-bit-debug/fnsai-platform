@@ -369,12 +369,31 @@ async function runMigrations(): Promise<void> {
   }
 }
 
+// Enumerate every top-level router mount so Railway logs show exactly what
+// is (or isn't) wired up — easier to diagnose 404s than guessing from code.
+function logMountedRoutes(): void {
+  const stack = (app as unknown as { _router?: { stack: Array<{ regexp?: RegExp; handle?: { stack?: unknown[] } }> } })._router?.stack ?? [];
+  const mounts: string[] = [];
+  for (const layer of stack) {
+    if (!layer.handle || !(layer.handle as { stack?: unknown[] }).stack) continue;
+    // Express stores mount path as a regexp like /^\/api\/v1\/jobs\/?(?=\/|$)/i —
+    // pull a readable path back out of the source.
+    const src = layer.regexp?.source ?? '';
+    const match = src.match(/^\^\\\/(.+?)\\\/\?\(\?=/);
+    const path = match ? '/' + match[1].replace(/\\\//g, '/') : src;
+    mounts.push(path);
+  }
+  console.log(`[routes] ${mounts.length} router mounts:`);
+  for (const p of mounts) console.log(`[routes]   ${p}`);
+}
+
 runMigrations()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`FNS AI API running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV ?? 'development'}`);
       console.log(`Frontend URL: ${process.env.FRONTEND_URL ?? 'http://localhost:5173'}`);
+      logMountedRoutes();
 
       // Run compliance jobs daily (every 24h)
       const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -397,6 +416,7 @@ runMigrations()
     // Still try to start even if migration connection fails
     app.listen(PORT, () => {
       console.log(`FNS AI API running on port ${PORT} (migration skipped)`);
+      logMountedRoutes();
     });
   });
 
