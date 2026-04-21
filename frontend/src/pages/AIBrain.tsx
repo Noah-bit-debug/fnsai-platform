@@ -143,8 +143,21 @@ function emailFrom(from: any): string {
   return ea?.address ?? 'Unknown';
 }
 
+// HTML-escape raw text before running markdown substitutions. Without this,
+// dangerouslySetInnerHTML would execute any <script> / <img onerror=...>
+// that came back from the AI (including prompt-injected replies based on
+// untrusted email content or resume text).
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function md(text: string): string {
-  return text
+  return escapeHtml(text)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;font-size:12px">$1</code>')
     .replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 4px;font-size:13px;font-weight:700;color:#1e293b">$1</h4>')

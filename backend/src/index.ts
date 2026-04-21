@@ -4,6 +4,7 @@ import { clerkMiddleware } from '@clerk/express';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pool } from './db/client';
@@ -64,41 +65,131 @@ import globalSearchRouter from './routes/globalSearch';
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-// Security
+// ─── Security ─────────────────────────────────────────────────────────────
+// Railway terminates TLS and forwards to us via its load balancer. Trust
+// that single hop so express.rateLimit / req.ip see the real client IP
+// instead of the proxy's. Setting this to `true` would also trust
+// unrestricted X-Forwarded-For chains — we deliberately don't.
+app.set('trust proxy', 1);
+
 app.use(helmet({
-  contentSecurityPolicy: false, // Let frontend handle this
+  // Content Security Policy. Default-src='self' blocks 3rd-party script
+  // injection. We open the specific origins the frontend needs: Clerk for
+  // auth widgets, cdnjs for the PDF.js worker used by ESignPrepare, and
+  // data:/blob: for canvases. Adjust if you ever add a new CDN.
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'default-src':  ["'self'"],
+      'script-src':   ["'self'", "'unsafe-inline'", 'https://clerk.accounts.dev', 'https://*.clerk.accounts.dev', 'https://cdnjs.cloudflare.com'],
+      'style-src':    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src':     ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      'img-src':      ["'self'", 'data:', 'blob:', 'https:'],
+      'connect-src':  ["'self'", 'https://clerk.accounts.dev', 'https://*.clerk.accounts.dev', 'https://*.clerk.com'],
+      'worker-src':   ["'self'", 'blob:', 'https://cdnjs.cloudflare.com'],
+      'frame-ancestors': ["'none'"],
+      'object-src':   ["'none'"],
+      'base-uri':     ["'self'"],
+      'form-action':  ["'self'"],
+    },
+  },
+  // Forces HTTPS for 1 year; submits to browser preload lists. Railway
+  // already redirects HTTP→HTTPS but this closes the first-hit window.
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  // Don't leak the full URL + query string to outbound links.
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  crossOriginEmbedderPolicy: false, // Allow img loading from other origins
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
-// CORS — allow Vercel frontend + localhost dev
-const ALLOWED_ORIGINS = [
+// ─── CORS ─────────────────────────────────────────────────────────────────
+// Previous config accepted ANY origin matching '.vercel.app' — that includes
+// any attacker's Vercel preview deployment, which could run malicious JS
+// against our API with the user's Clerk session. Now we only accept
+// exactly the origins we've explicitly allowed.
+//
+// To add a preview URL (e.g. for a staging branch) paste the exact origin
+// here or set it via FRONTEND_URL.
+const STATIC_ALLOWED = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
   'http://localhost:3000',
   'https://frontend-five-alpha-51.vercel.app',
 ].filter(Boolean) as string[];
 
+// Explicit regex for production Vercel aliases that Vercel auto-creates
+// for this specific project. Any preview not matching is rejected.
+// Matches: frontend-five-alpha-51.vercel.app AND frontend-five-alpha-51-*.vercel.app
+const PROJECT_VERCEL_PATTERN = /^https:\/\/frontend-five-alpha-51(-[a-z0-9-]+)?\.vercel\.app$/i;
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, Postman, etc.)
+      // No origin — server-to-server or curl. Accept; each route still
+      // requires a Clerk Bearer token, so no data leaks to anonymous callers.
       if (!origin) return callback(null, true);
-      if (ALLOWED_ORIGINS.some(o => origin.startsWith(o)) || origin.includes('vercel.app')) {
-        return callback(null, true);
-      }
+      if (STATIC_ALLOWED.includes(origin)) return callback(null, true);
+      if (PROJECT_VERCEL_PATTERN.test(origin))  return callback(null, true);
+      // Log the rejection so you can see during monitoring if a legit
+      // new URL needs to be added to STATIC_ALLOWED.
+      console.warn(`[CORS] Rejected origin: ${origin}`);
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 600, // Cache preflight 10 minutes
   })
 );
 
-// Logging
+// ─── Logging ──────────────────────────────────────────────────────────────
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// Body parsing — 50mb for file uploads
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// ─── Body parsing ─────────────────────────────────────────────────────────
+// Default JSON cap is 1 MB — large enough for any legitimate API request,
+// small enough to block memory-exhaustion attacks. The two routes that
+// accept bigger payloads (resume PDF upload, bulk field save) set their
+// own multer/body limits.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// ─── Rate limiting ────────────────────────────────────────────────────────
+// Keyed on IP (via trust proxy above, this is the real client IP). Returns
+// 429 with a clear retry-after header. Each bucket is independent so a user
+// blowing the AI budget doesn't also block their dashboard.
+
+/** Baseline global limiter — catches runaway scripts on any route. */
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many requests', message: 'Please slow down and retry shortly.' },
+});
+
+/** AI endpoints cost money per call. Tighter limit to cap Anthropic bills
+ *  and block token-drain abuse. 20/min is ~1 call every 3 seconds — still
+ *  plenty for normal human use. */
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'AI rate limit', message: 'Too many AI requests in the last minute. Please wait and retry.' },
+});
+
+/** Auth-adjacent / mutating endpoints — stricter to blunt credential-
+ *  stuffing and brute-force enumeration against the users route. */
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many auth requests' },
+});
+
+app.use(globalLimiter);
 
 // Clerk auth middleware — must be before routes
 app.use(clerkMiddleware());
@@ -167,7 +258,7 @@ app.use('/api/v1/incidents', incidentsRouter);
 app.use('/api/v1/timekeeping', timekeepingRouter);
 app.use('/api/v1/emails', emailsRouter);
 app.use('/api/v1/sms', smsRouter);
-app.use('/api/v1/ai', aiRouter);
+app.use('/api/v1/ai', aiLimiter, aiRouter);
 app.use('/api/v1/insurance', insuranceRouter);
 app.use('/api/v1/checklists', checklistsRouter);
 app.use('/api/v1/clients', clientsRouter);
@@ -184,7 +275,7 @@ app.use('/api/v1/templates', templatesRouter);
 app.use('/api/v1/suggestions', suggestionsRouter);
 app.use('/api/v1/daily-summary', dailySummaryRouter);
 app.use('/api/v1/time-tracking', timeTrackingRouter);
-app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/users', authLimiter, usersRouter);
 app.use('/api/v1/compliance', complianceRouter);
 app.use('/api/v1/compliance/exams', complianceExamsRouter);
 app.use('/api/v1/compliance/checklists', complianceChecklistsRouter);
@@ -195,9 +286,9 @@ app.use('/api/v1/compliance/certificates', complianceCertificatesRouter);
 app.use('/api/v1/compliance/integration', complianceIntegrationsRouter);
 app.use('/api/v1/compliance/readiness', compliancePlacementReadinessRouter);
 app.use('/api/v1/compliance/messages', complianceMessagingRouter);
-app.use('/api/v1/ai-email', aiEmailSearchRouter);
-app.use('/api/v1/ai-onedrive', aiOneDriveRouter);
-app.use('/api/v1/ai-brain', aiBrainRouter);
+app.use('/api/v1/ai-email', aiLimiter, aiEmailSearchRouter);
+app.use('/api/v1/ai-onedrive', aiLimiter, aiOneDriveRouter);
+app.use('/api/v1/ai-brain', aiLimiter, aiBrainRouter);
 // ATS Phase 1
 app.use('/api/v1/jobs', jobsRouter);
 app.use('/api/v1/submissions', submissionsRouter);

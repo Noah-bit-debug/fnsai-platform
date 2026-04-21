@@ -10,9 +10,24 @@ const QUICK_PROMPTS = [
   'What should my onboarding checklist include for LPN staff?',
 ];
 
+/**
+ * HTML-escape every character in the raw input before applying our markdown
+ * regexes. This is critical — the raw string may contain AI output that was
+ * prompt-injected with <script> or <img onerror=...>. Without escaping,
+ * dangerouslySetInnerHTML would execute it. After escaping, only the tags
+ * emitted by our own regex replacements exist, so the output is safe.
+ */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatMessage(content: string): string {
-  // Basic markdown-like formatting
-  return content
+  return escapeHtml(content)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br/>')
     .replace(/^- (.+)$/gm, '<li>$1</li>')
