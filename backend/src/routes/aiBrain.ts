@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { getAuth } from '@clerk/express';
 import { pool } from '../db/client';
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -328,7 +329,7 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
     const systemWithContext = `${BRAIN_SYSTEM_PROMPT}\n\n${contextBlocks.join('\n\n')}`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.brainChat,
       max_tokens: 4096,
       system: systemWithContext,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -363,11 +364,24 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
       response: responseText,
       context_used: companyContext.length > 20,
       clarification_created: clarificationCreated,
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.brainChat,
     });
   } catch (err) {
-    console.error('AI Brain chat error:', err);
-    res.status(500).json({ error: 'AI Brain service error' });
+    // Surface Anthropic errors with their actual message + status so the
+    // frontend knows whether it's an auth issue, a bad model name, a rate
+    // limit, or something else. The generic "service error" hid all of it.
+    const e = err as { status?: number; message?: string; error?: { type?: string; message?: string } };
+    console.error('AI Brain chat error:', {
+      status: e.status,
+      message: e.message,
+      error: e.error,
+    });
+    const detail = e.error?.message ?? e.message ?? 'unknown error';
+    res.status(500).json({
+      error: `AI Brain service error: ${detail.slice(0, 300)}`,
+      status: e.status,
+      type: e.error?.type,
+    });
   }
 });
 
@@ -480,7 +494,7 @@ Available folders: ${KNOWN_FOLDERS.join(', ')}
 Return ONLY valid JSON: {"folder": "folder name", "confidence": "high|medium|low", "reason": "brief reason", "alternatives": ["alt1"], "needs_clarification": false, "clarification_question": null}`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.brainChat,
       max_tokens: 512,
       messages: [{ role: 'user', content: prompt }],
     });

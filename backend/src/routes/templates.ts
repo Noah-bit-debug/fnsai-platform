@@ -4,10 +4,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 
-const MODEL = 'claude-3-5-sonnet-20241022';
+const MODEL = MODEL_FOR.templateDrafting;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SUPPORTED_TYPES = [

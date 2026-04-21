@@ -7,15 +7,17 @@
  * - Clarification questions when operational data is ambiguous
  * - AI-generated narrative prose for custom reports
  *
- * All Claude calls use model claude-3-5-sonnet-20241022.
+ * All Claude calls use the model selected by MODEL_FOR.intelligence
+ * (centralized in services/aiModels.ts — currently Sonnet 4.5).
  * DB access goes through the shared pool exported from ../db/client.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import { pool } from '../db/client';
+import { MODEL_FOR } from './aiModels';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = 'claude-3-5-sonnet-20241022';
+const MODEL = MODEL_FOR.intelligence;
 
 // ---------------------------------------------------------------------------
 // Types

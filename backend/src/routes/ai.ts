@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { chatCompletion, analyzeDocument, categorizeEmail } from '../services/ai';
+import { MODEL_FOR } from '../services/aiModels';
 import { getAuth } from '@clerk/express';
 import { query } from '../db/client';
 
@@ -69,7 +70,7 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
       req.ip
     );
 
-    res.json({ response, model: 'claude-3-5-sonnet-20241022' });
+    res.json({ response, model: MODEL_FOR.brainChat });
   } catch (err) {
     console.error('Chat route error:', err);
     res.status(500).json({ error: 'AI service error' });

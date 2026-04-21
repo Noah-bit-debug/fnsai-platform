@@ -4,6 +4,7 @@ import { getAuth } from '@clerk/express';
 import { pool } from '../db/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { searchEmails, getEmailWithAttachments } from '../services/graph';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -48,7 +49,7 @@ router.post('/summarize', requireAuth, async (req: Request, res: Response) => {
       ? `Based on these ${emails.length} emails, answer: "${question}"\n\nEmails:\n${emailText}`
       : `Summarize these ${emails.length} emails for a healthcare staffing coordinator. Identify key action items, important contacts, and anything time-sensitive.\n\nEmails:\n${emailText}`;
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.searchSynthesis,
       max_tokens: 2048,
       system: 'You are FNS AI Brain, analyzing emails for Frontline Healthcare Staffing. Be concise and operational. Focus on: credentials, placements, candidates, compliance, facility requests.',
       messages: [{ role: 'user', content: prompt }],

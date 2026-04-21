@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from './aiModels';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const ATS_MODEL = 'claude-opus-4-6';
+const ATS_MODEL = MODEL_FOR.booleanSearch;
 
 /**
  * Input shape for Boolean string generation.

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from './aiModels';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -74,7 +75,7 @@ export async function chatCompletion(
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.brainChat,
       max_tokens: 4096,
       system: systemWithContext,
       messages: messages.map((m) => ({
@@ -140,7 +141,7 @@ Check for:
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.brainChat,
       max_tokens: 2048,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
@@ -201,7 +202,7 @@ Spam: marketing, irrelevant`;
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.brainChat,
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
@@ -227,7 +228,7 @@ Spam: marketing, irrelevant`;
 }
 
 // ─── ATS: Job ad + job summary generators ──────────────────────────────────
-const ATS_MODEL = 'claude-opus-4-6';
+const ATS_MODEL = MODEL_FOR.candidateScoring;
 
 export interface JobForAI {
   title: string;

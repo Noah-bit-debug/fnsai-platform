@@ -3,6 +3,7 @@ import { getAuth } from '@clerk/express';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -822,7 +823,7 @@ router.post('/domains/ai-suggest', requireAuth, requirePermission('time_tracking
       .join('\n');
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.timeTracking,
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -974,7 +975,7 @@ Generate a concise work pattern summary. Return JSON with:
 Return only the JSON, no other text.`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: MODEL_FOR.timeTracking,
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });

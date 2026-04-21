@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from './aiModels';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const ATS_MODEL = 'claude-opus-4-6';
+const ATS_MODEL = MODEL_FOR.candidateScoring;
 
 export type FitLabel = 'excellent' | 'strong' | 'moderate' | 'weak' | 'poor';
 

@@ -5,6 +5,7 @@ import { pool } from '../db/client';
 import Anthropic from '@anthropic-ai/sdk';
 import multer from 'multer';
 import { listOneDriveFolders, listOneDriveFiles, searchOneDriveFiles, uploadToOneDriveFolder } from '../services/graph';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -79,7 +80,7 @@ Available folders: ${KNOWN_FOLDERS.join(', ')}
 Return ONLY valid JSON: {"folder": "folder name", "confidence": "high|medium|low", "reason": "brief reason"}`;
 
       const routeResp = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: MODEL_FOR.searchSynthesis,
         max_tokens: 256,
         messages: [{ role: 'user', content: routePrompt }],
       });
