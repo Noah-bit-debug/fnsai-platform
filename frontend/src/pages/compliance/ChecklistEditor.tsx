@@ -509,17 +509,35 @@ export default function ChecklistEditor() {
             <h2 style={{ fontSize: 14, fontWeight: 700, color: '#374151', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Sections & Skills
             </h2>
-            <button
-              type="button"
-              onClick={addSection}
-              style={{
-                padding: '7px 16px', fontSize: 13, fontWeight: 600,
-                color: '#2563eb', background: '#ffffff',
-                border: '1px solid #2563eb', borderRadius: 7, cursor: 'pointer',
-              }}
-            >
-              + Add Section
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={addSection}
+                style={{
+                  padding: '7px 16px', fontSize: 13, fontWeight: 600,
+                  color: '#2563eb', background: '#ffffff',
+                  border: '1px solid #2563eb', borderRadius: 7, cursor: 'pointer',
+                }}
+              >
+                + Add Section
+              </button>
+              {/* Phase 2.5 — AI + Excel bulk import */}
+              {id && (
+                <button
+                  type="button"
+                  onClick={() => window.location.href = `/compliance/admin/checklists/${id}/ai-wizard`}
+                  style={{
+                    padding: '7px 16px', fontSize: 13, fontWeight: 600,
+                    color: '#fff',
+                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                    border: 'none', borderRadius: 7, cursor: 'pointer',
+                  }}
+                  title="Generate with AI or bulk-import from Excel"
+                >
+                  ✦ AI / Excel
+                </button>
+              )}
+            </div>
           </div>
 
           {sections.length === 0 && (

@@ -151,6 +151,23 @@ export default function PolicyList() {
         >
           + New Policy
         </button>
+        {/* Phase 2.3 — AI wizard entry point */}
+        <button
+          onClick={() => navigate('/compliance/admin/policies/ai-wizard')}
+          style={{
+            padding: '9px 18px',
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            marginLeft: 8,
+          }}
+        >
+          ✦ AI from document
+        </button>
       </div>
 
       {/* Filter row */}

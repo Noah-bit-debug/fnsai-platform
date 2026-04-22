@@ -258,6 +258,9 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
     { key: 'documents', label: 'Documents', icon: '📄', path: '/compliance/admin/documents' },
     { key: 'exams', label: 'Exams', icon: '📝', path: '/compliance/admin/exams' },
     { key: 'checklists', label: 'Checklists', icon: '✅', path: '/compliance/admin/checklists' },
+    // Phase 2 additions
+    { key: 'courses', label: 'Courses', icon: '📚', path: '/compliance/admin/courses' },
+    { key: 'doc_types', label: 'Doc Types', icon: '🏷️', path: '/compliance/admin/doc-types' },
   ];
 
   return (

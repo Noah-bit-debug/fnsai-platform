@@ -4,7 +4,7 @@ import api from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────
 
-type ItemType = 'policy' | 'document' | 'exam' | 'checklist';
+type ItemType = 'policy' | 'document' | 'exam' | 'checklist' | 'course';
 
 interface BundleItem {
   id?: string;
@@ -66,6 +66,7 @@ const TYPE_ICONS: Record<ItemType, string> = {
   document: '📄',
   exam: '📝',
   checklist: '☑️',
+  course: '📚',
 };
 
 const TYPE_ENDPOINTS: Record<ItemType, string> = {
@@ -73,6 +74,7 @@ const TYPE_ENDPOINTS: Record<ItemType, string> = {
   document: '/compliance/documents?status=published',
   exam: '/compliance/exams?status=published',
   checklist: '/compliance/checklists?status=published',
+  course: '/compliance/courses?status=published',
 };
 
 // ─── Style helpers ────────────────────────────────────────────
@@ -198,6 +200,7 @@ export default function BundleEditor() {
         else if (Array.isArray(d.documents)) list = d.documents;
         else if (Array.isArray(d.exams)) list = d.exams;
         else if (Array.isArray(d.checklists)) list = d.checklists;
+        else if (Array.isArray(d.courses)) list = d.courses;
         if (!cancelled) setSearchResults(list.map((x: any) => ({ id: String(x.id), title: x.title })));
       } catch { if (!cancelled) setSearchResults([]); }
       finally { if (!cancelled) setSearchLoading(false); }
@@ -616,7 +619,7 @@ export default function BundleEditor() {
             <div style={{ marginTop: 12, border: '1px solid #bfdbfe', borderRadius: 8, background: '#eff6ff', overflow: 'hidden' }}>
               {/* Type selector tabs */}
               <div style={{ display: 'flex', borderBottom: '1px solid #bfdbfe' }}>
-                {(['policy', 'document', 'exam', 'checklist'] as ItemType[]).map((tab) => (
+                {(['policy', 'document', 'exam', 'checklist', 'course'] as ItemType[]).map((tab) => (
                   <button
                     key={tab}
                     type="button"

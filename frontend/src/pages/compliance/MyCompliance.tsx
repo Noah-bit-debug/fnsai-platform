@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../lib/api';
+import api, { myComplianceApi, type MyComplianceRollup } from '../../lib/api';
 
 interface CompetencyRecord {
   id: string;
@@ -42,9 +42,17 @@ export default function MyCompliance() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [unreadMessages, setUnreadMessages] = useState(0);
 
+  // Phase 2.1 + 2.7 — also fetch the unified rollup that includes courses.
+  // Keeps the existing competency-records render path untouched and adds
+  // a Training Courses section rendered from my-all.
+  const [courses, setCourses] = useState<MyComplianceRollup['courses']>([]);
+
   useEffect(() => {
     fetchRecords();
     fetchUnreadMessages();
+    void myComplianceApi.rollup()
+      .then((r) => setCourses(r.data.courses ?? []))
+      .catch(() => { /* silent — endpoint optional during rollout */ });
   }, []);
 
   async function fetchRecords() {
@@ -415,6 +423,48 @@ export default function MyCompliance() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Phase 2.1 + 2.6 — Training Courses section. Rendered from the
+            unified /compliance/my-all rollup so courses assigned via
+            bundles appear alongside other compliance items. */}
+        {courses.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1a2b3c' }}>📚 Training Courses</h2>
+              <span style={{ fontSize: 12, color: '#64748b' }}>{courses.length} assigned</span>
+            </div>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {courses.map((c) => {
+                const pct = c.completed_at ? 100 : c.started_at ? 40 : 0;
+                const statusLabel = c.completed_at ? (c.passed === false ? 'Failed' : 'Completed') : c.started_at ? 'In progress' : 'Not started';
+                const statusColor = c.completed_at ? (c.passed === false ? '#dc2626' : '#16a34a') : c.started_at ? '#2563eb' : '#94a3b8';
+                return (
+                  <div
+                    key={c.completion_id ?? c.course_id}
+                    onClick={() => navigate(`/compliance/course/${c.course_id}`)}
+                    style={{ padding: 16, background: '#fff', border: '1px solid #e8edf2', borderRadius: 10, cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2b3c' }}>{c.title}</div>
+                      {c.description && <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{c.description.slice(0, 140)}</div>}
+                      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                        {c.estimated_minutes != null && <span>⏱ ~{c.estimated_minutes} min</span>}
+                        {c.quiz_score != null && <span>✓ Quiz: {Number(c.quiz_score).toFixed(1)}%</span>}
+                        {c.attestation_signed && <span>✍ Attested</span>}
+                      </div>
+                      <div style={{ marginTop: 8, height: 4, background: '#f1f5f9', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: statusColor, transition: 'width 0.3s' }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: `${statusColor}20`, color: statusColor, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

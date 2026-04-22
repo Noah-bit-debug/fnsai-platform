@@ -85,6 +85,14 @@ const BundleAssign = lazy(() => import('./pages/compliance/BundleAssign'));
 const TakeExam = lazy(() => import('./pages/compliance/TakeExam'));
 const CompleteChecklist = lazy(() => import('./pages/compliance/CompleteChecklist'));
 const NotificationSettings = lazy(() => import('./pages/compliance/NotificationSettings'));
+// Phase 2 additions
+const DocTypesAdmin = lazy(() => import('./pages/compliance/DocTypesAdmin'));
+const PolicyAIWizard = lazy(() => import('./pages/compliance/PolicyAIWizard'));
+const ExamAIWizard = lazy(() => import('./pages/compliance/ExamAIWizard'));
+const ChecklistAIWizard = lazy(() => import('./pages/compliance/ChecklistAIWizard'));
+const CourseList = lazy(() => import('./pages/compliance/CourseList'));
+const CourseEditor = lazy(() => import('./pages/compliance/CourseEditor'));
+const CourseViewer = lazy(() => import('./pages/compliance/CourseViewer'));
 const PlacementReadinessAdmin = lazy(() => import('./pages/compliance/PlacementReadinessAdmin'));
 const BulkAssign = lazy(() => import('./pages/compliance/BulkAssign'));
 const MessageCenter = lazy(() => import('./pages/compliance/MessageCenter'));
@@ -311,9 +319,11 @@ function AppRoutes() {
           <Route path="/compliance/document/:id" element={<DocumentView />} />
           <Route path="/compliance/admin" element={<ComplianceAdminHub />} />
           <Route path="/compliance/admin/categories" element={<CategoryManager />} />
+          <Route path="/compliance/admin/doc-types" element={<DocTypesAdmin />} />
           <Route path="/compliance/admin/policies" element={<PolicyList />} />
           <Route path="/compliance/admin/policies/new" element={<PolicyEditor />} />
           <Route path="/compliance/admin/policies/:id/edit" element={<PolicyEditor />} />
+          <Route path="/compliance/admin/policies/ai-wizard" element={<PolicyAIWizard />} />
           <Route path="/compliance/admin/documents" element={<DocumentList />} />
           <Route path="/compliance/admin/documents/new" element={<DocumentEditor />} />
           <Route path="/compliance/admin/documents/:id/edit" element={<DocumentEditor />} />
@@ -323,13 +333,20 @@ function AppRoutes() {
           <Route path="/compliance/admin/exams" element={<ExamList />} />
           <Route path="/compliance/admin/exams/new" element={<ExamEditor />} />
           <Route path="/compliance/admin/exams/:id/edit" element={<ExamEditor />} />
+          <Route path="/compliance/admin/exams/:id/ai-wizard" element={<ExamAIWizard />} />
           <Route path="/compliance/admin/checklists" element={<ChecklistList />} />
           <Route path="/compliance/admin/checklists/new" element={<ChecklistEditor />} />
           <Route path="/compliance/admin/checklists/:id/edit" element={<ChecklistEditor />} />
+          <Route path="/compliance/admin/checklists/:id/ai-wizard" element={<ChecklistAIWizard />} />
           <Route path="/compliance/admin/bundles" element={<BundleList />} />
           <Route path="/compliance/admin/bundles/new" element={<BundleEditor />} />
           <Route path="/compliance/admin/bundles/:id/edit" element={<BundleEditor />} />
           <Route path="/compliance/admin/bundles/:id/assign" element={<BundleAssign />} />
+          {/* Phase 2.6 — Courses */}
+          <Route path="/compliance/admin/courses" element={<CourseList />} />
+          <Route path="/compliance/admin/courses/:id/edit" element={<CourseEditor />} />
+          <Route path="/compliance/courses/:id" element={<CourseViewer />} />
+          <Route path="/compliance/course/:id" element={<CourseViewer />} />
           <Route path="/compliance/admin/notifications" element={<NotificationSettings />} />
           <Route path="/compliance/admin/readiness" element={<PlacementReadinessAdmin />} />
           <Route path="/compliance/admin/bulk-assign" element={<BulkAssign />} />

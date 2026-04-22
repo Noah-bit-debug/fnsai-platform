@@ -1129,6 +1129,20 @@ export default function ExamEditor() {
                 + Add Question
               </button>
             )}
+            {/* Phase 2.4 — AI + Excel bulk import wizard */}
+            {id && (
+              <button
+                onClick={() => window.location.href = `/compliance/admin/exams/${id}/ai-wizard`}
+                style={{
+                  padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff',
+                  border: 'none', borderRadius: 7, cursor: 'pointer', marginLeft: 8,
+                }}
+                title="Generate with AI or bulk-import from Excel"
+              >
+                ✦ AI / Excel
+              </button>
+            )}
           </div>
 
           {/* Existing questions */}

@@ -1028,6 +1028,194 @@ export const complianceBundlesApi = {
     api.post<{ created: number; skipped: number }>(`/compliance/bundles/${id}/assign`, data),
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2 additions — doc types admin, policy AI, exam/checklist AI + bulk,
+// courses, unified my-compliance rollup.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Phase 2.2 — admin-defined document types
+export interface DocType {
+  id: string;
+  key: string;
+  label: string;
+  description: string | null;
+  prompt_hints: string;
+  issuing_bodies: string[];
+  expires_months: number | null;
+  category: string | null;
+  required_fields: string[];
+  applicable_roles: string[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const docTypesApi = {
+  list: (params?: { active?: 'true' | 'false' | 'all'; category?: string }) =>
+    api.get<{ doc_types: DocType[] }>('/doc-types', { params }),
+  get: (key: string) => api.get<DocType>(`/doc-types/${key}`),
+  create: (data: Partial<DocType>) => api.post<DocType>('/doc-types', data),
+  update: (id: string, data: Partial<DocType>) => api.put<DocType>(`/doc-types/${id}`, data),
+  remove: (id: string) => api.delete(`/doc-types/${id}`),
+};
+
+// Phase 2.3 — policy AI
+export interface ParsedPolicy {
+  title?: string;
+  content?: string;
+  suggested_version?: string;
+  suggested_expiration_days?: number;
+  require_signature?: boolean;
+  applicable_roles?: string[];
+  category_guess?: string;
+  summary?: string;
+}
+
+export const policyAiApi = {
+  parse: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<{ parsed: ParsedPolicy; file: { name: string; size: number; mime: string } }>(
+      '/compliance/policies/ai-parse', form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+  },
+  rewrite: (data: { title?: string; content: string; instruction: string }) =>
+    api.post<{ revised_content: string }>('/compliance/policies/ai-rewrite', data),
+};
+
+// Phase 2.4 — exams AI + bulk
+export interface GeneratedExamQuestion {
+  question_text: string;
+  question_type: 'multiple_choice' | 'true_false';
+  explanation?: string;
+  answers: Array<{ answer_text: string; is_correct: boolean }>;
+}
+
+export const examsAiApi = {
+  generate: (examId: string, data: {
+    topic: string; count?: number; difficulty?: 'easy' | 'medium' | 'hard';
+    question_types?: Array<'multiple_choice' | 'true_false'>;
+  }) =>
+    api.post<{ questions: GeneratedExamQuestion[] }>(`/compliance/exams/${examId}/ai-generate`, data),
+  bulkImport: (examId: string, questions: GeneratedExamQuestion[]) =>
+    api.post<{
+      inserted_count: number;
+      inserted: Array<{ id: string; question_text: string }>;
+      skipped_count: number;
+      skipped: string[];
+    }>(`/compliance/exams/${examId}/bulk-import`, { questions }),
+};
+
+// Phase 2.5 — checklists AI + bulk
+export interface GeneratedChecklistSection {
+  title: string;
+  skills: Array<{ skill_name: string; description?: string | null }>;
+}
+
+export const checklistsAiApi = {
+  generate: (checklistId: string, data: {
+    topic: string; role?: string; sections_count?: number; skills_per_section?: number;
+  }) =>
+    api.post<{ sections: GeneratedChecklistSection[] }>(`/compliance/checklists/${checklistId}/ai-generate`, data),
+  bulkImport: (checklistId: string, sections: GeneratedChecklistSection[]) =>
+    api.post<{
+      sections_created: number;
+      skills_created_total: number;
+      created: Array<{ section_id: string; title: string; skills_created: number }>;
+    }>(`/compliance/checklists/${checklistId}/bulk-import`, { sections }),
+};
+
+// Phase 2.6 — courses
+export interface CompCourse {
+  id: string;
+  title: string;
+  description: string | null;
+  content_markdown: string | null;
+  video_url: string | null;
+  estimated_minutes: number | null;
+  quiz_exam_id: string | null;
+  quiz_title?: string | null;
+  pass_threshold: number | null;
+  require_attestation: boolean;
+  status: 'draft' | 'published' | 'archived';
+  cat1_id: string | null;
+  cat2_id: string | null;
+  cat3_id: string | null;
+  applicable_roles: string[];
+  completions_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseCompletion {
+  id: string;
+  course_id: string;
+  user_clerk_id: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_seconds: number;
+  attestation_signed: boolean;
+  attestation_signed_at: string | null;
+  attestation_signer_name: string | null;
+  quiz_attempt_id: string | null;
+  quiz_score: number | null;
+  passed: boolean | null;
+}
+
+export const compCoursesApi = {
+  list: (params?: { status?: string; cat1_id?: string }) =>
+    api.get<{ courses: CompCourse[] }>('/compliance/courses', { params }),
+  get: (id: string) => api.get<{ course: CompCourse & { quiz_pass_threshold?: number } }>(`/compliance/courses/${id}`),
+  create: (data: Partial<CompCourse>) => api.post<{ course: CompCourse }>('/compliance/courses', data),
+  update: (id: string, data: Partial<CompCourse>) => api.put<{ course: CompCourse }>(`/compliance/courses/${id}`, data),
+  remove: (id: string) => api.delete(`/compliance/courses/${id}`),
+  start: (id: string) => api.post<{ completion: CourseCompletion }>(`/compliance/courses/${id}/start`),
+  complete: (id: string, data: {
+    duration_seconds?: number;
+    attestation_signed?: boolean;
+    signer_name?: string;
+    quiz_score?: number;
+    quiz_attempt_id?: string;
+  }) => api.post<{ completion: CourseCompletion }>(`/compliance/courses/${id}/complete`, data),
+  myProgress: (id: string) =>
+    api.get<{ completion: CourseCompletion | null }>(`/compliance/courses/${id}/my-progress`),
+};
+
+// Phase 2.1 + 2.7 — unified /my-all rollup
+export interface MyComplianceRollup {
+  user_clerk_id: string;
+  summary: {
+    total: number;
+    completed: number;
+    in_progress: number;
+    overdue: number;
+    not_started: number;
+  };
+  competency: Array<{
+    id: string; item_type: string; item_id: string; title: string;
+    status: string; assigned_date: string; due_date: string | null;
+    expiration_date: string | null; completed_date: string | null;
+    score: number | null; ceus: number | null;
+  }>;
+  courses: Array<{
+    completion_id: string; course_id: string; title: string;
+    description: string | null; estimated_minutes: number | null;
+    require_attestation: boolean; course_status: string;
+    started_at: string | null; completed_at: string | null;
+    duration_seconds: number;
+    attestation_signed: boolean;
+    quiz_score: number | null; passed: boolean | null;
+  }>;
+}
+
+export const myComplianceApi = {
+  rollup: (user_clerk_id?: string) =>
+    api.get<MyComplianceRollup>('/compliance/my-all', {
+      params: user_clerk_id ? { user_clerk_id } : {},
+    }),
+};
+
 // ─── Compliance Phase 3 ──────────────────────────────────────────────────────
 
 export const complianceReportsApi = {
