@@ -60,6 +60,7 @@ const MIGRATION_FILES = [
   'ats_phase2_pay_range.sql',
   'notification_prefs_migration.sql',
   'phase2_document_types.sql',
+  'phase2_courses.sql',
 ];
 
 interface MigrationResult {

@@ -41,6 +41,7 @@ import complianceRouter from './routes/compliance';
 import complianceExamsRouter from './routes/complianceExams';
 import complianceChecklistsRouter from './routes/complianceChecklists';
 import complianceBundlesRouter from './routes/complianceBundles';
+import complianceCoursesRouter from './routes/complianceCourses';
 import complianceJobsRouter from './routes/complianceJobs';
 import complianceReportsRouter from './routes/complianceReports';
 import complianceCertificatesRouter from './routes/complianceCertificates';
@@ -332,6 +333,7 @@ app.use('/api/v1/compliance', complianceRouter);
 app.use('/api/v1/compliance/exams', complianceExamsRouter);
 app.use('/api/v1/compliance/checklists', complianceChecklistsRouter);
 app.use('/api/v1/compliance/bundles', complianceBundlesRouter);
+app.use('/api/v1/compliance/courses', complianceCoursesRouter);
 app.use('/api/v1/compliance/jobs', complianceJobsRouter);
 app.use('/api/v1/compliance/reports', complianceReportsRouter);
 app.use('/api/v1/compliance/certificates', complianceCertificatesRouter);
@@ -398,6 +400,7 @@ async function runMigrations(): Promise<void> {
     'ats_phase2_pay_range.sql',
     'notification_prefs_migration.sql',
     'phase2_document_types.sql',
+    'phase2_courses.sql',
   ];
 
   const client = await pool.connect();
