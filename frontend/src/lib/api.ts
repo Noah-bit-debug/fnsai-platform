@@ -619,6 +619,31 @@ export const candidatesApi = {
     api.post<CandidateDocument>(`/candidates/${id}/documents`, data),
   updateDocument: (id: string, docId: string, data: Partial<CandidateDocument>) =>
     api.put<CandidateDocument>(`/candidates/${id}/documents/${docId}`, data),
+  // Phase 1.3B — upload a file and run AI credential review on an existing
+  // candidate_documents row. The backend stores the review JSON in notes,
+  // updates expiry_date if readable, and auto-advances status when
+  // confidence is high.
+  reviewDocument: (candidateId: string, docId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<{
+      success: boolean;
+      status: 'approved' | 'pending' | 'rejected';
+      review: {
+        type_match: boolean;
+        expired: boolean | null;
+        expiry_date: string | null;
+        complete: boolean;
+        issues: string[];
+        confidence: 'high' | 'medium' | 'low';
+        summary: string;
+        clarification_needed: string | null;
+        recommended_status: 'approved' | 'pending' | 'rejected';
+      };
+    }>(`/candidates/${candidateId}/documents/${docId}/review`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   getStageHistory: (id: string) => api.get<{ history: StageHistory[] }>(`/candidates/${id}/stage-history`),
   getOnboardingForms: (id: string) => api.get<{ forms: OnboardingForm[] }>(`/candidates/${id}/onboarding-forms`),
   sendOnboardingForm: (id: string, form_type: string) =>
@@ -1329,6 +1354,9 @@ export interface Job {
   recruitment_manager_name?: string | null;
   bill_rate?: number | null;
   pay_rate?: number | null;
+  // Phase 1.2A — pay range
+  pay_rate_min?: number | null;
+  pay_rate_max?: number | null;
   margin?: number | null;
   stipend?: number | null;
   description?: string | null;
@@ -1388,7 +1416,24 @@ export const jobsApi = {
   generateJobAd: (id: string) => api.post<{ job_ad: string }>(`/jobs/${id}/ai/job-ad`),
   generateSummary: (id: string) => api.post<{ summary: string }>(`/jobs/${id}/ai/summary`),
   matchingCandidates: (id: string) =>
-    api.get<{ candidates: MatchingCandidate[] }>(`/jobs/${id}/matching-candidates`),
+    api.get<{
+      candidates: MatchingCandidate[];
+      // Phase 1.2B — candidates already pitched to this job, returned
+      // separately so the UI shows them in their own section instead
+      // of duplicating them in the match list.
+      already_submitted?: Array<{
+        id: string;
+        first_name: string;
+        last_name: string;
+        role: string | null;
+        city: string | null;
+        state: string | null;
+        stage_key: string | null;
+        ai_score: number | null;
+        ai_fit_label: string | null;
+        updated_at: string;
+      }>;
+    }>(`/jobs/${id}/matching-candidates`),
 };
 
 // ─── Submissions ─────────────────────────────────────────────────────────────

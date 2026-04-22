@@ -19,6 +19,7 @@ const CandidateNew = lazy(() => import('./pages/candidates/CandidateNew'));
 const CandidateDetail = lazy(() => import('./pages/candidates/CandidateDetail'));
 const JobNew = lazy(() => import('./pages/jobs/JobNew'));
 const JobDetail = lazy(() => import('./pages/jobs/JobDetail'));
+const JobEdit = lazy(() => import('./pages/jobs/JobEdit'));
 const SubmissionDetail = lazy(() => import('./pages/submissions/SubmissionDetail'));
 const ClientOrgList = lazy(() => import('./pages/clients/ClientOrgList'));
 const ClientOrgDetail = lazy(() => import('./pages/clients/ClientOrgDetail'));
@@ -285,6 +286,7 @@ function AppRoutes() {
           {/* ATS Phase 2+ */}
           <Route path="jobs" element={<JobList />} />
           <Route path="jobs/new" element={<JobNew />} />
+          <Route path="jobs/:id/edit" element={<JobEdit />} />
           <Route path="jobs/:id" element={<JobDetail />} />
           <Route path="submissions" element={<SubmissionList />} />
           <Route path="submissions/:id" element={<SubmissionDetail />} />

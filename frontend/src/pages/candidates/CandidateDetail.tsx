@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
@@ -851,35 +851,17 @@ export default function CandidateDetail() {
           ) : (
             <div>
               {documents.map((doc) => (
-                <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid #f1f5f9' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#1a2b3c' }}>{doc.label}</span>
-                      {doc.required && <span style={{ fontSize: 11, color: '#c62828', background: '#fef2f2', padding: '2px 7px', borderRadius: 8, fontWeight: 600 }}>Required</span>}
-                    </div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{doc.document_type}</div>
-                    {doc.expiry_date && <div style={{ fontSize: 12, color: '#e65100', marginTop: 2 }}>Expires: {new Date(doc.expiry_date).toLocaleDateString()}</div>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{
-                      background: DOC_STATUS_COLORS[doc.status] ?? '#546e7a',
-                      color: '#fff', borderRadius: 10, padding: '3px 10px', fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
-                    }}>
-                      {doc.status}
-                    </span>
-                    {can('credentialing_manage') && (
-                      <select
-                        value={doc.status}
-                        onChange={(e) => handleUpdateDocStatus(doc.id, e.target.value)}
-                        style={{ padding: '4px 8px', border: '1px solid #e8edf2', borderRadius: 6, fontSize: 12, cursor: 'pointer', background: '#f8fafc' }}
-                      >
-                        {['missing', 'pending', 'received', 'approved', 'rejected', 'expired'].map((s) => (
-                          <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
+                <DocumentRow
+                  key={doc.id}
+                  doc={doc}
+                  canManage={can('credentialing_manage')}
+                  candidateId={candidate.id}
+                  onStatusChange={handleUpdateDocStatus}
+                  onReviewed={() => {
+                    // Refresh docs after AI review so status + expiry update immediately
+                    void candidatesApi.getDocuments(candidate.id).then((r) => setDocuments(r.data?.documents ?? []));
+                  }}
+                />
               ))}
             </div>
           )}
@@ -1292,6 +1274,140 @@ export default function CandidateDetail() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Document row with inline AI review (Phase 1.3B) ────────────────────────
+// Renders a credential document row with the standard status select, plus
+// a "Review with AI" button that uploads a file and shows the review result
+// inline. High-confidence reviews auto-approve; low-confidence ones stay
+// pending and display the AI's summary + issues for human review.
+function DocumentRow({
+  doc, canManage, candidateId, onStatusChange, onReviewed,
+}: {
+  doc: CandidateDocument;
+  canManage: boolean;
+  candidateId: string;
+  onStatusChange: (docId: string, status: string) => void;
+  onReviewed: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [lastReview, setLastReview] = useState<{
+    type_match: boolean;
+    expired: boolean | null;
+    expiry_date: string | null;
+    complete: boolean;
+    issues: string[];
+    confidence: 'high' | 'medium' | 'low';
+    summary: string;
+    clarification_needed: string | null;
+  } | null>(null);
+
+  // Pre-populate lastReview from doc.notes if it was previously reviewed.
+  useEffect(() => {
+    if (!doc.notes) return;
+    try {
+      const parsed = JSON.parse(doc.notes);
+      if (parsed?.ai) setLastReview(parsed.ai);
+    } catch { /* notes may be plain text */ }
+  }, [doc.notes]);
+
+  const onFilePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = ''; // reset so re-picking same file triggers change
+    if (!f) return;
+    setReviewing(true);
+    try {
+      const res = await candidatesApi.reviewDocument(candidateId, doc.id, f);
+      setLastReview(res.data.review);
+      onReviewed();
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } }; message?: string };
+      alert(ax?.response?.data?.error ?? ax?.message ?? 'AI review failed');
+    } finally { setReviewing(false); }
+  };
+
+  const confidenceColor = lastReview?.confidence === 'high' ? '#059669'
+    : lastReview?.confidence === 'medium' ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div style={{ padding: '14px 0', borderBottom: '1px solid #f1f5f9' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1a2b3c' }}>{doc.label}</span>
+            {doc.required && <span style={{ fontSize: 11, color: '#c62828', background: '#fef2f2', padding: '2px 7px', borderRadius: 8, fontWeight: 600 }}>Required</span>}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{doc.document_type}</div>
+          {doc.expiry_date && <div style={{ fontSize: 12, color: '#e65100', marginTop: 2 }}>Expires: {new Date(doc.expiry_date).toLocaleDateString()}</div>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            background: DOC_STATUS_COLORS[doc.status] ?? '#546e7a',
+            color: '#fff', borderRadius: 10, padding: '3px 10px', fontSize: 12, fontWeight: 600, textTransform: 'capitalize',
+          }}>
+            {doc.status}
+          </span>
+          {canManage && (
+            <>
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={reviewing}
+                title="Upload the document file and let FNS AI verify it (checks type, expiration, completeness)."
+                style={{ padding: '4px 10px', border: '1px solid var(--pr)', background: 'var(--pr)', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: reviewing ? 'not-allowed' : 'pointer', opacity: reviewing ? 0.6 : 1 }}
+              >
+                {reviewing ? 'Reviewing…' : '✦ Upload + AI review'}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,image/*"
+                style={{ display: 'none' }}
+                onChange={onFilePick}
+              />
+              <select
+                value={doc.status}
+                onChange={(e) => onStatusChange(doc.id, e.target.value)}
+                style={{ padding: '4px 8px', border: '1px solid #e8edf2', borderRadius: 6, fontSize: 12, cursor: 'pointer', background: '#f8fafc' }}
+              >
+                {['missing', 'pending', 'received', 'approved', 'rejected', 'expired'].map((s) => (
+                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                ))}
+              </select>
+            </>
+          )}
+        </div>
+      </div>
+      {lastReview && (
+        <div style={{ marginTop: 10, padding: 10, background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: confidenceColor, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              ✦ {lastReview.confidence} confidence
+            </span>
+            {lastReview.type_match
+              ? <span style={{ fontSize: 11, color: '#059669' }}>✓ type matches</span>
+              : <span style={{ fontSize: 11, color: '#c62828' }}>✗ wrong type</span>}
+            {lastReview.expired === true && <span style={{ fontSize: 11, color: '#c62828' }}>✗ expired</span>}
+            {lastReview.expired === false && <span style={{ fontSize: 11, color: '#059669' }}>✓ not expired</span>}
+            {lastReview.complete
+              ? <span style={{ fontSize: 11, color: '#059669' }}>✓ complete</span>
+              : <span style={{ fontSize: 11, color: '#f59e0b' }}>⚠ incomplete</span>}
+          </div>
+          <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5 }}>{lastReview.summary}</div>
+          {lastReview.issues.length > 0 && (
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 11, color: '#c62828' }}>
+              {lastReview.issues.map((iss, i) => <li key={i}>{iss}</li>)}
+            </ul>
+          )}
+          {lastReview.clarification_needed && (
+            <div style={{ marginTop: 6, padding: 6, background: '#fef3c7', borderRadius: 4, fontSize: 11, color: '#92400e' }}>
+              <strong>AI needs clarification:</strong> {lastReview.clarification_needed}
+            </div>
+          )}
         </div>
       )}
     </div>

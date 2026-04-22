@@ -19,7 +19,8 @@ export default function JobNew() {
     duration_weeks: 13,
     positions: 1,
     priority: 'normal' as 'low' | 'normal' | 'high' | 'urgent',
-    pay_rate: '',
+    pay_rate_min: '',
+    pay_rate_max: '',
     bill_rate: '',
     description: '',
   });
@@ -47,7 +48,13 @@ export default function JobNew() {
         duration_weeks: form.duration_weeks ? Number(form.duration_weeks) : null,
         positions: Number(form.positions) || 1,
         priority: form.priority,
-        pay_rate: form.pay_rate ? Number(form.pay_rate) : null,
+        pay_rate_min: form.pay_rate_min ? Number(form.pay_rate_min) : null,
+        pay_rate_max: form.pay_rate_max ? Number(form.pay_rate_max) : null,
+        // Keep pay_rate populated too for legacy display: midpoint if both
+        // set, otherwise whichever one is filled in.
+        pay_rate: form.pay_rate_min || form.pay_rate_max
+          ? (Number(form.pay_rate_min || form.pay_rate_max) + Number(form.pay_rate_max || form.pay_rate_min)) / 2
+          : null,
         bill_rate: form.bill_rate ? Number(form.bill_rate) : null,
         description: form.description || null,
         status: 'open' as const,
@@ -125,7 +132,8 @@ export default function JobNew() {
           </Field>
         </Row>
         <Row>
-          <Field label="Pay rate ($/hr)"><input type="number" step="0.01" value={form.pay_rate} onChange={(e) => set('pay_rate', e.target.value)} style={inputStyle} /></Field>
+          <Field label="Pay min ($/hr)"><input type="number" step="0.01" value={form.pay_rate_min} onChange={(e) => set('pay_rate_min', e.target.value)} style={inputStyle} placeholder="45.00" /></Field>
+          <Field label="Pay max ($/hr)"><input type="number" step="0.01" value={form.pay_rate_max} onChange={(e) => set('pay_rate_max', e.target.value)} style={inputStyle} placeholder="60.00" /></Field>
           <Field label="Bill rate ($/hr)"><input type="number" step="0.01" value={form.bill_rate} onChange={(e) => set('bill_rate', e.target.value)} style={inputStyle} /></Field>
         </Row>
         <Field label="Description">

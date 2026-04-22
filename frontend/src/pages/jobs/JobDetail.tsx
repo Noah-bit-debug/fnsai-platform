@@ -11,6 +11,20 @@ const PRIORITY_COLOR: Record<Job['priority'], string> = {
   urgent: '#dc2626', high: '#f59e0b', normal: '#6b7280', low: '#9ca3af',
 };
 
+// Phase 1.2A — pay range display. Prefers min/max if set; falls back to
+// the legacy single pay_rate. Handles the common cases: both set, one set,
+// neither set, or min==max (show as single value).
+function formatPayRate(job: Job): string {
+  const { pay_rate_min: lo, pay_rate_max: hi, pay_rate } = job;
+  if (lo != null && hi != null) {
+    if (Number(lo) === Number(hi)) return `$${lo}/hr`;
+    return `$${lo}–$${hi}/hr`;
+  }
+  if (lo != null) return `$${lo}+/hr`;
+  if (hi != null) return `up to $${hi}/hr`;
+  return pay_rate ? `$${pay_rate}/hr` : '—';
+}
+
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
@@ -18,6 +32,15 @@ export default function JobDetail() {
   const [job, setJob] = useState<Job | null>(null);
   const [requirements, setRequirements] = useState<JobRequirement[]>([]);
   const [matches, setMatches] = useState<MatchingCandidate[]>([]);
+  // Phase 1.2B — candidates already submitted to this job, rendered in
+  // their own section so recruiters can see who's in flight without
+  // accidentally re-pitching them.
+  const [alreadySubmitted, setAlreadySubmitted] = useState<Array<{
+    id: string; first_name: string; last_name: string; role: string | null;
+    city: string | null; state: string | null;
+    stage_key: string | null; ai_score: number | null; ai_fit_label: string | null;
+    updated_at: string;
+  }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState<'boolean' | 'ad' | 'summary' | null>(null);
@@ -91,11 +114,12 @@ export default function JobDetail() {
     try {
       const [jobRes, matchRes] = await Promise.all([
         jobsApi.get(id),
-        jobsApi.matchingCandidates(id).catch(() => ({ data: { candidates: [] as MatchingCandidate[] } })),
+        jobsApi.matchingCandidates(id).catch(() => ({ data: { candidates: [] as MatchingCandidate[], already_submitted: [] } })),
       ]);
       setJob(jobRes.data.job);
       setRequirements(jobRes.data.requirements);
       setMatches(matchRes.data.candidates);
+      setAlreadySubmitted(matchRes.data.already_submitted ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load job');
     } finally {
@@ -158,6 +182,14 @@ export default function JobDetail() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Badge color={PRIORITY_COLOR[job.priority]} label={job.priority} />
           <Badge color={STATUS_COLOR[job.status]} label={job.status.replace('_', ' ')} />
+          {/* Phase 1.2C — Edit job button. Opens the edit page; backend PUT
+              already supports partial updates via jobUpdateSchema. */}
+          <button
+            onClick={() => nav(`/jobs/${id}/edit`)}
+            style={{ padding: '6px 12px', background: 'var(--pr)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            ✎ Edit
+          </button>
         </div>
       </div>
 
@@ -171,7 +203,7 @@ export default function JobDetail() {
               <Fact label="Shift" value={job.shift ?? '—'} />
               <Fact label="Duration" value={job.duration_weeks ? `${job.duration_weeks} wks` : '—'} />
               <Fact label="Positions" value={String(job.positions ?? 1)} />
-              <Fact label="Pay rate" value={job.pay_rate ? `$${job.pay_rate}/hr` : '—'} />
+              <Fact label="Pay rate" value={formatPayRate(job)} />
               <Fact label="Bill rate" value={job.bill_rate ? `$${job.bill_rate}/hr` : '—'} />
               <Fact label="Primary recruiter" value={job.primary_recruiter_name ?? '—'} />
               <Fact label="Submissions" value={String(job.submission_count ?? 0)} />
@@ -310,7 +342,49 @@ export default function JobDetail() {
           )}
         </div>
 
-        {/* Right rail — matching candidates */}
+        {/* Right rail — already-submitted + matching candidates */}
+        <div style={{ display: 'grid', gap: 16 }}>
+        {/* Phase 1.2B — already submitted. Shows candidates already pitched
+            to this job with their stage + AI fit, so recruiters don't
+            re-submit. Kept above Matching so it's seen first. */}
+        {alreadySubmitted.length > 0 && (
+          <Section title={`Already submitted (${alreadySubmitted.length})`}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {alreadySubmitted.map((a) => (
+                <div
+                  key={a.id}
+                  onClick={() => nav(`/candidates/${a.id}`)}
+                  style={{
+                    padding: 8, background: 'var(--sf2)', borderRadius: 6,
+                    border: '1px solid var(--bd)', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>
+                      {a.first_name} {a.last_name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+                      {a.role ?? '?'}
+                      {a.city || a.state ? ` · ${[a.city, a.state].filter(Boolean).join(', ')}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--t2)', fontWeight: 700 }}>
+                      {a.stage_key ?? 'no stage'}
+                    </div>
+                    {a.ai_fit_label && (
+                      <div style={{ fontSize: 10, color: 'var(--t3)' }}>
+                        {a.ai_fit_label}{a.ai_score ? ` · ${a.ai_score}` : ''}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
         <Section title={`Matching candidates (${matches.length})`}>
           {matches.length === 0 ? (
             <div style={{ padding: 16, color: 'var(--t3)', fontSize: 13, textAlign: 'center' }}>
@@ -355,6 +429,7 @@ export default function JobDetail() {
             </div>
           )}
         </Section>
+        </div>
       </div>
     </div>
   );
