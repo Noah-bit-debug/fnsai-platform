@@ -160,12 +160,18 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
   const auth = getAuth(req);
   const d = parse.data;
   try {
+    // Auto-assign recruiter: if caller didn't specify one, default to the
+    // logged-in user's users.id. Per Phase 1.1A — recruiter creating a
+    // candidate should own it by default. Manual override still works via
+    // the explicit assigned_recruiter_id param.
     const result = await query(
       `INSERT INTO candidates (first_name, last_name, email, phone, address, city, state, zip, role,
         specialties, skills, certifications, licenses, years_experience, education, resume_url,
         assigned_recruiter_id, target_facility_id, desired_pay_rate, offered_pay_rate,
         availability_start, availability_type, available_shifts, recruiter_notes, hr_notes, source, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+               COALESCE($17, (SELECT id FROM users WHERE clerk_user_id = $27 LIMIT 1)),
+               $18,$19,$20,$21,$22,$23,$24,$25,$26,
                (SELECT id FROM users WHERE clerk_user_id = $27 LIMIT 1))
        RETURNING *`,
       [d.first_name, d.last_name, d.email, d.phone, d.address, d.city, d.state, d.zip, d.role,

@@ -346,6 +346,7 @@ async function runMigrations(): Promise<void> {
     'pre_role_assignments_migration.sql',
     'ai_brain_migration.sql',
     'ats_phase1_migration.sql',
+    'ats_phase2_stage_reorder.sql',
     'notification_prefs_migration.sql',
   ];
 

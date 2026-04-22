@@ -97,8 +97,18 @@ router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req
          WHERE s.id = $1`,
         [req.params.id]
       ),
+      // Per Phase 1.3A: replace raw changed_by UUID with a human name.
+      // Prefer the denormalized changed_by_name if it was stored; fall
+      // back to the current users.name from the FK; fall back to a
+      // reasonable "Unknown user" rather than letting a UUID bleed through
+      // to the UI.
       query(
-        `SELECT * FROM submission_stage_history WHERE submission_id = $1 ORDER BY created_at DESC`,
+        `SELECT h.*,
+                COALESCE(NULLIF(h.changed_by_name, ''), u.name, 'Unknown user') AS display_changed_by
+         FROM submission_stage_history h
+         LEFT JOIN users u ON u.id = h.changed_by
+         WHERE h.submission_id = $1
+         ORDER BY h.created_at DESC`,
         [req.params.id]
       ),
     ]);
