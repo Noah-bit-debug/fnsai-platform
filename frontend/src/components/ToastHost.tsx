@@ -71,7 +71,10 @@ function ToastViewport({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id:
     <div
       style={{
         position: 'fixed',
-        bottom: 16,
+        // Moved from bottom:16 to top-right — was hidden behind the global
+        // AI (✦) and Texting (💬) floating buttons at bottom-right, which
+        // made success toasts look like nothing happened after Create Task.
+        top: 70,
         right: 16,
         zIndex: 10000,
         display: 'flex',

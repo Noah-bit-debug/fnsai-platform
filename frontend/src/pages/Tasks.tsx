@@ -58,24 +58,31 @@ export default function Tasks() {
   useEffect(() => { load(); }, [load]);
 
   const createTask = async () => {
-    if (!draft.title.trim()) return;
+    if (!draft.title.trim()) {
+      toast.error('Title is required');
+      return;
+    }
+    // Phase 1 QA: log every submit so if anything silently fails we can
+    // tell from the browser console whether createTask ran at all vs the
+    // response path is broken.
+    const payload = {
+      title: draft.title.trim(),
+      task_type: draft.task_type,
+      due_at: draft.due_at || null,
+      description: draft.description || null,
+      assigned_to: draft.assigned_to || null,
+    };
+    console.log('[tasks] submit', payload);
     setCreating(true);
     try {
-      const res = await tasksApi.create({
-        title: draft.title.trim(),
-        task_type: draft.task_type,
-        due_at: draft.due_at || null,
-        description: draft.description || null,
-        assigned_to: draft.assigned_to || null,
-      });
+      const res = await tasksApi.create(payload);
+      console.log('[tasks] success', res?.data);
       setDraft({ title: '', task_type: 'todo', due_at: '', description: '', assigned_to: '' });
       setShowCreate(false);
       toast.success(`Task created${res?.data?.task?.title ? `: ${res.data.task.title}` : ''}`);
       await load();
     } catch (e: unknown) {
-      // Use toast (not alert — browsers can suppress alerts). extractApiError
-      // surfaces the specific backend reason (zod field errors, pg errors,
-      // axios timeout, etc.) instead of the generic "Request failed".
+      console.error('[tasks] create failed', e);
       toast.error(extractApiError(e, 'Failed to create task'));
     } finally { setCreating(false); }
   };

@@ -3,6 +3,7 @@ import { useUser, SignIn, RedirectToSignIn } from '@clerk/clerk-react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { RBACProvider } from './contexts/RBACContext';
 import AppShell from './components/Layout/AppShell';
+import RootErrorBoundary from './components/RootErrorBoundary';
 
 // ─── Eager (hot-path pages) ─────────────────────────────────────────────────
 import Dashboard from './pages/Dashboard';
@@ -220,6 +221,14 @@ function App() {
 
 function AppRoutes() {
   return (
+    // Error boundary above Suspense catches crashes in lazy()-loaded page
+    // modules too. Previous boundary was inside AppShell, so module-load
+    // errors for a single lazy page (e.g. Reminders) crashed through the
+    // whole shell. With the boundary here, a bad page shows an error card
+    // but the user still has nothing, this at least prevents complete
+    // blank page. An INNER boundary in AppShell keeps the shell alive for
+    // per-page render errors.
+    <RootErrorBoundary>
     <Suspense fallback={<PageSpinner />}>
       <Routes>
         <Route path="/" element={<AppShell />}>
@@ -371,6 +380,7 @@ function AppRoutes() {
         <Route path="/sign-in/*" element={<RedirectToSignIn />} />
       </Routes>
     </Suspense>
+    </RootErrorBoundary>
   );
 }
 
