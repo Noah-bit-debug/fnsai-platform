@@ -5,6 +5,7 @@ import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
 import { parseResume, ResumeParseError } from '../services/resumeParser';
+import { reviewDocument, DocumentReviewError } from '../services/documentReviewer';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -477,6 +478,79 @@ router.put('/:id/documents/:docId', requireAuth, requirePermission('credentialin
     res.status(500).json({ error: 'Failed to update document' });
   }
 });
+
+// POST /:id/documents/:docId/review — Phase 1.3B credential gate AI review.
+// Uploads a file, runs Claude document review, saves the review into the
+// candidate_documents row (as structured notes), optionally auto-updates
+// status when confidence is 'high'. Returns the full review to the frontend.
+router.post('/:id/documents/:docId/review', requireAuth, requirePermission('credentialing_manage'),
+  upload.single('file'), async (req: Request, res: Response) => {
+    const { id, docId } = req.params;
+    const auth = getAuth(req);
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded (multipart field name: "file")' });
+      return;
+    }
+
+    try {
+      // Load the doc row so we know the document_type the user claimed.
+      const docRes = await query(
+        `SELECT * FROM candidate_documents WHERE id = $1 AND candidate_id = $2`,
+        [docId, id]
+      );
+      if (docRes.rows.length === 0) {
+        res.status(404).json({ error: 'Document row not found' });
+        return;
+      }
+      const doc = docRes.rows[0];
+
+      const review = await reviewDocument(req.file.buffer, req.file.mimetype, String(doc.document_type));
+
+      // Persist: store the review as JSON in notes, update expiry if AI found
+      // one, and auto-advance status ONLY when AI is confident. Anything
+      // uncertain stays 'pending' for a human to approve.
+      const nextStatus = review.confidence === 'high' && review.type_match && review.complete && !review.expired
+        ? 'approved'
+        : (review.recommended_status === 'rejected' ? 'rejected' : 'pending');
+
+      const reviewNote = JSON.stringify({
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: auth?.userId ?? null,
+        ai: review,
+      });
+
+      await query(
+        `UPDATE candidate_documents SET
+           status = $1,
+           expiry_date = COALESCE($2, expiry_date),
+           notes = $3,
+           uploaded_at = NOW(),
+           updated_at = NOW()
+         WHERE id = $4 AND candidate_id = $5`,
+        [nextStatus, review.expiry_date, reviewNote, docId, id]
+      );
+
+      await logAudit(null, auth?.userId ?? 'unknown', 'candidate.document.ai_review', docId,
+        { label: doc.label, confidence: review.confidence, status: nextStatus },
+        (req.ip ?? 'unknown'));
+
+      res.json({
+        success: true,
+        review,
+        status: nextStatus,
+        file: { name: req.file.originalname, size: req.file.size },
+      });
+    } catch (err) {
+      if (err instanceof DocumentReviewError) {
+        console.error('Doc review error:', err.message);
+        res.status(422).json({ error: err.userFacing });
+        return;
+      }
+      console.error('Doc review route error:', err);
+      res.status(500).json({ error: 'Document review failed. Please retry or approve manually.' });
+    }
+  }
+);
 
 // GET /:id/stage-history
 router.get('/:id/stage-history', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
