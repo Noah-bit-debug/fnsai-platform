@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
+import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, getAuth } from '@clerk/express';
 import { pool } from '../db/client';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ─── GET / — list exams ──────────────────────────────────────────────────────
 router.get('/', requireAuth(), async (req: Request, res: Response) => {
@@ -215,6 +218,176 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   } catch (err) {
     console.error('DELETE /compliance/exams/:id error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── Phase 2.4 — POST /:id/ai-generate ──────────────────────────────────────
+//
+// AI-assisted exam question generation. Admin supplies a topic + count +
+// difficulty; Claude returns structured questions with answers the admin
+// can review and edit before saving. Does NOT persist — user reviews the
+// output in the UI and hits save (which calls the existing /questions and
+// /questions/:qid/answers endpoints).
+router.post('/:id/ai-generate', requireAuth(), async (req: Request, res: Response) => {
+  const { topic, count = 10, difficulty = 'medium', question_types = ['multiple_choice', 'true_false'] } =
+    req.body as {
+      topic?: string;
+      count?: number;
+      difficulty?: 'easy' | 'medium' | 'hard';
+      question_types?: Array<'multiple_choice' | 'true_false'>;
+    };
+
+  if (!topic?.trim()) { res.status(400).json({ error: 'topic is required' }); return; }
+  if (count < 1 || count > 30) { res.status(400).json({ error: 'count must be 1-30' }); return; }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'AI not configured (ANTHROPIC_API_KEY missing)' });
+    return;
+  }
+
+  const systemPrompt = `You generate compliance exam questions for a healthcare staffing agency. Return ONLY JSON with this shape:
+
+{
+  "questions": [
+    {
+      "question_text": "Clear, concise question text.",
+      "question_type": "multiple_choice" or "true_false",
+      "explanation": "Optional 1-sentence explanation shown after answer",
+      "answers": [
+        { "answer_text": "Option A", "is_correct": false },
+        { "answer_text": "Option B", "is_correct": true  }
+      ]
+    }
+  ]
+}
+
+Rules:
+- multiple_choice has 3-4 answers with exactly 1 correct.
+- true_false has 2 answers: "True" and "False", with 1 correct.
+- Questions should actually test comprehension, not just recall of the topic name.
+- Avoid trick questions. Be fair.
+- Write in plain professional English.
+- Do NOT include answer-letter prefixes like "A)" or "1." — the UI renders those.
+- Do NOT wrap in markdown code fences.`;
+
+  const userMsg = `Generate ${count} exam questions about: ${topic}
+Difficulty: ${difficulty}
+Allowed question types: ${question_types.join(', ')}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.templateDrafting,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMsg }],
+    });
+
+    const raw = (response.content[0] as { type: string; text: string }).text;
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+
+    let parsed: { questions?: unknown[] };
+    try { parsed = JSON.parse(jsonStr) as { questions?: unknown[] }; }
+    catch {
+      res.status(502).json({ error: 'AI returned malformed JSON. Please retry.', raw_preview: raw.slice(0, 500) });
+      return;
+    }
+
+    if (!Array.isArray(parsed.questions)) {
+      res.status(502).json({ error: 'AI response missing questions array' });
+      return;
+    }
+
+    res.json({ questions: parsed.questions });
+  } catch (err: any) {
+    console.error('AI exam generate error:', err);
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry in a minute.' }); return; }
+    res.status(500).json({ error: `AI generation failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
+// ─── Phase 2.4 — POST /:id/bulk-import ──────────────────────────────────────
+//
+// Bulk-insert questions from a parsed Excel/CSV or AI output. Accepts:
+//   { questions: [{ question_text, question_type, answers: [{ answer_text, is_correct }] }] }
+// Runs in a transaction so either all succeed or none do. Returns the
+// created question IDs + count. Frontend handles Excel parsing (via SheetJS)
+// and POSTs the normalized JSON here.
+router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { questions } = req.body as {
+    questions?: Array<{
+      question_text?: string;
+      question_type?: 'multiple_choice' | 'true_false';
+      explanation?: string | null;
+      answers?: Array<{ answer_text?: string; is_correct?: boolean }>;
+    }>;
+  };
+
+  if (!Array.isArray(questions) || questions.length === 0) {
+    res.status(400).json({ error: 'questions array is required and must not be empty' });
+    return;
+  }
+  if (questions.length > 100) {
+    res.status(400).json({ error: 'Cannot import more than 100 questions at a time.' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Current max sort_order so new rows append cleanly
+    const maxRes = await client.query(
+      `SELECT COALESCE(MAX(sort_order), 0) AS max FROM comp_exam_questions WHERE exam_id = $1`,
+      [id]
+    );
+    let nextSort = Number(maxRes.rows[0].max) + 1;
+
+    const inserted: Array<{ id: string; question_text: string }> = [];
+    const skipped: string[] = [];
+
+    for (const q of questions) {
+      const text = q.question_text?.trim();
+      if (!text) { skipped.push('(blank question)'); continue; }
+      const qtype = q.question_type === 'true_false' ? 'true_false' : 'multiple_choice';
+      const answers = Array.isArray(q.answers) ? q.answers.filter(a => a.answer_text?.trim()) : [];
+      if (answers.length < 2) { skipped.push(`"${text.slice(0, 40)}..." — needs at least 2 answers`); continue; }
+      if (!answers.some(a => a.is_correct)) { skipped.push(`"${text.slice(0, 40)}..." — no correct answer marked`); continue; }
+
+      const qRes = await client.query(
+        `INSERT INTO comp_exam_questions (exam_id, question_text, question_type, sort_order, explanation)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, question_text`,
+        [id, text, qtype, nextSort++, q.explanation ?? null]
+      );
+      const qId = qRes.rows[0].id as string;
+
+      for (let i = 0; i < answers.length; i++) {
+        const a = answers[i];
+        await client.query(
+          `INSERT INTO comp_exam_answers (question_id, answer_text, is_correct, sort_order)
+           VALUES ($1, $2, $3, $4)`,
+          [qId, a.answer_text!.trim(), !!a.is_correct, i]
+        );
+      }
+
+      inserted.push({ id: qId, question_text: qRes.rows[0].question_text });
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      inserted_count: inserted.length,
+      inserted,
+      skipped_count: skipped.length,
+      skipped,
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => { /* silent */ });
+    console.error('Bulk exam import error:', err);
+    res.status(500).json({ error: `Bulk import failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  } finally {
+    client.release();
   }
 });
 

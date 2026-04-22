@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
+import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, getAuth } from '@clerk/express';
 import { pool } from '../db/client';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ─── GET / — list checklists ──────────────────────────────────────────────────
 router.get('/', requireAuth(), async (_req: Request, res: Response) => {
@@ -175,6 +178,159 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   } catch (err) {
     console.error('DELETE /compliance/checklists/:id error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── Phase 2.5 — POST /:id/ai-generate ──────────────────────────────────────
+//
+// AI-assisted skills-checklist generation. Given a role / specialty /
+// topic, Claude builds sections + skills. Output is structured JSON for
+// admin review — does NOT persist. Admin edits the output in the UI and
+// commits via /bulk-import or the existing /sections + /skills endpoints.
+router.post('/:id/ai-generate', requireAuth(), async (req: Request, res: Response) => {
+  const { topic, role, sections_count = 4, skills_per_section = 6 } = req.body as {
+    topic?: string;
+    role?: string;
+    sections_count?: number;
+    skills_per_section?: number;
+  };
+
+  if (!topic?.trim()) { res.status(400).json({ error: 'topic is required' }); return; }
+  if (sections_count < 1 || sections_count > 15) { res.status(400).json({ error: 'sections_count must be 1-15' }); return; }
+  if (skills_per_section < 1 || skills_per_section > 20) { res.status(400).json({ error: 'skills_per_section must be 1-20' }); return; }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'AI not configured (ANTHROPIC_API_KEY missing)' });
+    return;
+  }
+
+  const systemPrompt = `You generate skills-competency checklists for a healthcare staffing agency. Return ONLY JSON with this shape:
+
+{
+  "sections": [
+    {
+      "title": "Section name, e.g. \\"Medication Administration\\"",
+      "skills": [
+        { "skill_name": "Short action-oriented skill title", "description": "Optional 1-sentence context" }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Sections group related skills (e.g. "Infection Control", "Patient Assessment", "Documentation").
+- Skills describe concrete observable competencies the staff member must demonstrate.
+- Use professional clinical language appropriate for the named role.
+- Do NOT wrap in markdown code fences.`;
+
+  const userMsg = `Build a skills competency checklist for: ${topic}${role ? ` (role: ${role})` : ''}
+Generate ${sections_count} section(s), each with ~${skills_per_section} skills.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.templateDrafting,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMsg }],
+    });
+
+    const raw = (response.content[0] as { type: string; text: string }).text;
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+
+    let parsed: { sections?: unknown[] };
+    try { parsed = JSON.parse(jsonStr) as { sections?: unknown[] }; }
+    catch {
+      res.status(502).json({ error: 'AI returned malformed JSON. Please retry.', raw_preview: raw.slice(0, 500) });
+      return;
+    }
+
+    if (!Array.isArray(parsed.sections)) {
+      res.status(502).json({ error: 'AI response missing sections array' });
+      return;
+    }
+
+    res.json({ sections: parsed.sections });
+  } catch (err: any) {
+    console.error('AI checklist generate error:', err);
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry in a minute.' }); return; }
+    res.status(500).json({ error: `AI generation failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
+// ─── Phase 2.5 — POST /:id/bulk-import ──────────────────────────────────────
+//
+// Bulk-insert sections + skills from a parsed Excel/CSV or AI output. Accepts:
+//   { sections: [{ title, skills: [{ skill_name, description }] }] }
+// Transactional — all-or-nothing. Frontend handles Excel parsing (SheetJS).
+router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { sections } = req.body as {
+    sections?: Array<{
+      title?: string;
+      skills?: Array<{ skill_name?: string; description?: string | null; exclude_from_score?: boolean }>;
+    }>;
+  };
+
+  if (!Array.isArray(sections) || sections.length === 0) {
+    res.status(400).json({ error: 'sections array is required and must not be empty' });
+    return;
+  }
+  if (sections.length > 20) {
+    res.status(400).json({ error: 'Cannot import more than 20 sections at a time.' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const maxSecRes = await client.query(
+      `SELECT COALESCE(MAX(sort_order), 0) AS max FROM comp_checklist_sections WHERE checklist_id = $1`,
+      [id]
+    );
+    let nextSecSort = Number(maxSecRes.rows[0].max) + 1;
+
+    const created: Array<{ section_id: string; title: string; skills_created: number }> = [];
+
+    for (const sec of sections) {
+      const title = sec.title?.trim();
+      if (!title) continue;
+      const skills = Array.isArray(sec.skills) ? sec.skills.filter(s => s.skill_name?.trim()) : [];
+      if (skills.length === 0) continue;
+
+      const secRes = await client.query(
+        `INSERT INTO comp_checklist_sections (checklist_id, title, sort_order)
+         VALUES ($1, $2, $3) RETURNING id`,
+        [id, title, nextSecSort++]
+      );
+      const sectionId = secRes.rows[0].id as string;
+
+      for (let i = 0; i < skills.length; i++) {
+        const s = skills[i];
+        await client.query(
+          `INSERT INTO comp_checklist_skills (section_id, skill_name, description, exclude_from_score, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [sectionId, s.skill_name!.trim(), s.description ?? null, !!s.exclude_from_score, i]
+        );
+      }
+
+      created.push({ section_id: sectionId, title, skills_created: skills.length });
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      sections_created: created.length,
+      skills_created_total: created.reduce((n, s) => n + s.skills_created, 0),
+      created,
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => { /* silent */ });
+    console.error('Bulk checklist import error:', err);
+    res.status(500).json({ error: `Bulk import failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  } finally {
+    client.release();
   }
 });
 
