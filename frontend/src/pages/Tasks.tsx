@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import { tasksApi, usersApi, RecruiterTask, OrgUser } from '../lib/api';
 import { extractApiError } from '../lib/apiErrors';
+import { useToast } from '../components/ToastHost';
 
 const TASK_TYPE_EMOJI: Record<string, string> = {
   call: '📞', meeting: '📅', todo: '📝', follow_up: '🔄',
@@ -11,6 +12,7 @@ const TASK_TYPE_EMOJI: Record<string, string> = {
 
 export default function Tasks() {
   const nav = useNavigate();
+  const toast = useToast();
   const [tasks, setTasks] = useState<RecruiterTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +61,7 @@ export default function Tasks() {
     if (!draft.title.trim()) return;
     setCreating(true);
     try {
-      await tasksApi.create({
+      const res = await tasksApi.create({
         title: draft.title.trim(),
         task_type: draft.task_type,
         due_at: draft.due_at || null,
@@ -68,21 +70,25 @@ export default function Tasks() {
       });
       setDraft({ title: '', task_type: 'todo', due_at: '', description: '', assigned_to: '' });
       setShowCreate(false);
+      toast.success(`Task created${res?.data?.task?.title ? `: ${res.data.task.title}` : ''}`);
       await load();
     } catch (e: unknown) {
-      alert(extractApiError(e, 'Failed to create task'));
+      // Use toast (not alert — browsers can suppress alerts). extractApiError
+      // surfaces the specific backend reason (zod field errors, pg errors,
+      // axios timeout, etc.) instead of the generic "Request failed".
+      toast.error(extractApiError(e, 'Failed to create task'));
     } finally { setCreating(false); }
   };
 
   const completeTask = async (id: string) => {
-    try { await tasksApi.complete(id); await load(); }
-    catch (e) { alert(e instanceof Error ? e.message : 'Failed'); }
+    try { await tasksApi.complete(id); await load(); toast.success('Task completed'); }
+    catch (e) { toast.error(extractApiError(e, 'Failed to complete task')); }
   };
 
   const cancelTask = async (id: string) => {
     if (!window.confirm('Cancel this task?')) return;
     try { await tasksApi.cancel(id); await load(); }
-    catch (e) { alert(e instanceof Error ? e.message : 'Failed'); }
+    catch (e) { toast.error(extractApiError(e, 'Failed')); }
   };
 
   const contextLabel = (t: RecruiterTask): string | null => {

@@ -4,6 +4,7 @@ import TopBar from './Topbar';
 import Sidebar from './Sidebar';
 import AIAssistantSidebar from '../AIAssistantSidebar';
 import TextingPanel from '../TextingPanel';
+import RootErrorBoundary from '../RootErrorBoundary';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -51,7 +52,12 @@ export default function AppShell() {
         className="main-content"
         style={isMobile ? { marginLeft: 0, paddingTop: 60 } : undefined}
       >
-        <Outlet />
+        {/* Phase 1 QA fix — wrap the routed page in an error boundary so a
+            crash in one page (e.g. Reminders) doesn't blank the sidebar +
+            topbar + whole shell. User can still navigate. */}
+        <RootErrorBoundary>
+          <Outlet />
+        </RootErrorBoundary>
       </main>
 
       {/* Global AI Brain sidebar — mounts once, available on every page,
