@@ -228,7 +228,14 @@ export default function Tasks() {
                       Due {new Date(t.due_at).toLocaleString()}
                     </span>
                   )}
-                  {t.assigned_to_name && <span>· @{t.assigned_to_name}</span>}
+                  {/* Phase 1.5 — inline reassignment. Click the @name to
+                      change assignee without leaving the list. */}
+                  <AssigneeInline
+                    task={t}
+                    users={users}
+                    meClerkId={clerkUser?.id ?? null}
+                    onReassigned={() => void load()}
+                  />
                   {contextLabel(t) && contextLink(t) && (
                     <a
                       onClick={(e) => { e.stopPropagation(); nav(contextLink(t)!); }}
@@ -298,3 +305,60 @@ const inputBase: React.CSSProperties = {
   padding: '8px 10px', border: '1px solid var(--bd)', borderRadius: 6,
   fontSize: 13, background: 'var(--sf)', outline: 'none',
 };
+
+// ─── AssigneeInline (Phase 1.5 reassignment) ──────────────────────────────
+// Click @name to reveal a dropdown. Pick a new user → PUT /tasks/:id with
+// the new assigned_to. Nothing happens if you pick the same user.
+function AssigneeInline({
+  task, users, meClerkId, onReassigned,
+}: {
+  task: RecruiterTask;
+  users: OrgUser[];
+  meClerkId: string | null;
+  onReassigned: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  if (!editing) {
+    const label = task.assigned_to_name || 'Unassigned';
+    return (
+      <span
+        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+        title="Click to reassign"
+        style={{ cursor: 'pointer', color: task.assigned_to_name ? 'var(--t2)' : 'var(--t3)', borderBottom: '1px dashed var(--bd)' }}
+      >· @{label}</span>
+    );
+  }
+
+  const onPick = async (id: string) => {
+    setSaving(true);
+    try {
+      await tasksApi.update(task.id, { assigned_to: id || null as any });
+      setEditing(false);
+      onReassigned();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Reassign failed');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+      <select
+        autoFocus
+        disabled={saving}
+        defaultValue={task.assigned_to ?? ''}
+        onBlur={() => setEditing(false)}
+        onChange={(e) => void onPick(e.target.value)}
+        style={{ padding: '2px 6px', fontSize: 11, border: '1px solid var(--bd)', borderRadius: 4, background: 'var(--sf)' }}
+      >
+        <option value="">Unassigned</option>
+        {users.map((u) => {
+          const isMe = meClerkId && u.clerk_user_id === meClerkId;
+          return <option key={u.id} value={u.id}>{isMe ? 'Me' : (u.name || u.email)}</option>;
+        })}
+      </select>
+      {saving && <span style={{ fontSize: 10, color: 'var(--t3)' }}>saving…</span>}
+    </span>
+  );
+}

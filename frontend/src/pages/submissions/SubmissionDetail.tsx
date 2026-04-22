@@ -236,7 +236,7 @@ export default function SubmissionDetail() {
                     {h.from_stage ? `${h.from_stage} → ` : ''}<span>{h.to_stage}</span>
                   </div>
                   <div style={{ color: 'var(--t3)', marginTop: 3 }}>
-                    {new Date(h.created_at).toLocaleString()} · {h.changed_by_name ?? 'system'}
+                    {new Date(h.created_at).toLocaleString()} · {h.display_changed_by ?? h.changed_by_name ?? 'system'}
                   </div>
                   {h.note && <div style={{ marginTop: 6, color: 'var(--t2)', fontStyle: 'italic' }}>"{h.note}"</div>}
                 </div>

@@ -1536,6 +1536,12 @@ export interface SubmissionStageHistoryEntry {
   from_stage?: string | null;
   to_stage: string;
   changed_by_name?: string;
+  // Phase 1.3A — server-computed display name that falls back through:
+  //   changed_by_name (denormalized at write time)
+  //   → users.name via the changed_by FK
+  //   → "Unknown user"
+  // Always populated. Prefer this over changed_by_name directly.
+  display_changed_by?: string;
   note?: string | null;
   created_at: string;
 }
