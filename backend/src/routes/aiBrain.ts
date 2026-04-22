@@ -24,11 +24,15 @@ async function buildEntityContext(
   try {
     switch (entityType) {
       case 'candidate': {
+        // PII redaction: we deliberately DO NOT select email, phone, address,
+        // zip, or any free-form note field. Names + professional info only.
+        // If the user needs contact details, they view the candidate profile
+        // in-app — those details never leave our server for Anthropic.
         const c = await pool.query(
-          `SELECT id, first_name, last_name, email, phone, role, specialties, skills,
-                  certifications, licenses, years_experience, education, stage,
+          `SELECT id, first_name, last_name, role, specialties, skills,
+                  certifications, licenses, years_experience, stage,
                   desired_pay_rate, availability_start, availability_type, source,
-                  created_at
+                  city, state, created_at
            FROM candidates WHERE id = $1`,
           [entityId]
         );
@@ -38,6 +42,7 @@ async function buildEntityContext(
             `CURRENT CANDIDATE (the user is viewing this record):\n` +
             `- Name: ${r.first_name} ${r.last_name}\n` +
             `- Role: ${r.role ?? 'unknown'} | Stage: ${r.stage ?? 'unknown'}\n` +
+            `- Location: ${[r.city, r.state].filter(Boolean).join(', ') || 'unknown'}\n` +
             `- Specialties: ${(r.specialties ?? []).join(', ') || 'none'}\n` +
             `- Skills: ${(r.skills ?? []).slice(0, 15).join(', ') || 'none'}\n` +
             `- Certifications: ${(r.certifications ?? []).join(', ') || 'none'}\n` +
@@ -45,7 +50,8 @@ async function buildEntityContext(
             `- Years experience: ${r.years_experience ?? 'unknown'}\n` +
             `- Desired pay: ${r.desired_pay_rate ? `$${r.desired_pay_rate}` : 'not specified'}\n` +
             `- Available: ${r.availability_start ?? 'unknown'} (${r.availability_type ?? 'any'})\n` +
-            `- Source: ${r.source ?? 'unknown'} | Added: ${new Date(r.created_at).toLocaleDateString()}`
+            `- Source: ${r.source ?? 'unknown'} | Added: ${new Date(r.created_at).toLocaleDateString()}\n` +
+            `- [Contact info (email/phone/address) redacted — visible only in the app]`
           );
 
           // Submissions this candidate is in
@@ -217,6 +223,48 @@ async function buildCompanyContext(userQuery: string): Promise<string> {
     sections.push(`CANDIDATES IN SYSTEM: ${cands.rows[0].total}`);
   } catch {}
 
+  // Candidate directory — names + role + stage only, no PII. Gives the AI
+  // enough info to answer "what's Belinda looking like?" by recognizing
+  // names in the query without us having to ship every candidate's email,
+  // phone, or address to Anthropic.
+  try {
+    // If the user's query mentions a name-looking token (capitalized word
+    // ≥3 chars), pull that candidate with fuzzy match. Otherwise include
+    // the 30 most-recently-updated for general awareness.
+    const nameTokens = userQuery.match(/\b[A-Z][a-z]{2,}\b/g) ?? [];
+    let cands: { rows: Array<Record<string, unknown>> } = { rows: [] };
+    if (nameTokens.length > 0) {
+      const likeParams = nameTokens.map(t => `%${t}%`);
+      const whereClauses = nameTokens
+        .map((_, i) => `(first_name ILIKE $${i + 1} OR last_name ILIKE $${i + 1})`)
+        .join(' OR ');
+      cands = await pool.query(
+        `SELECT id, first_name, last_name, role, stage, years_experience,
+                (SELECT array_agg(DISTINCT cert) FROM unnest(certifications) cert) AS certs
+         FROM candidates
+         WHERE ${whereClauses}
+         ORDER BY updated_at DESC LIMIT 10`,
+        likeParams
+      );
+    }
+    if (cands.rows.length === 0) {
+      cands = await pool.query(
+        `SELECT id, first_name, last_name, role, stage, years_experience
+         FROM candidates
+         ORDER BY updated_at DESC NULLS LAST LIMIT 30`,
+        []
+      );
+    }
+    if (cands.rows.length > 0) {
+      sections.push(
+        `CANDIDATE DIRECTORY (${nameTokens.length > 0 ? 'name-matched' : 'top 30 most recent'} — no PII):\n` +
+        cands.rows.map(r =>
+          `- ${r.first_name} ${r.last_name} · ${r.role ?? 'role?'} · stage: ${r.stage ?? '?'}${r.years_experience ? ` · ${r.years_experience}yr` : ''}${(r as any).certs?.length ? ` · certs: ${(r as any).certs.join(',')}` : ''}`
+        ).join('\n')
+      );
+    }
+  } catch {}
+
   try {
     const keywords = userQuery.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3).slice(0, 4);
     if (keywords.length > 0) {
@@ -295,7 +343,18 @@ BEHAVIORAL RULES:
 3. When you detect a clarification is needed, end your response with JSON: {"needs_clarification": true, "clarification_question": "...", "source_type": "policy|workflow|file_routing|email"}
 4. Be direct, specific, and operational
 5. Format with headers and bullet points
-6. Proactively mention urgent items`;
+6. Proactively mention urgent items
+
+PRIVACY RULES (STRICT):
+- Candidate and staff contact details (email, phone, address) are INTENTIONALLY
+  redacted from the context you receive. If the user asks for someone's email
+  or phone, tell them to view the profile page in the app — do NOT invent or
+  guess values. Never claim to have seen a value that wasn't in the context.
+- You may reference names, roles, stages, skills, certifications, licenses,
+  years of experience, and general location (city/state). That's it.
+- If a question would require PII to answer (e.g. "email this candidate a
+  template"), respond by drafting the message and instruct the user to send
+  it from the in-app messaging tools where contact details live.`;
 
 router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   const { messages, sources, pageContext } = req.body as {

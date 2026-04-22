@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useParams, matchPath } from 'react-router-dom';
 import api from '../lib/api';
+import { renderMarkdown } from '../lib/markdown';
 
 /**
  * Global AI assistant sidebar — mounts once in AppShell and appears on every
@@ -252,21 +253,23 @@ export default function AIAssistantSidebar() {
             {messages.map((m, i) => (
               <div
                 key={i}
+                className={m.role === 'user' ? 'ai-bubble-user' : 'ai-bubble-assistant'}
                 style={{
                   alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                  maxWidth: '85%',
-                  padding: '10px 13px',
-                  borderRadius: 12,
+                  maxWidth: '90%',
+                  padding: m.role === 'user' ? '10px 14px' : '2px 14px',
+                  borderRadius: 14,
                   background: m.role === 'user' ? 'var(--pr)' : 'var(--sf2)',
                   color: m.role === 'user' ? '#fff' : 'var(--t1)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                  whiteSpace: 'pre-wrap',
+                  fontSize: 13.5,
+                  lineHeight: 1.55,
                   wordBreak: 'break-word',
+                  ...(m.role === 'user' ? { whiteSpace: 'pre-wrap' } : {}),
                 }}
-              >
-                {m.content}
-              </div>
+                {...(m.role === 'assistant'
+                  ? { dangerouslySetInnerHTML: { __html: renderMarkdown(m.content) } }
+                  : { children: m.content })}
+              />
             ))}
             {sending && (
               <div style={{ alignSelf: 'flex-start', padding: '10px 13px', borderRadius: 12, background: 'var(--sf2)', fontSize: 13, color: 'var(--t3)' }}>
