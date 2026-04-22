@@ -1,8 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
+import { MODEL_FOR } from '../services/aiModels';
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const router = Router();
 
@@ -233,6 +237,130 @@ router.post('/auto-generate', requireAuth, requirePermission('reminders_manage')
   } catch (err) {
     console.error('Auto-generate reminders error:', err);
     res.status(500).json({ error: 'Failed to auto-generate reminders' });
+  }
+});
+
+// POST /ai-draft — Phase 1.6B+C. Takes a candidate_id (or freeform context)
+// and returns a drafted subject + message. When a candidate is picked, we
+// look up what they're missing (docs, stage age, stalled submission) and
+// the AI tailors the message to that. User can then edit before saving.
+const aiDraftSchema = z.object({
+  candidate_id: z.string().uuid().optional().nullable(),
+  type: z.enum(['email', 'sms', 'both']).optional().default('email'),
+  topic: z.string().max(500).optional().nullable(), // user's freeform ask, e.g. "remind about interview tomorrow"
+});
+
+router.post('/ai-draft', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
+  const parsed = aiDraftSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() });
+    return;
+  }
+  const { candidate_id, type, topic } = parsed.data;
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'AI drafting not configured on this server (ANTHROPIC_API_KEY missing).' });
+    return;
+  }
+
+  // Gather candidate context (if provided) — no PII sent to Claude beyond
+  // name + professional info, same posture as the AI Brain. Email/phone
+  // stay on our server.
+  const contextBlocks: string[] = [];
+  if (candidate_id) {
+    try {
+      const [candRes, docsRes, subsRes] = await Promise.all([
+        query(
+          `SELECT first_name, last_name, role, stage, city, state, years_experience,
+                  specialties, certifications, licenses, available_shifts,
+                  recruiter_notes, updated_at
+           FROM candidates WHERE id = $1`,
+          [candidate_id]
+        ),
+        query(
+          `SELECT label, document_type, status, expiry_date, required
+           FROM candidate_documents WHERE candidate_id = $1 AND (status = 'missing' OR status = 'pending' OR status = 'expired')
+           ORDER BY required DESC LIMIT 15`,
+          [candidate_id]
+        ),
+        query(
+          `SELECT s.stage_key, s.interview_scheduled_at, j.title AS job_title
+           FROM submissions s LEFT JOIN jobs j ON j.id = s.job_id
+           WHERE s.candidate_id = $1 ORDER BY s.updated_at DESC LIMIT 3`,
+          [candidate_id]
+        ),
+      ]);
+      if (candRes.rows[0]) {
+        const c = candRes.rows[0];
+        contextBlocks.push(
+          `CANDIDATE: ${c.first_name} ${c.last_name} — ${c.role ?? 'role?'} · stage: ${c.stage ?? '?'}` +
+          (c.years_experience ? ` · ${c.years_experience}yr` : '') +
+          (c.city || c.state ? ` · ${[c.city, c.state].filter(Boolean).join(', ')}` : '')
+        );
+        const daysStale = Math.floor((Date.now() - new Date(c.updated_at as string).getTime()) / (24 * 60 * 60 * 1000));
+        if (daysStale > 3) {
+          contextBlocks.push(`NOTE: Record hasn't been updated in ${daysStale} days — may need a nudge.`);
+        }
+      }
+      if (docsRes.rows.length > 0) {
+        contextBlocks.push(
+          `OUTSTANDING CREDENTIALS:\n` +
+          docsRes.rows.map((d: any) => `- ${d.label} (${d.document_type}): ${d.status}${d.expiry_date ? ` — expires ${new Date(d.expiry_date).toISOString().slice(0, 10)}` : ''}`).join('\n')
+        );
+      }
+      if (subsRes.rows.length > 0) {
+        contextBlocks.push(
+          `RECENT SUBMISSIONS:\n` +
+          subsRes.rows.map((s: any) => `- ${s.job_title ?? 'Unknown job'} @ ${s.stage_key ?? '?'}${s.interview_scheduled_at ? ` · interview ${new Date(s.interview_scheduled_at).toISOString().slice(0, 16).replace('T', ' ')}` : ''}`).join('\n')
+        );
+      }
+    } catch { /* best effort */ }
+  }
+
+  const systemPrompt = `You are drafting a reminder message for a healthcare staffing recruiter to send to a candidate. Be warm, concise, and actionable. Output ONLY JSON with this exact shape — no markdown, no prose:
+
+{
+  "subject": "short subject line suitable for ${type === 'sms' ? 'SMS (omit for SMS but send empty string)' : 'email'}",
+  "message": "the reminder body, 1-3 short paragraphs for email, 1-2 sentences for SMS"
+}
+
+Rules:
+- If this is SMS (type = "sms"), keep the message under 160 chars and use a casual but professional tone
+- If this is email, include a greeting and a friendly sign-off (from "the FNS AI team")
+- Never invent credentials, licenses, or facts that aren't in the context
+- If outstanding credentials are listed, mention the specific items that need attention
+- Never include placeholders like [First Name] — use the actual name from context
+- Never claim to "have attached" files — the reminder is standalone text`;
+
+  const userMsg = [
+    contextBlocks.length > 0 ? contextBlocks.join('\n\n') : 'No specific candidate context provided.',
+    topic ? `\nUSER'S INSTRUCTION: ${topic}` : '\nUSER REQUEST: Draft a reasonable reminder based on the context above.',
+    `\nCHANNEL: ${type ?? 'email'}`,
+  ].join('\n');
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.templateDrafting,
+      max_tokens: 800,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMsg }],
+    });
+    const text = (response.content[0] as { type: string; text: string }).text;
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+    const parsed2 = JSON.parse(jsonStr) as { subject?: string; message?: string };
+    res.json({
+      subject: parsed2.subject ?? '',
+      message: parsed2.message ?? '',
+    });
+  } catch (err) {
+    const e = err as { status?: number; message?: string };
+    console.error('AI reminder draft error:', err);
+    res.status(500).json({
+      error: `AI drafting failed: ${e.message?.slice(0, 200) ?? 'unknown error'}`,
+    });
   }
 });
 

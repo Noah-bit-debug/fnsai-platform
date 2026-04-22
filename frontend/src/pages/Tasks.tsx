@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { tasksApi, RecruiterTask } from '../lib/api';
+import { useUser } from '@clerk/clerk-react';
+import { tasksApi, usersApi, RecruiterTask, OrgUser } from '../lib/api';
 
 const TASK_TYPE_EMOJI: Record<string, string> = {
   call: '📞', meeting: '📅', todo: '📝', follow_up: '🔄',
@@ -17,7 +18,24 @@ export default function Tasks() {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<{
     title: string; task_type: RecruiterTask['task_type']; due_at: string; description: string;
-  }>({ title: '', task_type: 'todo', due_at: '', description: '' });
+    assigned_to: string;
+  }>({ title: '', task_type: 'todo', due_at: '', description: '', assigned_to: '' });
+
+  // Phase 1.5 — assignee picker. Load org users so the user can pick who
+  // the task goes to (self or anyone else). Defaults to self on form open.
+  const [users, setUsers] = useState<OrgUser[]>([]);
+  const { user: clerkUser } = useUser();
+  useEffect(() => {
+    void usersApi.list().then((r) => setUsers(r.data.users)).catch(() => { /* silent */ });
+  }, []);
+  // When the user opens the new-task form and the users list is loaded,
+  // default assigned_to to themselves.
+  useEffect(() => {
+    if (!showCreate || !clerkUser || users.length === 0 || draft.assigned_to) return;
+    const me = users.find((u) => u.clerk_user_id === clerkUser.id);
+    if (me) setDraft((d) => ({ ...d, assigned_to: me.id }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCreate, users, clerkUser]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -45,8 +63,9 @@ export default function Tasks() {
         task_type: draft.task_type,
         due_at: draft.due_at || null,
         description: draft.description || null,
+        assigned_to: draft.assigned_to || null,
       });
-      setDraft({ title: '', task_type: 'todo', due_at: '', description: '' });
+      setDraft({ title: '', task_type: 'todo', due_at: '', description: '', assigned_to: '' });
       setShowCreate(false);
       await load();
     } catch (e: unknown) {
@@ -119,6 +138,22 @@ export default function Tasks() {
               onChange={(e) => setDraft({ ...draft, due_at: e.target.value })}
               style={inputBase}
             />
+            <select
+              value={draft.assigned_to}
+              onChange={(e) => setDraft({ ...draft, assigned_to: e.target.value })}
+              style={inputBase}
+              title="Assign this task to a teammate. Defaults to yourself."
+            >
+              <option value="">— Unassigned —</option>
+              {users.map((u) => {
+                const isMe = clerkUser && u.clerk_user_id === clerkUser.id;
+                return (
+                  <option key={u.id} value={u.id}>
+                    {isMe ? 'Me' : (u.name || u.email)}{isMe ? '' : ` (${u.role})`}
+                  </option>
+                );
+              })}
+            </select>
           </div>
           <textarea
             value={draft.description}

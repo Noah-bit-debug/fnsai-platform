@@ -712,6 +712,18 @@ export interface PipelineStageColumn {
   count: number;
 }
 
+// Simple user list for assignee dropdowns etc.
+export interface OrgUser {
+  id: string;
+  clerk_user_id: string;
+  email: string;
+  name: string | null;
+  role: string;
+}
+export const usersApi = {
+  list: () => api.get<{ users: OrgUser[] }>('/users'),
+};
+
 export const pipelineApi = {
   overview: () => api.get<{ stages: Record<string, Candidate[]>; total: number }>('/pipeline/overview'),
   candidatesKanban: () =>
@@ -724,6 +736,11 @@ export const remindersApi = {
     api.get<{ reminders: Reminder[] }>('/reminders', { params }),
   create: (data: Partial<Reminder>) => api.post<Reminder>('/reminders', data),
   update: (id: string, data: Partial<Reminder>) => api.put<Reminder>(`/reminders/${id}`, data),
+  // Phase 1.6B+C — AI drafts a subject+message given an optional candidate
+  // and topic. If candidate_id is provided the backend pulls their missing
+  // docs / stale stage info into the prompt so the message is specific.
+  aiDraft: (data: { candidate_id?: string | null; topic?: string; type?: 'email' | 'sms' | 'both' }) =>
+    api.post<{ subject: string; message: string }>('/reminders/ai-draft', data),
   cancel: (id: string) => api.delete(`/reminders/${id}`),
   send: (id: string) => api.post(`/reminders/${id}/send`),
   autoGenerate: () => api.post<{ success: boolean; generated: number }>('/reminders/auto-generate'),

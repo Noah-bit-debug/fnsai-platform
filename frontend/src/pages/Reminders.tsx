@@ -44,9 +44,63 @@ function NewReminderModal({ onClose, onCreated }: { onClose: () => void; onCreat
     message: '',
     scheduled_at: '',
     trigger_type: 'manual' as Reminder['trigger_type'],
+    candidate_id: '' as string,
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Phase 1.6B+C — AI-assisted drafting.
+  const [candidates, setCandidates] = useState<Array<{ id: string; first_name: string; last_name: string; email: string | null; phone: string | null }>>([]);
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+
+  useEffect(() => {
+    // Load a compact candidate list for the picker. Keep it best-effort —
+    // users can still fill the form manually if this fails.
+    import('../lib/api').then(({ candidatesApi }) =>
+      candidatesApi.list({ status: 'active' }).then((r: any) => {
+        const cs = r?.data?.candidates ?? [];
+        setCandidates(cs.map((c: any) => ({
+          id: c.id, first_name: c.first_name, last_name: c.last_name,
+          email: c.email, phone: c.phone,
+        })));
+      }).catch(() => { /* silent */ })
+    );
+  }, []);
+
+  // When a candidate is picked, auto-fill name / email / phone from the
+  // record so the user doesn't have to retype. They can still override.
+  const onPickCandidate = (id: string) => {
+    setForm((f) => ({ ...f, candidate_id: id }));
+    const c = candidates.find((x) => x.id === id);
+    if (!c) return;
+    setForm((f) => ({
+      ...f,
+      candidate_id: id,
+      recipient_name: `${c.first_name} ${c.last_name}`,
+      recipient_email: c.email ?? f.recipient_email,
+      recipient_phone: c.phone ?? f.recipient_phone,
+    }));
+  };
+
+  const onAiDraft = async () => {
+    setAiBusy(true);
+    setErr(null);
+    try {
+      const res = await remindersApi.aiDraft({
+        candidate_id: form.candidate_id || null,
+        topic: aiTopic.trim() || undefined,
+        type: form.type,
+      });
+      setForm((f) => ({
+        ...f,
+        subject: res.data.subject || f.subject,
+        message: res.data.message || f.message,
+      }));
+    } catch (e: any) {
+      setErr(e?.response?.data?.error ?? 'AI draft failed.');
+    } finally { setAiBusy(false); }
+  };
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -58,6 +112,7 @@ function NewReminderModal({ onClose, onCreated }: { onClose: () => void; onCreat
     try {
       await remindersApi.create({
         type: form.type,
+        candidate_id: form.candidate_id || undefined,
         recipient_name: form.recipient_name || undefined,
         recipient_email: form.recipient_email || undefined,
         recipient_phone: form.recipient_phone || undefined,
@@ -99,6 +154,46 @@ function NewReminderModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <option value="pending_application">Pending Application</option>
             <option value="credential_expiry">Credential Expiry</option>
           </select>
+        </div>
+
+        {/* Phase 1.6C — pick a candidate to auto-fill recipient + let AI
+            tailor the message to what they specifically need. */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+            About a candidate? (optional)
+          </label>
+          <select style={inputStyle()} value={form.candidate_id} onChange={(e) => onPickCandidate(e.target.value)}>
+            <option value="">— no specific candidate —</option>
+            {candidates.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+          </select>
+        </div>
+
+        {/* Phase 1.6B — AI draft button. If a candidate is selected, the
+            backend pulls their missing docs / stale stage details into the
+            prompt so the message is actually specific. Topic is optional. */}
+        <div style={{ marginBottom: 14, padding: 10, background: 'linear-gradient(135deg, #eef2ff, #faf5ff)', borderRadius: 8, border: '1px solid #c7d2fe' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5' }}>✦ AI Draft</span>
+            <span style={{ fontSize: 11, color: '#64748b' }}>
+              {form.candidate_id ? 'uses the selected candidate\'s specific gaps' : 'tell the AI what the reminder is about'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              style={{ ...inputStyle(), flex: 1 }}
+              placeholder={form.candidate_id ? 'Optional: e.g. "remind about BLS renewal"' : 'e.g. "follow up on pending I-9"'}
+              value={aiTopic}
+              onChange={(e) => setAiTopic(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={onAiDraft}
+              disabled={aiBusy}
+              style={{ padding: '8px 14px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: aiBusy ? 'not-allowed' : 'pointer', opacity: aiBusy ? 0.7 : 1, whiteSpace: 'nowrap' }}
+            >
+              {aiBusy ? 'Drafting…' : 'Draft with AI'}
+            </button>
+          </div>
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -221,13 +316,22 @@ export default function Reminders() {
         <div className="page-header-row">
           <div>
             <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a2b3c', marginBottom: 4 }}>Reminders</h1>
-            <p style={{ fontSize: 14, color: '#64748b' }}>Manage candidate and onboarding reminders</p>
+            <p style={{ fontSize: 14, color: '#64748b' }}>
+              Manage candidate and onboarding reminders.{' '}
+              <span style={{ color: '#475569' }}>
+                <strong>Auto-Generate</strong> scans every active candidate for known gaps
+                (missing documents, stale stages, overdue tasks) and creates a reminder for
+                each so nothing falls through the cracks. Safe to re-run — it skips any
+                reminder that already exists.
+              </span>
+            </p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             {autoMsg && <span style={{ fontSize: 13, color: '#2e7d32', fontWeight: 600 }}>{autoMsg}</span>}
             <button
               onClick={handleAutoGenerate}
               disabled={autoGenerating}
+              title="Scans every active candidate for missing docs, stalled stages, and overdue tasks, then creates a reminder for each. Skips ones that already exist, so safe to re-run."
               style={{ background: '#00796b', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: autoGenerating ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, opacity: autoGenerating ? 0.7 : 1 }}
             >
               {autoGenerating ? 'Generating...' : '✨ Auto-Generate'}
