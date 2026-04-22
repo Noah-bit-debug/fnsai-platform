@@ -57,6 +57,7 @@ const MIGRATION_FILES = [
   'ai_brain_migration.sql',
   'ats_phase1_migration.sql',
   'ats_phase2_stage_reorder.sql',
+  'ats_phase2_pay_range.sql',
   'notification_prefs_migration.sql',
 ];
 

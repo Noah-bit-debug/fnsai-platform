@@ -9,7 +9,11 @@ import { generateBooleanSearch } from '../services/boolean';
 const router = Router();
 
 // ─── Schemas ───────────────────────────────────────────────────────────────
-const jobSchema = z.object({
+// Defined as a plain object first so we can derive a partial (.partial())
+// for PUT without losing types. Refinement (pay_rate_min <= pay_rate_max)
+// is applied by wrapping into jobSchema below, while jobUpdateSchema uses
+// the raw shape with .partial() + a manual refine.
+const jobObject = z.object({
   job_code: z.string().max(50).optional().nullable(),
   title: z.string().min(1).max(300),
   client_id: z.string().uuid().optional().nullable(),
@@ -37,11 +41,26 @@ const jobSchema = z.object({
   recruitment_manager_id: z.string().uuid().optional().nullable(),
   bill_rate: z.number().optional().nullable(),
   pay_rate: z.number().optional().nullable(),
+  // Phase 1.2A — pay range. min/max are optional; if only one single-point
+  // value is known, pay_rate is the shorthand and min/max can be omitted.
+  // Frontend validates min <= max before submitting; backend re-checks
+  // in the refine below.
+  pay_rate_min: z.number().optional().nullable(),
+  pay_rate_max: z.number().optional().nullable(),
   margin: z.number().optional().nullable(),
   stipend: z.number().optional().nullable(),
   description: z.string().max(20000).optional().nullable(),
   status: z.enum(['draft', 'open', 'on_hold', 'filled', 'closed', 'cancelled']).optional(),
 });
+
+const jobSchema = jobObject.refine(
+  (d) => d.pay_rate_min == null || d.pay_rate_max == null || d.pay_rate_min <= d.pay_rate_max,
+  { message: 'pay_rate_min must be <= pay_rate_max', path: ['pay_rate_min'] }
+);
+const jobUpdateSchema = jobObject.partial().refine(
+  (d) => d.pay_rate_min == null || d.pay_rate_max == null || d.pay_rate_min <= d.pay_rate_max,
+  { message: 'pay_rate_min must be <= pay_rate_max', path: ['pay_rate_min'] }
+);
 
 const requirementSchema = z.object({
   kind: z.enum(['submission', 'onboarding']),
@@ -170,15 +189,15 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
          job_code, title, client_id, facility_id, client_job_id, profession, specialty, sub_specialty,
          city, state, zip, lat, lng, start_date, end_date, duration_weeks, job_type, shift, hours_per_week,
          remote, positions, priority, primary_recruiter_id, account_manager_id, recruitment_manager_id,
-         bill_rate, pay_rate, margin, stipend, description, status, created_by
+         bill_rate, pay_rate, pay_rate_min, pay_rate_max, margin, stipend, description, status, created_by
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
        ) RETURNING *`,
       [
         jobCode, data.title, data.client_id, data.facility_id, data.client_job_id, data.profession, data.specialty, data.sub_specialty,
         data.city, data.state, data.zip, data.lat, data.lng, data.start_date, data.end_date, data.duration_weeks, data.job_type, data.shift, data.hours_per_week,
         data.remote ?? false, data.positions ?? 1, data.priority ?? 'normal', data.primary_recruiter_id, data.account_manager_id, data.recruitment_manager_id,
-        data.bill_rate, data.pay_rate, data.margin, data.stipend, data.description, data.status ?? 'open', auth.userId ?? null,
+        data.bill_rate, data.pay_rate, data.pay_rate_min, data.pay_rate_max, data.margin, data.stipend, data.description, data.status ?? 'open', auth.userId ?? null,
       ]
     );
     await logAudit(req.userRecord?.id ?? null, auth.userId ?? 'system', 'job.create', result.rows[0].id as string);
@@ -192,7 +211,7 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
 
 // ─── PUT /:id — update ────────────────────────────────────────────────────
 router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req: AuthenticatedRequest, res: Response) => {
-  const parsed = jobSchema.partial().safeParse(req.body);
+  const parsed = jobUpdateSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
   const fields = Object.entries(parsed.data).filter(([, v]) => v !== undefined);
   if (fields.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
@@ -370,18 +389,41 @@ router.get('/:id/matching-candidates', requireAuth, requirePermission('candidate
 
     // Simple scoring at the DB level: profession match + specialty intersection + location match.
     // Phase 3 will introduce richer scoring via candidateScoring service.
-    const result = await query(
-      `SELECT c.id, c.first_name, c.last_name, c.email, c.role, c.specialties, c.city, c.state, c.years_experience,
-              (CASE WHEN c.role = $1 THEN 40 ELSE 0 END
-               + CASE WHEN $2 = ANY(c.specialties) THEN 30 ELSE 0 END
-               + CASE WHEN c.city ILIKE $3 THEN 20 WHEN c.state = $4 THEN 10 ELSE 0 END) AS match_score
-       FROM candidates c
-       WHERE c.status = 'active'
-       ORDER BY match_score DESC, c.updated_at DESC
-       LIMIT 50`,
-      [j.profession, j.specialty, j.city ? `%${j.city}%` : null, j.state]
-    );
-    res.json({ candidates: result.rows });
+    //
+    // Per Phase 1.2B — exclude candidates already submitted to this job.
+    // A submission exists => this candidate has already been pitched.
+    // Keeping them in the matching list causes recruiters to pitch the
+    // same person twice; filter them out and return them separately.
+    const [matchRes, submittedRes] = await Promise.all([
+      query(
+        `SELECT c.id, c.first_name, c.last_name, c.email, c.role, c.specialties, c.city, c.state, c.years_experience,
+                (CASE WHEN c.role = $1 THEN 40 ELSE 0 END
+                 + CASE WHEN $2 = ANY(c.specialties) THEN 30 ELSE 0 END
+                 + CASE WHEN c.city ILIKE $3 THEN 20 WHEN c.state = $4 THEN 10 ELSE 0 END) AS match_score
+         FROM candidates c
+         WHERE c.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM submissions s
+             WHERE s.candidate_id = c.id AND s.job_id = $5
+           )
+         ORDER BY match_score DESC, c.updated_at DESC
+         LIMIT 50`,
+        [j.profession, j.specialty, j.city ? `%${j.city}%` : null, j.state, req.params.id]
+      ),
+      query(
+        `SELECT c.id, c.first_name, c.last_name, c.role, c.city, c.state,
+                s.stage_key, s.ai_score, s.ai_fit_label, s.updated_at
+         FROM submissions s
+         JOIN candidates c ON c.id = s.candidate_id
+         WHERE s.job_id = $1
+         ORDER BY s.updated_at DESC`,
+        [req.params.id]
+      ),
+    ]);
+    res.json({
+      candidates: matchRes.rows,
+      already_submitted: submittedRes.rows,
+    });
   } catch (err) {
     console.error('Matching candidates error:', err);
     res.status(500).json({ error: 'Failed to fetch matching candidates' });
