@@ -103,6 +103,70 @@ router.get('/metrics', requireAuth, requirePermission('candidates_view'), async 
   }
 });
 
+// ─── Phase 1.4 — Candidate Pipeline kanban (one card per candidate) ───────
+// Distinct from /kanban below which is SUBMISSION-oriented. This one groups
+// candidates by their own stage column using the full pipeline_stages taxonomy,
+// so the Pipeline.tsx page can render drag-drop + filters across all stages
+// (not the legacy 4-bucket mapping).
+// Returns { stages: [{key,label,color,sort_order,stale_after_days, items:[...]}] }
+router.get('/candidates-kanban', requireAuth, requirePermission('candidates_view'), async (_req: Request, res: Response) => {
+  try {
+    const [stagesRes, candsRes] = await Promise.all([
+      query(
+        `SELECT key, label, color, sort_order, is_terminal, stale_after_days
+         FROM pipeline_stages
+         WHERE tenant_id = 'default' AND active = TRUE
+         ORDER BY sort_order ASC`
+      ),
+      query(
+        `SELECT c.id, c.first_name, c.last_name, c.role, c.stage,
+                c.email, c.phone, c.city, c.state,
+                c.available_shifts, c.desired_pay_rate,
+                c.specialties, c.years_experience,
+                c.created_at, c.updated_at,
+                u.name AS recruiter_name,
+                EXTRACT(DAY FROM NOW() - c.updated_at)::INT AS days_in_stage,
+                -- Job IDs this candidate has been submitted to (for job filter)
+                COALESCE(
+                  (SELECT array_agg(DISTINCT s.job_id)::UUID[]
+                   FROM submissions s WHERE s.candidate_id = c.id),
+                  '{}'::UUID[]
+                ) AS submitted_job_ids,
+                (SELECT COUNT(*)::INT FROM candidate_documents cd
+                 WHERE cd.candidate_id = c.id AND cd.status = 'missing' AND cd.required = true
+                ) AS missing_docs_count
+         FROM candidates c
+         LEFT JOIN users u ON c.assigned_recruiter_id = u.id
+         WHERE c.status = 'active'
+         ORDER BY c.updated_at DESC
+         LIMIT 1000`
+      ),
+    ]);
+
+    const candsByStage = new Map<string, Array<Record<string, unknown>>>();
+    for (const c of candsRes.rows) {
+      const key = (c.stage as string) ?? 'new_lead';
+      if (!candsByStage.has(key)) candsByStage.set(key, []);
+      candsByStage.get(key)!.push(c);
+    }
+
+    const stages = stagesRes.rows.map((st: any) => {
+      const items = candsByStage.get(st.key) ?? [];
+      const itemsWithStale = items.map((i: any) => ({
+        ...i,
+        is_stale: st.stale_after_days != null && i.days_in_stage > st.stale_after_days,
+      }));
+      return { ...st, items: itemsWithStale, count: itemsWithStale.length };
+    });
+
+    res.json({ stages, total: candsRes.rows.length });
+  } catch (err: any) {
+    if (err?.code === '42P01') { res.json({ stages: [], total: 0 }); return; }
+    console.error('Candidates-kanban fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch candidate pipeline' });
+  }
+});
+
 // ─── Phase 2 Kanban: full 12-stage view over SUBMISSIONS (not candidates) ──
 // Returns { stages: [{key,label,color,sort_order,stale_after_days, items:[...]}] }
 router.get('/kanban', requireAuth, requirePermission('candidates_view'), async (_req: Request, res: Response) => {

@@ -653,8 +653,44 @@ export const candidatesApi = {
     api.post<{ summary: string }>(`/candidates/${id}/ai/client-summary`, { job_id }),
 };
 
+// Candidate-kanban types — Phase 1.4 Pipeline rewrite with drag-drop.
+export interface PipelineCandidateCard {
+  id: string;
+  first_name: string;
+  last_name: string;
+  role: string | null;
+  stage: string;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  state: string | null;
+  available_shifts: string[] | null;
+  desired_pay_rate: number | null;
+  specialties: string[] | null;
+  years_experience: number | null;
+  recruiter_name: string | null;
+  days_in_stage: number;
+  is_stale: boolean;
+  submitted_job_ids: string[];
+  missing_docs_count: number;
+  updated_at: string;
+}
+
+export interface PipelineStageColumn {
+  key: string;
+  label: string;
+  color: string;
+  sort_order: number;
+  is_terminal: boolean;
+  stale_after_days: number | null;
+  items: PipelineCandidateCard[];
+  count: number;
+}
+
 export const pipelineApi = {
   overview: () => api.get<{ stages: Record<string, Candidate[]>; total: number }>('/pipeline/overview'),
+  candidatesKanban: () =>
+    api.get<{ stages: PipelineStageColumn[]; total: number }>('/pipeline/candidates-kanban'),
   metrics: () => api.get('/pipeline/metrics'),
 };
 
