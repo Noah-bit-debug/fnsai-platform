@@ -66,6 +66,7 @@ import notificationPrefsRouter from './routes/notificationPrefs';
 // Stabilize phase 3
 import errorLogRouter, { errorCaptureMiddleware } from './routes/errorLog';
 import adminRouter from './routes/admin';
+import docTypesRouter from './routes/docTypes';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -356,6 +357,7 @@ app.use('/api/v1/notification-prefs', notificationPrefsRouter);
 // Stabilize phase 3 — error log surface (admin-only read, authed write)
 app.use('/api/v1/error-log', errorLogRouter);
 app.use('/api/v1/admin', adminRouter);
+app.use('/api/v1/doc-types', docTypesRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -395,6 +397,7 @@ async function runMigrations(): Promise<void> {
     'ats_phase2_stage_reorder.sql',
     'ats_phase2_pay_range.sql',
     'notification_prefs_migration.sql',
+    'phase2_document_types.sql',
   ];
 
   const client = await pool.connect();

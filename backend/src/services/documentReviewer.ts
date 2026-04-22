@@ -42,6 +42,37 @@ export class DocumentReviewError extends Error {
   }
 }
 
+// Phase 2.2: look up admin-defined doc_types first. Falls back to this
+// hardcoded map if the DB doesn't have the type (e.g. during migration or
+// when an admin deletes the row). Keeps reviews working while letting
+// admins customize prompts without a code deploy.
+async function loadDocTypeFromDb(key: string): Promise<{
+  prompt_hints: string;
+  issuing_bodies: string[];
+  expires_months: number | null;
+  required_fields: string[];
+} | null> {
+  try {
+    const { pool } = await import('../db/client');
+    const result = await pool.query(
+      `SELECT prompt_hints, issuing_bodies, expires_months, required_fields
+       FROM doc_types WHERE key = $1 AND active = TRUE LIMIT 1`,
+      [key]
+    );
+    if (result.rows.length === 0) return null;
+    const r = result.rows[0];
+    return {
+      prompt_hints: r.prompt_hints as string,
+      issuing_bodies: (r.issuing_bodies as string[]) ?? [],
+      expires_months: r.expires_months as number | null,
+      required_fields: (r.required_fields as string[]) ?? [],
+    };
+  } catch {
+    // Table missing / pool error — silently fall back to hardcoded map.
+    return null;
+  }
+}
+
 // Per-type hints the AI uses when reviewing. Admins can extend these via
 // approved clarifications (ai_brain_clarifications rows with
 // source_type = 'document_review_<type>') — those get injected below.
@@ -61,10 +92,33 @@ const DOC_TYPE_HINTS: Record<string, string> = {
   diploma:          'Educational diploma or transcript. Institution name, graduation date, degree conferred, candidate name.',
 };
 
-function buildPrompt(documentType: string, extraCompanyRules: string[]): string {
-  const hint = DOC_TYPE_HINTS[documentType] ?? `A document of type "${documentType}". Review for completeness and validity.`;
-  const rules = extraCompanyRules.length > 0
-    ? `\n\nCOMPANY-SPECIFIC RULES FOR THIS DOCUMENT TYPE:\n${extraCompanyRules.map(r => `- ${r}`).join('\n')}`
+async function buildPrompt(documentType: string, extraCompanyRules: string[]): Promise<string> {
+  // Prefer admin-defined doc_types row; fall back to hardcoded hints; then
+  // fall back to a generic prompt if the type is completely unknown. This
+  // keeps reviews working even if the doc_types table is empty or the key
+  // hasn't been defined yet.
+  const dbType = await loadDocTypeFromDb(documentType);
+
+  const hint = dbType?.prompt_hints
+    ?? DOC_TYPE_HINTS[documentType]
+    ?? `A document of type "${documentType}". Review for completeness and validity.`;
+
+  // Admin-defined issuing bodies and required fields get baked into the
+  // prompt so the AI checks for them explicitly.
+  const adminRules: string[] = [];
+  if (dbType?.issuing_bodies && dbType.issuing_bodies.length > 0) {
+    adminRules.push(`Accepted issuing bodies: ${dbType.issuing_bodies.join(', ')}. Reject if issued by anyone else.`);
+  }
+  if (dbType?.required_fields && dbType.required_fields.length > 0) {
+    adminRules.push(`Document must contain these fields: ${dbType.required_fields.join(', ')}.`);
+  }
+  if (dbType?.expires_months != null) {
+    adminRules.push(`Typical validity is ${dbType.expires_months} months. Use this to double-check the expiry date is reasonable.`);
+  }
+
+  const allRules = [...adminRules, ...extraCompanyRules];
+  const rules = allRules.length > 0
+    ? `\n\nCOMPANY-SPECIFIC RULES FOR THIS DOCUMENT TYPE:\n${allRules.map(r => `- ${r}`).join('\n')}`
     : '';
 
   return `You are a credentialing document reviewer for a healthcare staffing agency.
@@ -146,7 +200,7 @@ export async function reviewDocument(
   }
 
   const approvedRules = await getApprovedRules(documentType);
-  const prompt = buildPrompt(documentType, approvedRules);
+  const prompt = await buildPrompt(documentType, approvedRules);
 
   // PDF → use Claude's document vision. Image → image input block.
   // Text/unknown → reject with a helpful error (we don't OCR arbitrary bytes).

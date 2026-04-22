@@ -1,9 +1,15 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../middleware/auth';
+import multer from 'multer';
+import Anthropic from '@anthropic-ai/sdk';
+import mammoth from 'mammoth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { getAuth } from '@clerk/express';
 import { query } from '../db/client';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -202,6 +208,160 @@ router.post('/policies', requireAuth, async (req: Request, res: Response) => {
     return res.status(201).json(result.rows[0]);
   } catch (err: unknown) {
     return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ─── Phase 2.3 — Policy AI workflow ──────────────────────────────────────────
+//
+// Two helper endpoints that let admins upload or describe a policy and have
+// Claude produce structured content they can review + edit before hitting
+// Create. Neither endpoint creates a policy directly — they return the
+// parsed fields, and the user clicks Save / Publish on the existing
+// POST /policies to commit.
+//
+// POST /policies/ai-parse    — upload PDF/DOCX/TXT → extract title + body
+// POST /policies/ai-rewrite  — given existing content, AI refines it
+//                              (e.g. "make this more formal", "add a
+//                               section on disciplinary action")
+
+const POLICY_SYSTEM_PROMPT = `You convert raw healthcare-staffing policy documents into structured JSON for FNS AI's compliance system.
+
+Return ONLY a single JSON object, no markdown, no prose. Shape:
+
+{
+  "title": "policy title (concise, Title Case)",
+  "content": "full policy body as clean markdown with headers, bullets, sections",
+  "suggested_version": "1.0",
+  "suggested_expiration_days": 365,
+  "require_signature": true,
+  "applicable_roles": ["RN","LPN","CNA"],
+  "category_guess": "safety|clinical|hr|compliance|training|general",
+  "summary": "1-2 sentence admin-facing summary of what this policy covers"
+}
+
+Rules:
+- Preserve the original meaning. Do not invent obligations or change the policy's intent.
+- Normalize formatting: fix headers, bullet alignment, paragraph breaks.
+- Keep section numbering if the original uses it.
+- If content is unclear or ambiguous, lean toward what the original actually says, not what it should say.
+- applicable_roles: infer from the document. Default to [] if truly universal.
+- suggested_expiration_days: use reasonable defaults — annual (365) for most, or whatever the document states.
+- require_signature: true for policies that need formal acknowledgement, false for informational SOPs.
+- category_guess: pick the single closest match.`;
+
+// POST /policies/ai-parse — upload a file, get structured policy JSON back.
+// Admin reviews + edits the output, then POSTs to /policies to persist.
+router.post('/policies/ai-parse', requireAuth, requirePermission('admin_manage'),
+  upload.single('file'), async (req: Request, res: Response) => {
+    if (!req.file) { res.status(400).json({ error: 'No file uploaded (field name: "file")' }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      res.status(503).json({ error: 'AI parsing not configured (ANTHROPIC_API_KEY missing)' });
+      return;
+    }
+
+    try {
+      // Extract text depending on file type. PDF goes through Claude's
+      // document vision directly. DOCX uses mammoth. TXT is read as UTF-8.
+      const mime = req.file.mimetype;
+      const name = req.file.originalname.toLowerCase();
+      let content: Anthropic.Messages.ContentBlockParam[];
+
+      if (mime === 'application/pdf' || name.endsWith('.pdf')) {
+        content = [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: req.file.buffer.toString('base64') } } as Anthropic.Messages.ContentBlockParam,
+          { type: 'text', text: 'Parse this policy document per the system prompt instructions.' },
+        ];
+      } else if (mime.includes('wordprocessingml') || name.endsWith('.docx')) {
+        const extracted = await mammoth.extractRawText({ buffer: req.file.buffer });
+        const text = (extracted.value ?? '').trim();
+        if (!text) { res.status(422).json({ error: 'DOCX extracted no text — file may be image-only.' }); return; }
+        content = [{ type: 'text', text: `Parse this policy document per the system prompt instructions.\n\nPolicy content:\n${text}` }];
+      } else if (mime.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.md')) {
+        const text = req.file.buffer.toString('utf-8').trim();
+        if (!text) { res.status(422).json({ error: 'Text file is empty.' }); return; }
+        content = [{ type: 'text', text: `Parse this policy document per the system prompt instructions.\n\nPolicy content:\n${text}` }];
+      } else {
+        res.status(415).json({ error: `Unsupported file type: ${mime}. Please upload PDF, DOCX, or TXT.` });
+        return;
+      }
+
+      const response = await anthropic.messages.create({
+        model: MODEL_FOR.templateDrafting,
+        max_tokens: 4096,
+        system: POLICY_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content }],
+      });
+
+      const raw = (response.content[0] as { type: string; text: string }).text;
+      // Strip markdown fences, slice to first { ... last }
+      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const first = cleaned.indexOf('{');
+      const last = cleaned.lastIndexOf('}');
+      const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+      } catch (e) {
+        console.error('policy AI parse: bad JSON from model:', raw.slice(0, 500));
+        res.status(502).json({
+          error: 'AI returned malformed JSON. Please retry or paste the policy content manually.',
+          raw_preview: raw.slice(0, 500),
+        });
+        return;
+      }
+
+      res.json({
+        parsed,
+        file: { name: req.file.originalname, size: req.file.size, mime },
+      });
+    } catch (err: any) {
+      console.error('Policy AI parse error:', err);
+      if (err?.status === 429) {
+        res.status(429).json({ error: 'AI is busy. Please retry in a minute.' });
+        return;
+      }
+      res.status(500).json({ error: `Policy AI parse failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+    }
+  }
+);
+
+// POST /policies/ai-rewrite — admin supplies existing title+content plus an
+// instruction ("make more formal", "add section on discipline"). AI returns
+// the revised content. Does not save; admin reviews + edits + hits Save.
+router.post('/policies/ai-rewrite', requireAuth, requirePermission('admin_manage'), async (req: Request, res: Response) => {
+  const { title, content, instruction } = req.body as { title?: string; content?: string; instruction?: string };
+  if (!content?.trim() || !instruction?.trim()) {
+    res.status(400).json({ error: 'content and instruction are required' });
+    return;
+  }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'AI not configured (ANTHROPIC_API_KEY missing)' });
+    return;
+  }
+
+  try {
+    const userMsg = `EXISTING POLICY TITLE: ${title ?? '(untitled)'}
+
+EXISTING POLICY CONTENT:
+${content}
+
+USER INSTRUCTION: ${instruction}
+
+Return ONLY the revised content as clean markdown — no JSON, no commentary, no code fences. Preserve the policy's core meaning while applying the instruction.`;
+
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.templateDrafting,
+      max_tokens: 4096,
+      system: 'You are a healthcare compliance policy editor. You rewrite policies per user instructions without changing their intent.',
+      messages: [{ role: 'user', content: userMsg }],
+    });
+
+    const revised = (response.content[0] as { type: string; text: string }).text.trim();
+    res.json({ revised_content: revised });
+  } catch (err: any) {
+    console.error('Policy AI rewrite error:', err);
+    res.status(500).json({ error: `AI rewrite failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });
 

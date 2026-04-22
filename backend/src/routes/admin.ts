@@ -59,6 +59,7 @@ const MIGRATION_FILES = [
   'ats_phase2_stage_reorder.sql',
   'ats_phase2_pay_range.sql',
   'notification_prefs_migration.sql',
+  'phase2_document_types.sql',
 ];
 
 interface MigrationResult {
