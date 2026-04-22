@@ -49,10 +49,24 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
 // POST /scan - trigger Microsoft Graph scan + AI categorization
 router.post('/scan', requireAuth, async (req: Request, res: Response) => {
-  const { userId, top = 25 } = req.body;
+  const { userId: bodyUserId, top = 25 } = req.body;
+
+  // App-only auth (ClientSecretCredential) doesn't have a "me" — you must
+  // specify which user's mailbox to read. Same pattern as the OneDrive
+  // routes. Priority: request body > MICROSOFT_USER_ID env var > error.
+  const userId = (bodyUserId as string | undefined)
+    ?? process.env.MICROSOFT_USER_ID
+    ?? process.env.ONEDRIVE_USER_ID;
+
+  if (!userId) {
+    res.status(400).json({
+      error: 'No mailbox specified. Set MICROSOFT_USER_ID env var on the server (e.g. the email address of the mailbox to monitor) or pass userId in the request body.',
+    });
+    return;
+  }
 
   try {
-    const emails = await getEmails(userId as string | undefined, Number(top));
+    const emails = await getEmails(userId, Number(top));
     const processed: Array<{ id: string; subject: string; category: string }> = [];
 
     for (const email of emails) {
@@ -95,8 +109,42 @@ router.post('/scan', requireAuth, async (req: Request, res: Response) => {
 
     res.json({ scanned: emails.length, newEmails: processed.length, emails: processed });
   } catch (err) {
-    console.error('Email scan error:', err);
-    res.status(500).json({ error: 'Failed to scan emails' });
+    // Surface the specific failure reason. Three common cases:
+    // 1. "Microsoft Graph credentials not configured" — env vars missing
+    // 2. Graph 401/403 — wrong scopes or missing admin consent on the app
+    // 3. Graph 404 — userId doesn't exist in the tenant
+    const e = err as { message?: string; statusCode?: number; code?: string; body?: unknown };
+    console.error('Email scan error:', { message: e.message, statusCode: e.statusCode, code: e.code });
+
+    // Env-var misconfiguration
+    if (e.message?.includes('Microsoft Graph credentials not configured')) {
+      res.status(503).json({
+        error: 'Microsoft Graph credentials not configured on server. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_USER_ID.',
+      });
+      return;
+    }
+
+    // Graph auth failure
+    if (e.statusCode === 401 || e.statusCode === 403) {
+      res.status(502).json({
+        error: `Microsoft Graph auth failed (${e.statusCode}). The app registration may be missing Mail.Read application permission, or admin consent hasn't been granted. ${e.message?.slice(0, 200) ?? ''}`,
+      });
+      return;
+    }
+
+    // User not found
+    if (e.statusCode === 404) {
+      res.status(404).json({
+        error: `Mailbox "${userId}" not found in your Microsoft tenant. Check the MICROSOFT_USER_ID value.`,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: `Failed to scan emails: ${e.message?.slice(0, 300) ?? 'unknown error'}`,
+      code: e.code,
+      statusCode: e.statusCode,
+    });
   }
 });
 
