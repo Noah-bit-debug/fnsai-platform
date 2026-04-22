@@ -599,7 +599,11 @@ export interface Reminder {
 }
 
 export const candidatesApi = {
-  list: (params?: { stage?: string; status?: string; search?: string }) =>
+  list: (params?: {
+    stage?: string; status?: string; search?: string;
+    // Phase 1.1D — role + shift filters
+    role?: string; shift?: string;
+  }) =>
     api.get<{ candidates: Candidate[] }>('/candidates', { params }),
   get: (id: string) => api.get<Candidate>(`/candidates/${id}`),
   create: (data: Partial<Candidate>) => api.post<Candidate>('/candidates', data),
@@ -722,6 +726,17 @@ export interface OrgUser {
 }
 export const usersApi = {
   list: () => api.get<{ users: OrgUser[] }>('/users'),
+};
+
+// Phase 1.1B + 1.1C — direct SMS send (no approval flow) for recruiter
+// outbound texting. Approval-flow endpoints on smsApi are unchanged.
+export const textingApi = {
+  sendDirect: (data: {
+    recipient_phone: string;
+    message: string;
+    reference_id?: string | null;
+    reference_type?: string | null;
+  }) => api.post<{ success: boolean; messageId: string; status: string }>('/sms/send-direct', data),
 };
 
 export const pipelineApi = {

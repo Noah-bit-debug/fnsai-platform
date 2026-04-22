@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
-import { sendApprovalRequest } from '../services/clerkchat';
+import { sendApprovalRequest, sendSMS } from '../services/clerkchat';
 
 const router = Router();
 
@@ -15,6 +15,66 @@ const smsApprovalSchema = z.object({
   reference_id: z.string().uuid().optional(),
   reference_type: z.string().max(50).optional(),
   details: z.string().max(1000).optional(),
+});
+
+// Phase 1.1B + 1.1C — direct send (no approval flow). For recruiter-to-candidate
+// texting from the candidate profile or the global texting panel. Logs a
+// reference row in sms_approvals with status='sent' so messages still show up
+// in the audit / history view.
+const directSmsSchema = z.object({
+  recipient_phone: z.string().min(10).max(20),
+  message: z.string().min(1).max(1600),
+  reference_id: z.string().uuid().optional().nullable(),
+  reference_type: z.string().max(50).optional().nullable(),  // e.g. 'candidate', 'staff'
+});
+
+router.post('/send-direct', requireAuth, async (req: Request, res: Response) => {
+  const parse = directSmsSchema.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({ error: 'Validation error', details: parse.error.flatten() });
+    return;
+  }
+  const d = parse.data;
+  const auth = getAuth(req);
+
+  // Clean the phone number — strip everything except digits and leading +.
+  const cleanedPhone = d.recipient_phone.trim().replace(/[^\d+]/g, '');
+  if (cleanedPhone.replace(/\D/g, '').length < 10) {
+    res.status(400).json({ error: 'Invalid phone number — need at least 10 digits.' });
+    return;
+  }
+
+  // Prefix to the recipient knows who this is from. Not required for SMS
+  // spec, but recruiters identify themselves when texting candidates.
+  const finalMessage = d.message;
+
+  try {
+    const result = await sendSMS(cleanedPhone, finalMessage);
+
+    // Log as a 'sent' sms_approvals row so history/audit captures it.
+    try {
+      await query(
+        `INSERT INTO sms_approvals (type, subject, message, recipient_phone, reference_id, reference_type, status, sent_at)
+         VALUES ('direct', 'Direct message', $1, $2, $3, $4, 'sent', NOW())`,
+        [finalMessage.slice(0, 2000), cleanedPhone, d.reference_id ?? null, d.reference_type ?? null]
+      );
+    } catch { /* table may not have all columns — best effort */ }
+
+    await logAudit(null, auth?.userId ?? 'unknown', 'sms.send_direct', d.reference_id ?? cleanedPhone,
+      { to: cleanedPhone, len: finalMessage.length }, (req.ip ?? 'unknown'));
+
+    res.json({ success: true, messageId: result.messageId, status: result.status });
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    console.error('Direct SMS send error:', err);
+    if (e.message?.includes('CLERKCHAT_')) {
+      res.status(503).json({
+        error: 'SMS is not configured on the server. Set CLERKCHAT_API_KEY and CLERKCHAT_FROM_NUMBER env vars.',
+      });
+      return;
+    }
+    res.status(500).json({ error: `Failed to send SMS: ${e.message?.slice(0, 200) ?? 'unknown'}` });
+  }
 });
 
 // GET / - list SMS approvals

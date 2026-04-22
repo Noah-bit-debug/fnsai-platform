@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import TopBar from './Topbar';
 import Sidebar from './Sidebar';
 import AIAssistantSidebar from '../AIAssistantSidebar';
+import TextingPanel from '../TextingPanel';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -56,6 +57,12 @@ export default function AppShell() {
       {/* Global AI Brain sidebar — mounts once, available on every page,
           auto-detects the route's entity (candidate/job/client/etc.) */}
       <AIAssistantSidebar />
+
+      {/* Phase 1.1C — Global texting panel. Floating 💬 button bottom-right,
+          below the AI button. Opens a slide-out panel with candidate
+          picker + message box. Can also be opened programmatically from
+          any page via window.dispatchEvent(new CustomEvent('open-texting-panel', { detail: { candidateId } })) */}
+      <TextingPanel />
     </div>
   );
 }

@@ -223,6 +223,9 @@ export default function CandidateList() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeStage, setActiveStage] = useState('all');
+  // Phase 1.1D — role + shift grouped filters
+  const [roleFilter, setRoleFilter] = useState('');
+  const [shiftFilter, setShiftFilter] = useState('');
   const [showImport, setShowImport] = useState(false);
   const { role } = useRBAC();
 
@@ -240,15 +243,19 @@ export default function CandidateList() {
 
   const applyView = (view: CandidateSavedView) => {
     setActiveViewId(view.id);
-    const filters = view.filters as { search?: string; stage?: string };
+    const filters = view.filters as { search?: string; stage?: string; role?: string; shift?: string };
     if (filters.search !== undefined) setSearch(filters.search);
     if (filters.stage !== undefined) setActiveStage(filters.stage);
+    if (filters.role !== undefined) setRoleFilter(filters.role);
+    if (filters.shift !== undefined) setShiftFilter(filters.shift);
   };
 
   const saveCurrentView = async () => {
     if (!newViewName.trim()) return;
     try {
-      const res = await candidateSavedViewsApi.create(newViewName.trim(), { search, stage: activeStage });
+      const res = await candidateSavedViewsApi.create(newViewName.trim(), {
+        search, stage: activeStage, role: roleFilter, shift: shiftFilter,
+      });
       setSavedViews([res.data.view, ...savedViews]);
       setActiveViewId(res.data.view.id);
       setNewViewName('');
@@ -273,9 +280,11 @@ export default function CandidateList() {
     setLoading(true);
     setError(null);
     try {
-      const params: { stage?: string; search?: string } = {};
+      const params: { stage?: string; search?: string; role?: string; shift?: string } = {};
       if (activeStage !== 'all') params.stage = activeStage;
       if (search.trim()) params.search = search.trim();
+      if (roleFilter) params.role = roleFilter;
+      if (shiftFilter) params.shift = shiftFilter;
       const res = await candidatesApi.list(params);
       setCandidates(res.data?.candidates ?? []);
     } catch (err: any) {
@@ -288,7 +297,7 @@ export default function CandidateList() {
   useEffect(() => {
     fetchCandidates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStage]);
+  }, [activeStage, roleFilter, shiftFilter]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -369,17 +378,38 @@ export default function CandidateList() {
           )}
         </div>
 
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, email, role..."
             style={{
-              flex: 1, padding: '9px 14px', border: '1px solid #e8edf2', borderRadius: 8,
+              flex: '1 1 260px', padding: '9px 14px', border: '1px solid #e8edf2', borderRadius: 8,
               fontSize: 14, outline: 'none', color: '#1a2b3c',
             }}
           />
+          {/* Phase 1.1D — position (role) + shift dropdowns, grouped visually
+              next to the search box. Selecting a value triggers a re-fetch
+              immediately (no Search click needed for these). */}
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            title="Filter by position / role (RN, LPN, etc.)"
+            style={{ padding: '9px 12px', border: '1px solid #e8edf2', borderRadius: 8, fontSize: 14, background: '#fff', minWidth: 140 }}
+          >
+            <option value="">All positions</option>
+            {['RN', 'LPN', 'LVN', 'CNA', 'RT', 'NP', 'PA', 'Other'].map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <select
+            value={shiftFilter}
+            onChange={(e) => setShiftFilter(e.target.value)}
+            title="Filter by available shift — matches candidate.available_shifts"
+            style={{ padding: '9px 12px', border: '1px solid #e8edf2', borderRadius: 8, fontSize: 14, background: '#fff', minWidth: 140 }}
+          >
+            <option value="">All shifts</option>
+            {['days', 'evenings', 'nights', 'weekends', 'rotating'].map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
           <button
             type="submit"
             style={{
@@ -389,6 +419,14 @@ export default function CandidateList() {
           >
             Search
           </button>
+          {(search || roleFilter || shiftFilter) && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setRoleFilter(''); setShiftFilter(''); }}
+              title="Clear all filters"
+              style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 13, textDecoration: 'underline' }}
+            >Clear</button>
+          )}
         </form>
 
         {/* HR / Coordinator workflow hint bar */}

@@ -46,7 +46,9 @@ const stageSchema = z.object({
 
 // GET / — list candidates
 router.get('/', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
-  const { stage, status, assigned_recruiter_id, search } = req.query;
+  // Phase 1.1D — added role + shift filters. role matches the enum column
+  // directly; shift matches against available_shifts TEXT[] via ANY().
+  const { stage, status, assigned_recruiter_id, search, role, shift } = req.query;
   const conditions: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
@@ -54,6 +56,8 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
   if (stage) { conditions.push(`c.stage = $${idx++}`); params.push(stage); }
   if (status) { conditions.push(`c.status = $${idx++}`); params.push(status); }
   if (assigned_recruiter_id) { conditions.push(`c.assigned_recruiter_id = $${idx++}`); params.push(assigned_recruiter_id); }
+  if (role) { conditions.push(`c.role = $${idx++}`); params.push(role); }
+  if (shift) { conditions.push(`$${idx++} = ANY(c.available_shifts)`); params.push(shift); }
   if (search) {
     conditions.push(`(c.first_name ILIKE $${idx} OR c.last_name ILIKE $${idx} OR c.email ILIKE $${idx})`);
     params.push(`%${search}%`);

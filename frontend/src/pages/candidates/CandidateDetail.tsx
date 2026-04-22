@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { openTextingPanel } from '../../components/TextingPanel';
+import NursysLookup from '../../components/NursysLookup';
 import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
@@ -611,6 +613,27 @@ export default function CandidateDetail() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
+            {/* Phase 1.1B — Text Candidate. Opens the global texting panel
+                (TextingPanel component in AppShell) pre-loaded with this
+                candidate. Disabled if no phone on file. */}
+            {candidate.phone && (
+              <button
+                onClick={() => openTextingPanel(candidate.id)}
+                title={`Text ${candidate.phone}`}
+                style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                💬 Text
+              </button>
+            )}
+            {!candidate.phone && (
+              <button
+                disabled
+                title="No phone number on file — add one below to enable texting."
+                style={{ background: '#e2e8f0', color: '#94a3b8', border: 'none', borderRadius: 8, padding: '9px 16px', cursor: 'not-allowed', fontWeight: 600, fontSize: 14 }}
+              >
+                💬 Text (no phone)
+              </button>
+            )}
             {can('candidate_stage_move') && (
               <button
                 onClick={() => setShowMoveStage(true)}
@@ -846,6 +869,14 @@ export default function CandidateDetail() {
               </button>
             )}
           </div>
+          {/* Phase 1.1F — Nursys license lookup helper. Shows above the
+              document list so credentialers can verify licenses quickly. */}
+          <NursysLookup
+            firstName={candidate.first_name}
+            lastName={candidate.last_name}
+            role={candidate.role}
+            state={candidate.state}
+          />
           {documents.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#64748b', fontSize: 14 }}>No documents tracked yet.</div>
           ) : (
