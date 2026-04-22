@@ -24,15 +24,16 @@ async function buildEntityContext(
   try {
     switch (entityType) {
       case 'candidate': {
-        // PII redaction: we deliberately DO NOT select email, phone, address,
-        // zip, or any free-form note field. Names + professional info only.
-        // If the user needs contact details, they view the candidate profile
-        // in-app — those details never leave our server for Anthropic.
+        // PII redaction: we deliberately DO NOT select email, phone, street
+        // address, or zip. Names, professional info, and operational status
+        // only. If the user needs contact details, they view the candidate
+        // profile in-app — those details never leave our server for Anthropic.
         const c = await pool.query(
           `SELECT id, first_name, last_name, role, specialties, skills,
-                  certifications, licenses, years_experience, stage,
-                  desired_pay_rate, availability_start, availability_type, source,
-                  city, state, created_at
+                  certifications, licenses, years_experience, stage, status,
+                  desired_pay_rate, offered_pay_rate, availability_start,
+                  availability_type, available_shifts, source, city, state,
+                  recruiter_notes, created_at, updated_at
            FROM candidates WHERE id = $1`,
           [entityId]
         );
@@ -41,22 +42,53 @@ async function buildEntityContext(
           sections.push(
             `CURRENT CANDIDATE (the user is viewing this record):\n` +
             `- Name: ${r.first_name} ${r.last_name}\n` +
-            `- Role: ${r.role ?? 'unknown'} | Stage: ${r.stage ?? 'unknown'}\n` +
+            `- Role: ${r.role ?? 'unknown'} | Stage: ${r.stage ?? 'unknown'} | Status: ${r.status ?? 'unknown'}\n` +
             `- Location: ${[r.city, r.state].filter(Boolean).join(', ') || 'unknown'}\n` +
             `- Specialties: ${(r.specialties ?? []).join(', ') || 'none'}\n` +
             `- Skills: ${(r.skills ?? []).slice(0, 15).join(', ') || 'none'}\n` +
             `- Certifications: ${(r.certifications ?? []).join(', ') || 'none'}\n` +
             `- Licenses: ${(r.licenses ?? []).join(', ') || 'none'}\n` +
             `- Years experience: ${r.years_experience ?? 'unknown'}\n` +
-            `- Desired pay: ${r.desired_pay_rate ? `$${r.desired_pay_rate}` : 'not specified'}\n` +
-            `- Available: ${r.availability_start ?? 'unknown'} (${r.availability_type ?? 'any'})\n` +
-            `- Source: ${r.source ?? 'unknown'} | Added: ${new Date(r.created_at).toLocaleDateString()}\n` +
-            `- [Contact info (email/phone/address) redacted — visible only in the app]`
+            `- Desired pay: ${r.desired_pay_rate ? `$${r.desired_pay_rate}` : '—'} | Offered: ${r.offered_pay_rate ? `$${r.offered_pay_rate}` : '—'}\n` +
+            `- Available start: ${r.availability_start ?? '?'} (${r.availability_type ?? 'any'})\n` +
+            `- Available shifts: ${(r.available_shifts ?? []).join(', ') || 'not specified'}\n` +
+            `- Recruiter notes: ${(r.recruiter_notes ?? '').slice(0, 400) || '(none)'}\n` +
+            `- Source: ${r.source ?? 'unknown'} | Added: ${new Date(r.created_at).toLocaleDateString()} | Updated: ${new Date(r.updated_at ?? r.created_at).toLocaleDateString()}\n` +
+            `- [Contact info (email/phone/street address) redacted — visible only in the app]`
           );
 
-          // Submissions this candidate is in
+          // Credentialing checklist: every doc row with type, status, expiry.
+          // This is how the AI can say "BLS expired 2024-03-15" instead of
+          // "I don't have visibility into BLS status". Scope-capped to avoid
+          // flooding the prompt if a candidate has dozens of documents.
+          try {
+            const docs = await pool.query(
+              `SELECT document_type, label, status, expiry_date, required, uploaded_at
+               FROM candidate_documents WHERE candidate_id = $1
+               ORDER BY required DESC, status ASC LIMIT 20`,
+              [entityId]
+            );
+            if (docs.rows.length > 0) {
+              sections.push(
+                `CANDIDATE CREDENTIALING CHECKLIST:\n` +
+                docs.rows.map(d => {
+                  const expiry = d.expiry_date ? ` exp:${new Date(d.expiry_date).toISOString().slice(0, 10)}` : '';
+                  const uploaded = d.uploaded_at ? ' (uploaded)' : '';
+                  const req = d.required ? '[required]' : '[optional]';
+                  return `- ${d.label} (${d.document_type}) — ${d.status}${expiry}${uploaded} ${req}`;
+                }).join('\n')
+              );
+            }
+          } catch { /* table may not exist yet */ }
+
+          // Submissions this candidate is in — include interview notes,
+          // schedule, gate status, and AI summary so the assistant can
+          // answer "how did her Mercy interview go?" without asking.
           const subs = await pool.query(
-            `SELECT s.stage_key, s.ai_score, s.ai_fit_label, j.title AS job_title, j.job_code
+            `SELECT s.stage_key, s.ai_score, s.ai_fit_label, s.ai_summary,
+                    s.gate_status, s.interview_scheduled_at, s.interview_notes,
+                    s.bill_rate, s.pay_rate,
+                    j.title AS job_title, j.job_code, j.city AS job_city, j.state AS job_state
              FROM submissions s LEFT JOIN jobs j ON j.id = s.job_id
              WHERE s.candidate_id = $1 ORDER BY s.updated_at DESC LIMIT 5`,
             [entityId]
@@ -64,7 +96,18 @@ async function buildEntityContext(
           if (subs.rows.length > 0) {
             sections.push(
               `CANDIDATE SUBMISSIONS:\n` +
-              subs.rows.map(s => `- ${s.job_title ?? 'Unknown job'} (${s.job_code ?? '—'}) @ ${s.stage_key ?? 'no stage'}${s.ai_score ? ` · AI fit: ${s.ai_fit_label ?? s.ai_score}` : ''}`).join('\n')
+              subs.rows.map(s => {
+                const header = `- ${s.job_title ?? 'Unknown job'} (${s.job_code ?? '—'}) @ ${s.stage_key ?? 'no stage'}${s.ai_score ? ` · AI fit: ${s.ai_fit_label ?? s.ai_score}` : ''}${s.gate_status ? ` · gate:${s.gate_status}` : ''}`;
+                const loc = s.job_city || s.job_state ? `\n    location: ${[s.job_city, s.job_state].filter(Boolean).join(', ')}` : '';
+                const interview = s.interview_scheduled_at
+                  ? `\n    interview: ${new Date(s.interview_scheduled_at).toISOString().slice(0, 16).replace('T', ' ')}`
+                  : '';
+                const notes = s.interview_notes
+                  ? `\n    interview notes: ${String(s.interview_notes).slice(0, 300)}`
+                  : '';
+                const summary = s.ai_summary ? `\n    AI summary: ${String(s.ai_summary).slice(0, 200)}` : '';
+                return header + loc + interview + notes + summary;
+              }).join('\n')
             );
           }
         }
