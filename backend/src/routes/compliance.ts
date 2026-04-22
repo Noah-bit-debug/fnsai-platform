@@ -211,6 +211,92 @@ router.post('/policies', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// ─── Phase 2.1 + 2.7 — Unified "My compliance" rollup ────────────────────────
+//
+// Returns a single snapshot of everything assigned to the calling user:
+// policies, documents, exams, checklists, courses, + any currently
+// overdue credentials. This powers both the My Compliance page (2.1)
+// and the per-user section on Reports / user profile (2.7).
+//
+// Previously MyCompliance only queried comp_competency_records — which
+// misses course completions (comp_course_completions is a separate
+// table). This endpoint stitches them together.
+router.get('/my-all', requireAuth, async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  if (!auth?.userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  // Allow looking up another user if admin. Otherwise self.
+  const targetUserId = (req.query.user_clerk_id as string | undefined) ?? auth.userId;
+
+  try {
+    // Competency records (policies, docs, exams, checklists, bundles assigned)
+    const competency = await query(
+      `SELECT r.id, r.item_type, r.item_id, r.title, r.status,
+              r.assigned_date, r.due_date, r.expiration_date, r.completed_date,
+              r.score, r.ceus
+       FROM comp_competency_records r
+       WHERE r.user_id = (SELECT id FROM users WHERE clerk_user_id = $1)
+       ORDER BY r.assigned_date DESC`,
+      [targetUserId]
+    ).catch((err: any) => {
+      if (err?.code === '42P01') return { rows: [] };
+      throw err;
+    });
+
+    // Course completions (from phase2_courses.sql — separate table)
+    const courses = await query(
+      `SELECT cc.id AS completion_id, cc.course_id, cc.started_at, cc.completed_at,
+              cc.duration_seconds, cc.attestation_signed, cc.quiz_score, cc.passed,
+              c.title, c.description, c.estimated_minutes, c.require_attestation,
+              c.status AS course_status
+       FROM comp_course_completions cc
+       JOIN comp_courses c ON c.id = cc.course_id
+       WHERE cc.user_clerk_id = $1
+       ORDER BY cc.started_at DESC NULLS LAST`,
+      [targetUserId]
+    ).catch((err: any) => {
+      if (err?.code === '42P01') return { rows: [] };
+      throw err;
+    });
+
+    // Summary counts — drives the header pills on My Compliance
+    const summary = {
+      total: competency.rows.length + courses.rows.length,
+      completed: 0,
+      in_progress: 0,
+      overdue: 0,
+      not_started: 0,
+    };
+    const now = Date.now();
+    for (const r of competency.rows) {
+      const status = r.status as string;
+      if (['completed', 'signed', 'read'].includes(status)) summary.completed++;
+      else if (status === 'in_progress') summary.in_progress++;
+      else if (status === 'expired' || status === 'failed') summary.overdue++;
+      else summary.not_started++;
+      // Overdue by due_date regardless of status
+      if (r.due_date && !r.completed_date && new Date(r.due_date as string).getTime() < now) {
+        summary.overdue++;
+      }
+    }
+    for (const c of courses.rows) {
+      if (c.completed_at) summary.completed++;
+      else if (c.started_at) summary.in_progress++;
+      else summary.not_started++;
+    }
+
+    res.json({
+      user_clerk_id: targetUserId,
+      summary,
+      competency: competency.rows,
+      courses: courses.rows,
+    });
+  } catch (err: any) {
+    console.error('GET /compliance/my-all error:', err);
+    res.status(500).json({ error: `Failed to fetch compliance rollup: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
 // ─── Phase 2.3 — Policy AI workflow ──────────────────────────────────────────
 //
 // Two helper endpoints that let admins upload or describe a policy and have
