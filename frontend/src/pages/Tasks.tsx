@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import { tasksApi, usersApi, RecruiterTask, OrgUser } from '../lib/api';
+import { extractApiError } from '../lib/apiErrors';
 
 const TASK_TYPE_EMOJI: Record<string, string> = {
   call: '📞', meeting: '📅', todo: '📝', follow_up: '🔄',
@@ -69,7 +70,7 @@ export default function Tasks() {
       setShowCreate(false);
       await load();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Failed to create');
+      alert(extractApiError(e, 'Failed to create task'));
     } finally { setCreating(false); }
   };
 
@@ -147,9 +148,15 @@ export default function Tasks() {
               <option value="">— Unassigned —</option>
               {users.map((u) => {
                 const isMe = clerkUser && u.clerk_user_id === clerkUser.id;
+                // Prefer the real name; if it's null, show a
+                // human-friendly stub built from the email local-part
+                // (e.g. "noah@fns.com" -> "Noah"). Never show the
+                // raw email in dropdown options.
+                const displayName = u.name
+                  ?? (u.email ? (u.email.split('@')[0] || u.email).replace(/[._]/g, ' ') : 'Unknown user');
                 return (
                   <option key={u.id} value={u.id}>
-                    {isMe ? 'Me' : (u.name || u.email)}{isMe ? '' : ` (${u.role})`}
+                    {isMe ? 'Me' : displayName}{isMe ? '' : ` · ${u.role}`}
                   </option>
                 );
               })}
@@ -338,7 +345,7 @@ function AssigneeInline({
       setEditing(false);
       onReassigned();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Reassign failed');
+      alert(extractApiError(e, 'Reassign failed'));
     } finally { setSaving(false); }
   };
 
@@ -355,7 +362,9 @@ function AssigneeInline({
         <option value="">Unassigned</option>
         {users.map((u) => {
           const isMe = meClerkId && u.clerk_user_id === meClerkId;
-          return <option key={u.id} value={u.id}>{isMe ? 'Me' : (u.name || u.email)}</option>;
+          const displayName = u.name
+            ?? (u.email ? (u.email.split('@')[0] || u.email).replace(/[._]/g, ' ') : 'Unknown user');
+          return <option key={u.id} value={u.id}>{isMe ? 'Me' : displayName}</option>;
         })}
       </select>
       {saving && <span style={{ fontSize: 10, color: 'var(--t3)' }}>saving…</span>}

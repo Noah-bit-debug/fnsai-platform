@@ -243,6 +243,52 @@ app.use(async (req: Request, _res, next) => {
   next();
 });
 
+// ─── Auto-sync users table from Clerk on first authenticated request ──────────
+// The root cause of MANY Phase 1 QA failures: Clerk users that have never had
+// a users table row. Without a row:
+//   - requireRole (SQL-backed) returns 403 for legitimate admins
+//   - assigned_recruiter_id lookups return NULL → auto-assign silently fails
+//   - stage history joins return no name → raw clerk IDs leak to the UI
+//   - assignee dropdowns show email because users.name is unset
+// This middleware upserts a users row on every authenticated request using
+// the user's Clerk identity. Idempotent, cheap, guarded with in-memory cache
+// so we only hit the DB once per process per user.
+const upsertedUserIds = new Set<string>();
+app.use(async (req: Request, _res, next) => {
+  try {
+    const auth = (req as any).auth;
+    const userId: string | undefined = auth?.userId;
+    if (!userId || upsertedUserIds.has(userId)) return next();
+
+    const { clerkClient: cc } = await import('@clerk/express');
+    const user = await cc.users.getUser(userId);
+    const email = user.emailAddresses?.[0]?.emailAddress;
+    if (!email) return next(); // skip users with no email (malformed)
+
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || null;
+    const role = (user.publicMetadata?.role as string | undefined) ?? 'coordinator';
+
+    // INSERT if missing, UPDATE name/email/role otherwise. Keyed on
+    // clerk_user_id which is unique in the schema.
+    await pool.query(
+      `INSERT INTO users (clerk_user_id, email, name, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (clerk_user_id) DO UPDATE
+         SET email = EXCLUDED.email,
+             name  = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+             role  = COALESCE(EXCLUDED.role, users.role),
+             updated_at = NOW()`,
+      [userId, email, name, role]
+    );
+
+    upsertedUserIds.add(userId);
+  } catch (err) {
+    // Never block a request over this. Log so we can debug silent no-ops.
+    console.error('[user-sync] failed for', (req as any).auth?.userId, ':', (err as Error).message);
+  }
+  next();
+});
+
 // Health check (no auth)
 app.get('/health', (_req: Request, res: Response) => {
   res.json({

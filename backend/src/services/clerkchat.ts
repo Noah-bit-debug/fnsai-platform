@@ -41,8 +41,17 @@ export async function sendSMS(to: string, message: string): Promise<SMSSendResul
 
     return response.data;
   } catch (err) {
-    console.error('ClerkChat sendSMS error:', err);
-    throw new Error(`Failed to send SMS to ${to}`);
+    // Surface the actual ClerkChat error instead of a generic wrapper.
+    // Previous "Failed to send SMS to X" hid the real cause (invalid from
+    // number, bad API key, destination rejected, E.164 format wrong, etc).
+    const axiosErr = err as { response?: { status?: number; data?: { error?: string; message?: string } }; message?: string };
+    const providerMsg = axiosErr.response?.data?.error
+      ?? axiosErr.response?.data?.message
+      ?? axiosErr.message
+      ?? 'unknown error';
+    const status = axiosErr.response?.status;
+    console.error('ClerkChat sendSMS error:', { to, status, providerMsg, data: axiosErr.response?.data });
+    throw new Error(`ClerkChat ${status ?? '???'}: ${providerMsg}`);
   }
 }
 

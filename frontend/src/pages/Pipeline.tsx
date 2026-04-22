@@ -8,6 +8,10 @@ import {
   useSensors,
   useDroppable,
   useDraggable,
+  closestCorners,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
@@ -20,6 +24,7 @@ import {
   type PipelineStageColumn,
 } from '../lib/api';
 import { useToast } from '../components/ToastHost';
+import { extractApiError } from '../lib/apiErrors';
 
 /**
  * Candidate Pipeline — Phase 1.4 rewrite.
@@ -62,6 +67,22 @@ export default function Pipeline() {
   const [jobs, setJobs] = useState<Array<{ id: string; title: string; job_code: string }>>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Phase 1 QA fix — drag-drop appeared to do nothing because @dnd-kit's
+  // default rectIntersection collision detection wouldn't find the column
+  // when you dropped a card ON another card (cards are draggable, not
+  // droppable). Custom detection:
+  //   1. First try pointerWithin (pointer landed inside the droppable)
+  //   2. Fall back to rectIntersection (card overlaps column rect)
+  //   3. Fall back to closestCorners (nearest column in viewport)
+  // This matches the pattern @dnd-kit docs recommend for kanban.
+  const collisionDetection: CollisionDetection = (args) => {
+    const pointer = pointerWithin(args);
+    if (pointer.length > 0) return pointer;
+    const rects = rectIntersection(args);
+    if (rects.length > 0) return rects;
+    return closestCorners(args);
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -150,8 +171,7 @@ export default function Pipeline() {
         toast.success(`Moved ${cardsToMove.length} candidates to ${targetStageLabel}`, { ttl: 3000 });
       }
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } }; message?: string };
-      toast.error(`Move failed: ${e?.response?.data?.error ?? e?.message ?? 'unknown'}`);
+      toast.error(`Move failed: ${extractApiError(err, 'unknown')}`);
       setColumns(prev);
     }
   };
@@ -273,7 +293,7 @@ export default function Pipeline() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: 'var(--t3)' }}>Loading pipeline…</div>
       ) : (
-        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={onDragStart} onDragEnd={onDragEnd}>
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12 }}>
             {filteredColumns.map((col) => (
               <StageColumn

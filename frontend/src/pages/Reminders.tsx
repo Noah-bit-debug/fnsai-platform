@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { remindersApi, Reminder } from '../lib/api';
+import { extractApiError } from '../lib/apiErrors';
 
 const STATUS_COLORS: Record<string, string> = {
   scheduled:  '#1565c0',
@@ -97,8 +98,8 @@ function NewReminderModal({ onClose, onCreated }: { onClose: () => void; onCreat
         subject: res.data.subject || f.subject,
         message: res.data.message || f.message,
       }));
-    } catch (e: any) {
-      setErr(e?.response?.data?.error ?? 'AI draft failed.');
+    } catch (e: unknown) {
+      setErr(extractApiError(e, 'AI draft failed.'));
     } finally { setAiBusy(false); }
   };
 
@@ -124,8 +125,8 @@ function NewReminderModal({ onClose, onCreated }: { onClose: () => void; onCreat
       });
       onCreated();
       onClose();
-    } catch (e: any) {
-      setErr(e?.response?.data?.error ?? 'Failed to create reminder.');
+    } catch (e: unknown) {
+      setErr(extractApiError(e, 'Failed to create reminder.'));
     } finally {
       setSaving(false);
     }

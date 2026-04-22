@@ -37,9 +37,24 @@ router.post('/send-direct', requireAuth, async (req: Request, res: Response) => 
   const d = parse.data;
   const auth = getAuth(req);
 
-  // Clean the phone number — strip everything except digits and leading +.
-  const cleanedPhone = d.recipient_phone.trim().replace(/[^\d+]/g, '');
-  if (cleanedPhone.replace(/\D/g, '').length < 10) {
+  // Normalize the phone number to E.164 for ClerkChat / most SMS providers.
+  // Common inputs we handle:
+  //   "832 209 9165"     -> "+18322099165"
+  //   "(832) 209-9165"   -> "+18322099165"
+  //   "18322099165"      -> "+18322099165"
+  //   "+18322099165"     -> "+18322099165"
+  //   "+447911123456"    -> "+447911123456" (kept as-is)
+  const digitsOnly = d.recipient_phone.replace(/\D/g, '');
+  let cleanedPhone: string;
+  if (d.recipient_phone.trim().startsWith('+')) {
+    cleanedPhone = '+' + digitsOnly;  // preserve explicit country code
+  } else if (digitsOnly.length === 10) {
+    cleanedPhone = '+1' + digitsOnly;  // default to US country code for 10-digit numbers
+  } else if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
+    cleanedPhone = '+' + digitsOnly;   // 1-prefixed US number
+  } else if (digitsOnly.length >= 10) {
+    cleanedPhone = '+' + digitsOnly;   // international number without +
+  } else {
     res.status(400).json({ error: 'Invalid phone number — need at least 10 digits.' });
     return;
   }

@@ -59,9 +59,20 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
   if (role) { conditions.push(`c.role = $${idx++}`); params.push(role); }
   if (shift) { conditions.push(`$${idx++} = ANY(c.available_shifts)`); params.push(shift); }
   if (search) {
-    conditions.push(`(c.first_name ILIKE $${idx} OR c.last_name ILIKE $${idx} OR c.email ILIKE $${idx})`);
+    // Phase 1 QA: search placeholder promised role matching but query
+    // didn't include it. Expand to also match role + specialty-array
+    // membership so typing "RN" or "ICU" works as expected.
+    conditions.push(
+      `(c.first_name ILIKE $${idx}
+        OR c.last_name ILIKE $${idx}
+        OR c.email ILIKE $${idx}
+        OR c.role ILIKE $${idx}
+        OR $${idx + 1} = ANY(c.specialties)
+        OR EXISTS (SELECT 1 FROM unnest(c.specialties) sp WHERE sp ILIKE $${idx}))`
+    );
     params.push(`%${search}%`);
-    idx++;
+    params.push(String(search));
+    idx += 2;
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -127,11 +138,25 @@ router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req
          WHERE c.id = $1`,
         [id]
       ),
+      // Phase 1 QA fix: raw clerk_user_ids were leaking through as
+      // moved_by_name for old rows where the INSERT stored auth.userId
+      // (e.g. "user_2xyz...") into moved_by_name instead of a real name.
+      // Two-way lookup: try FK first (csh.moved_by = users.id), then try
+      // treating moved_by_name as a clerk_user_id. Fall back to any
+      // non-clerk-shaped moved_by_name string, then "Unknown user".
       query(
-        `SELECT csh.*, u.name AS moved_by_name
+        `SELECT csh.*,
+                COALESCE(
+                  u_fk.name,
+                  u_clerk.name,
+                  CASE WHEN csh.moved_by_name LIKE 'user_%' THEN NULL ELSE csh.moved_by_name END,
+                  'Unknown user'
+                ) AS moved_by_name
          FROM candidate_stage_history csh
-         LEFT JOIN users u ON csh.moved_by = u.id
-         WHERE csh.candidate_id = $1 ORDER BY csh.created_at ASC`,
+         LEFT JOIN users u_fk    ON csh.moved_by      = u_fk.id
+         LEFT JOIN users u_clerk ON csh.moved_by_name = u_clerk.clerk_user_id
+         WHERE csh.candidate_id = $1
+         ORDER BY csh.created_at ASC`,
         [id]
       ),
       query(`SELECT * FROM candidate_documents WHERE candidate_id = $1 ORDER BY created_at ASC`, [id]),
@@ -561,9 +586,17 @@ router.get('/:id/stage-history', requireAuth, requirePermission('candidates_view
   const { id } = req.params;
   try {
     const result = await query(
-      `SELECT csh.*, u.name AS moved_by_name FROM candidate_stage_history csh
-       LEFT JOIN users u ON csh.moved_by = u.id
-       WHERE csh.candidate_id = $1 ORDER BY csh.created_at ASC`,
+      `SELECT csh.*,
+              COALESCE(
+                u_fk.name, u_clerk.name,
+                CASE WHEN csh.moved_by_name LIKE 'user_%' THEN NULL ELSE csh.moved_by_name END,
+                'Unknown user'
+              ) AS moved_by_name
+       FROM candidate_stage_history csh
+       LEFT JOIN users u_fk    ON csh.moved_by      = u_fk.id
+       LEFT JOIN users u_clerk ON csh.moved_by_name = u_clerk.clerk_user_id
+       WHERE csh.candidate_id = $1
+       ORDER BY csh.created_at ASC`,
       [id]
     );
     res.json({ history: result.rows });
