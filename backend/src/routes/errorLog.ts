@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { getAuth } from '@clerk/express';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireClerkAdmin } from '../middleware/auth';
 
 /**
  * In-memory error log. Zero external dependency / zero cost — holds the
@@ -98,7 +98,7 @@ router.post('/client', requireAuth, (req: Request, res: Response) => {
 });
 
 // Admin-only: read buffer
-router.get('/', requireAuth, requireRole(['ceo', 'admin']), (req: Request, res: Response) => {
+router.get('/', requireAuth, requireClerkAdmin, (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit) || 50, MAX_ENTRIES);
   const source = typeof req.query.source === 'string' ? req.query.source : null;
   const level = typeof req.query.level === 'string' ? req.query.level : null;
@@ -110,7 +110,7 @@ router.get('/', requireAuth, requireRole(['ceo', 'admin']), (req: Request, res: 
   res.json({ entries, buffer_size: buffer.length, max: MAX_ENTRIES });
 });
 
-router.delete('/', requireAuth, requireRole(['ceo', 'admin']), (_req: Request, res: Response) => {
+router.delete('/', requireAuth, requireClerkAdmin, (_req: Request, res: Response) => {
   buffer.length = 0;
   res.json({ ok: true, cleared: true });
 });

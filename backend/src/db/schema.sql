@@ -1,4 +1,4 @@
--- SentrixAI Database Schema
+-- FNS AI Database Schema
 -- PostgreSQL 15+
 
 -- Users (synced from Clerk)

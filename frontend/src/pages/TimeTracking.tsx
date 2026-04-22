@@ -148,13 +148,13 @@ function ExtensionModal({ onClose }: { onClose: () => void }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 32, width: '100%', maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: '#1a2b3c', marginBottom: 8 }}>Install SentrixAI Extension</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: '#1a2b3c', marginBottom: 8 }}>Install FNS AI Extension</div>
         <p style={{ fontSize: 14, color: '#64748b', marginBottom: 20 }}>The browser extension enables automatic time tracking based on your active browser sessions.</p>
         <ol style={{ fontSize: 14, color: '#374151', paddingLeft: 20, lineHeight: 1.9, marginBottom: 20 }}>
           <li>Open the Chrome Web Store / Edge Add-ons</li>
-          <li>Search for <strong>SentrixAI Time Tracker</strong></li>
+          <li>Search for <strong>FNS AI Time Tracker</strong></li>
           <li>Click <strong>Add to Browser</strong></li>
-          <li>Sign in with your SentrixAI account</li>
+          <li>Sign in with your FNS AI account</li>
           <li>Tracking begins automatically during scheduled hours</li>
         </ol>
         <div style={{ background: '#f0f9ff', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#0369a1', marginBottom: 24 }}>
@@ -407,7 +407,7 @@ export default function TimeTracking() {
         <div style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', borderRadius: 16, border: '1px solid #bfdbfe', padding: '22px 28px', display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 32 }}>🧩</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#1e40af', marginBottom: 4 }}>Install the SentrixAI Browser Extension</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1e40af', marginBottom: 4 }}>Install the FNS AI Browser Extension</div>
             <div style={{ fontSize: 14, color: '#3b82f6' }}>Enable automatic time tracking based on your active browser sessions.</div>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>

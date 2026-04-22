@@ -1,6 +1,48 @@
 import { Request, Response, NextFunction } from 'express';
-import { getAuth } from '@clerk/express';
+import { getAuth, clerkClient } from '@clerk/express';
 import { query } from '../db/client';
+
+/**
+ * DB-free admin check — verifies the caller has admin/ceo role directly
+ * from Clerk's publicMetadata instead of the users SQL table. Use this
+ * for any operational/debug endpoint that must work even when the DB is
+ * partial or broken (the users table row sync runs off a trigger that
+ * doesn't always fire, so the SQL-backed requireRole can 403 legitimate
+ * admins on edge cases).
+ *
+ * Also honors ADMIN_BOOTSTRAP_CLERK_USER_IDS env var as a belt-and-
+ * suspenders allowlist for initial bootstrap.
+ */
+export async function requireClerkAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const auth = getAuth(req);
+  if (!auth?.userId) {
+    res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
+    return;
+  }
+
+  const bootstrapIds = (process.env.ADMIN_BOOTSTRAP_CLERK_USER_IDS ?? '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  if (bootstrapIds.includes(auth.userId)) {
+    next();
+    return;
+  }
+
+  try {
+    const user = await clerkClient.users.getUser(auth.userId);
+    const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase();
+    if (role === 'admin' || role === 'ceo') {
+      next();
+      return;
+    }
+    res.status(403).json({
+      error: 'Forbidden',
+      message: `Clerk role '${role ?? 'none'}' does not have admin access`,
+    });
+  } catch (err) {
+    console.error('[auth] requireClerkAdmin Clerk lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to verify admin role via Clerk' });
+  }
+}
 
 export interface AuthenticatedRequest extends Request {
   userRecord?: {

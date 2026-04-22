@@ -1,5 +1,5 @@
 -- =============================================================================
--- SentrixAI Compliance Phase 1 Migration
+-- FNS AI Compliance Phase 1 Migration
 -- PostgreSQL 15+
 -- Run: psql $DATABASE_URL -f compliance_phase1_migration.sql
 -- =============================================================================

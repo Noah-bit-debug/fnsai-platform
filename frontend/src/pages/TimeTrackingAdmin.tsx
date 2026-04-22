@@ -215,7 +215,7 @@ function AddOverrideModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
 function DisclosureModal({ onClose }: { onClose: () => void }) {
   const template = `EMPLOYEE DISCLOSURE — BROWSER ACTIVITY METADATA TRACKING
 
-Effective as of your first day of employment with this organization, your employer uses the SentrixAI Time Tracking system to monitor browser activity metadata during your scheduled work hours.
+Effective as of your first day of employment with this organization, your employer uses the FNS AI Time Tracking system to monitor browser activity metadata during your scheduled work hours.
 
 WHAT IS TRACKED:
 - Domains visited (e.g., "github.com") — page content is NOT recorded
