@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { bdApi, BDLead, BDContact, BDFollowup } from '../lib/api';
+import BidsTab from '../components/BD/BidsTab';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Lead {
@@ -35,8 +37,84 @@ interface Followup {
   status: 'pending' | 'done';
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Phase 4.3 — translate backend snake_case ↔ frontend camelCase. The
+// existing UI was built around camelCase field names, and the backend
+// uses snake_case for columns. We convert at the API boundary so the
+// rendering code and Modal components keep working unchanged.
+function leadFromApi(b: BDLead): Lead {
+  return {
+    id: b.id,
+    company: b.company,
+    contactName: b.contact_name ?? '',
+    phone: b.phone ?? '',
+    email: b.email ?? '',
+    status: b.status,
+    source: b.source,
+    lastContact: b.last_contact ?? '',
+    nextFollowUp: b.next_follow_up ?? '',
+    notes: b.notes ?? '',
+  };
+}
+function leadToApi(l: Omit<Lead, 'id'>): Partial<BDLead> {
+  return {
+    company: l.company,
+    contact_name: l.contactName || null,
+    phone: l.phone || null,
+    email: l.email || null,
+    status: l.status,
+    source: l.source,
+    last_contact: l.lastContact || null,
+    next_follow_up: l.nextFollowUp || null,
+    notes: l.notes || null,
+  };
+}
+function contactFromApi(c: BDContact): Contact {
+  return {
+    id: c.id,
+    name: c.name,
+    title: c.title ?? '',
+    company: c.company ?? '',
+    email: c.email ?? '',
+    phone: c.phone ?? '',
+    lastContact: c.last_contact ?? '',
+    notes: c.notes ?? '',
+  };
+}
+function contactToApi(c: Omit<Contact, 'id'>): Partial<BDContact> {
+  return {
+    name: c.name,
+    title: c.title || null,
+    company: c.company || null,
+    email: c.email || null,
+    phone: c.phone || null,
+    last_contact: c.lastContact || null,
+    notes: c.notes || null,
+  };
+}
+function followupFromApi(f: BDFollowup): Followup {
+  return {
+    id: f.id,
+    companyContact: f.company_contact,
+    followUpDate: f.follow_up_date,
+    type: f.type,
+    priority: f.priority,
+    status: f.status,
+    notes: f.notes ?? '',
+  };
+}
+function followupToApi(f: Omit<Followup, 'id'>): Partial<BDFollowup> {
+  return {
+    company_contact: f.companyContact,
+    follow_up_date: f.followUpDate,
+    type: f.type,
+    priority: f.priority,
+    status: f.status,
+    notes: f.notes || null,
+  };
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
-const STORAGE_KEY = 'fns_bizdev_data';
 
 const LEAD_STATUS_COLORS: Record<Lead['status'], string> = {
   prospect:    '#546e7a',
@@ -67,97 +145,9 @@ const TYPE_COLORS: Record<Followup['type'], string> = {
   meeting: '#00695c',
 };
 
-const SAMPLE_LEADS: Lead[] = [
-  {
-    id: 'l1',
-    company: 'Memorial Health Network',
-    contactName: 'Patricia Walsh',
-    phone: '(713) 555-0198',
-    email: 'p.walsh@memorialhealth.org',
-    status: 'qualified',
-    source: 'referral',
-    lastContact: '2026-04-08',
-    nextFollowUp: '2026-04-15',
-    notes: 'Needs 3 RNs for ICU starting May. Budget confirmed.',
-  },
-  {
-    id: 'l2',
-    company: 'Sunrise Senior Living',
-    contactName: 'Derek Nguyen',
-    phone: '(832) 555-0247',
-    email: 'd.nguyen@sunriseliving.com',
-    status: 'proposal',
-    source: 'linkedin',
-    lastContact: '2026-04-10',
-    nextFollowUp: '2026-04-14',
-    notes: 'Sent proposal for 5 CNAs. Follow up on pricing.',
-  },
-  {
-    id: 'l3',
-    company: 'Gulf Coast Medical Center',
-    contactName: 'Sandra Reyes',
-    phone: '(281) 555-0312',
-    email: 's.reyes@gulfcoastmed.com',
-    status: 'prospect',
-    source: 'cold_call',
-    lastContact: '2026-04-05',
-    nextFollowUp: '2026-04-20',
-    notes: 'Initial call done. Decision maker is the DON.',
-  },
-];
-
-const SAMPLE_CONTACTS: Contact[] = [
-  {
-    id: 'c1',
-    name: 'Patricia Walsh',
-    title: 'Director of Nursing',
-    company: 'Memorial Health Network',
-    email: 'p.walsh@memorialhealth.org',
-    phone: '(713) 555-0198',
-    lastContact: '2026-04-08',
-    notes: 'Key decision maker for temp staffing.',
-  },
-  {
-    id: 'c2',
-    name: 'Derek Nguyen',
-    title: 'HR Manager',
-    company: 'Sunrise Senior Living',
-    email: 'd.nguyen@sunriseliving.com',
-    phone: '(832) 555-0247',
-    lastContact: '2026-04-10',
-    notes: 'Prefers email contact.',
-  },
-];
-
-const SAMPLE_FOLLOWUPS: Followup[] = [
-  {
-    id: 'f1',
-    companyContact: 'Memorial Health Network — Patricia Walsh',
-    followUpDate: '2026-04-15',
-    type: 'call',
-    priority: 'high',
-    notes: 'Confirm ICU RN start dates and rates.',
-    status: 'pending',
-  },
-  {
-    id: 'f2',
-    companyContact: 'Sunrise Senior Living — Derek Nguyen',
-    followUpDate: '2026-04-14',
-    type: 'email',
-    priority: 'high',
-    notes: 'Send revised pricing on CNA proposal.',
-    status: 'pending',
-  },
-  {
-    id: 'f3',
-    companyContact: 'Gulf Coast Medical Center — Sandra Reyes',
-    followUpDate: '2026-04-20',
-    type: 'meeting',
-    priority: 'medium',
-    notes: 'Schedule intro meeting with DON.',
-    status: 'pending',
-  },
-];
+// Phase 4.3 — the sample LEADS/CONTACTS/FOLLOWUPS arrays that used to
+// live here as localStorage seed data have been removed. Data now loads
+// from the backend (bd_leads / bd_contacts / bd_followups) on mount.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
@@ -393,7 +383,11 @@ function FollowupModal({ onClose, onSave }: {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-type Tab = 'leads' | 'contacts' | 'followups';
+// Phase 4 — Bids tab added to the tab union. The existing three tabs
+// still work the same way from the user's perspective, but their data
+// now lives in Postgres (bd_leads / bd_contacts / bd_followups) instead
+// of localStorage.
+type Tab = 'leads' | 'contacts' | 'followups' | 'bids';
 
 export default function BusinessDev() {
   const [tab, setTab] = useState<Tab>('leads');
@@ -402,7 +396,7 @@ export default function BusinessDev() {
   const [leads, setLeads]       = useState<Lead[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [followups, setFollowups] = useState<Followup[]>([]);
-  const [initialized, setInitialized] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Lead UI state
   const [leadSearch, setLeadSearch]       = useState('');
@@ -420,69 +414,90 @@ export default function BusinessDev() {
   const [showAllFollowups, setShowAllFollowups]   = useState(false);
   const [followupSort, setFollowupSort]           = useState<'date' | 'priority'>('date');
 
-  // ── Load from localStorage ────────────────────────────────────────────────
+  // ── Load from backend ─────────────────────────────────────────────────────
+  // Phase 4.3 — three parallel GETs on mount. Replaces the old
+  // localStorage hydration. Data now persists across sessions / devices
+  // and is visible to teammates.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setLeads(parsed.leads ?? SAMPLE_LEADS);
-        setContacts(parsed.contacts ?? SAMPLE_CONTACTS);
-        setFollowups(parsed.followups ?? SAMPLE_FOLLOWUPS);
-      } else {
-        setLeads(SAMPLE_LEADS);
-        setContacts(SAMPLE_CONTACTS);
-        setFollowups(SAMPLE_FOLLOWUPS);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [lRes, cRes, fRes] = await Promise.all([
+          bdApi.listLeads(),
+          bdApi.listContacts(),
+          bdApi.listFollowups(),
+        ]);
+        if (cancelled) return;
+        setLeads(lRes.data.leads.map(leadFromApi));
+        setContacts(cRes.data.contacts.map(contactFromApi));
+        setFollowups(fRes.data.followups.map(followupFromApi));
+      } catch (e: any) {
+        if (!cancelled) setLoadError(e?.response?.data?.error ?? e?.message ?? 'Failed to load BD data.');
       }
-    } catch {
-      setLeads(SAMPLE_LEADS);
-      setContacts(SAMPLE_CONTACTS);
-      setFollowups(SAMPLE_FOLLOWUPS);
-    }
-    setInitialized(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  // ── Save to localStorage ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!initialized) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ leads, contacts, followups }));
-  }, [leads, contacts, followups, initialized]);
-
-  // ── Lead actions ──────────────────────────────────────────────────────────
-  function saveLead(data: Omit<Lead, 'id'>, id?: string) {
-    if (id) {
-      setLeads(prev => prev.map(l => l.id === id ? { ...data, id } : l));
-    } else {
-      setLeads(prev => [...prev, { ...data, id: `l${Date.now()}` }]);
-    }
+  // ── Lead actions (API-backed) ─────────────────────────────────────────────
+  // Each handler hits the backend and then patches local state on success
+  // so we don't have to re-fetch the full list every time.
+  async function saveLead(data: Omit<Lead, 'id'>, id?: string) {
+    try {
+      if (id) {
+        const { data: updated } = await bdApi.updateLead(id, leadToApi(data));
+        setLeads(prev => prev.map(l => l.id === id ? leadFromApi(updated) : l));
+      } else {
+        const { data: created } = await bdApi.createLead(leadToApi(data));
+        setLeads(prev => [leadFromApi(created), ...prev]);
+      }
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Save failed.'); }
   }
-  function markLeadStatus(id: string, status: Lead['status']) {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, status } : l));
+  async function markLeadStatus(id: string, status: Lead['status']) {
+    try {
+      const { data: updated } = await bdApi.updateLead(id, { status });
+      setLeads(prev => prev.map(l => l.id === id ? leadFromApi(updated) : l));
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Update failed.'); }
   }
-  function deleteLead(id: string) {
+  async function deleteLead(id: string) {
     if (!confirm('Remove this lead?')) return;
-    setLeads(prev => prev.filter(l => l.id !== id));
+    try {
+      await bdApi.deleteLead(id);
+      setLeads(prev => prev.filter(l => l.id !== id));
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Delete failed.'); }
   }
 
-  // ── Contact actions ────────────────────────────────────────────────────────
-  function saveContact(data: Omit<Contact, 'id'>, id?: string) {
-    if (id) {
-      setContacts(prev => prev.map(c => c.id === id ? { ...data, id } : c));
-    } else {
-      setContacts(prev => [...prev, { ...data, id: `c${Date.now()}` }]);
-    }
+  // ── Contact actions (API-backed) ──────────────────────────────────────────
+  async function saveContact(data: Omit<Contact, 'id'>, id?: string) {
+    try {
+      if (id) {
+        const { data: updated } = await bdApi.updateContact(id, contactToApi(data));
+        setContacts(prev => prev.map(c => c.id === id ? contactFromApi(updated) : c));
+      } else {
+        const { data: created } = await bdApi.createContact(contactToApi(data));
+        setContacts(prev => [contactFromApi(created), ...prev]);
+      }
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Save failed.'); }
   }
-  function deleteContact(id: string) {
+  async function deleteContact(id: string) {
     if (!confirm('Remove this contact?')) return;
-    setContacts(prev => prev.filter(c => c.id !== id));
+    try {
+      await bdApi.deleteContact(id);
+      setContacts(prev => prev.filter(c => c.id !== id));
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Delete failed.'); }
   }
 
-  // ── Followup actions ───────────────────────────────────────────────────────
-  function saveFollowup(data: Omit<Followup, 'id'>) {
-    setFollowups(prev => [...prev, { ...data, id: `f${Date.now()}` }]);
+  // ── Followup actions (API-backed) ─────────────────────────────────────────
+  async function saveFollowup(data: Omit<Followup, 'id'>) {
+    try {
+      const { data: created } = await bdApi.createFollowup(followupToApi(data));
+      setFollowups(prev => [followupFromApi(created), ...prev]);
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Save failed.'); }
   }
-  function markFollowupDone(id: string) {
-    setFollowups(prev => prev.map(f => f.id === id ? { ...f, status: 'done' } : f));
+  async function markFollowupDone(id: string) {
+    try {
+      const { data: updated } = await bdApi.updateFollowup(id, { status: 'done' });
+      setFollowups(prev => prev.map(f => f.id === id ? followupFromApi(updated) : f));
+    } catch (e: any) { alert(e?.response?.data?.error ?? 'Update failed.'); }
   }
 
   // ── Filtered data ─────────────────────────────────────────────────────────
@@ -513,6 +528,7 @@ export default function BusinessDev() {
     { key: 'leads',    label: `Leads (${leads.length})` },
     { key: 'contacts', label: `Contacts (${contacts.length})` },
     { key: 'followups', label: `Follow-ups (${followups.filter(f => f.status === 'pending').length} pending)` },
+    { key: 'bids',     label: 'Bids' },
   ];
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -564,6 +580,15 @@ export default function BusinessDev() {
           </div>
         </div>
       </div>
+
+      {/* Load error banner — shows if any of the three initial GETs failed.
+          Only affects leads/contacts/follow-ups; Bids tab handles its own
+          errors independently. */}
+      {loadError && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+          <strong>Could not load BD data:</strong> {loadError}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e8edf2', marginBottom: 20, overflow: 'hidden' }}>
@@ -724,6 +749,9 @@ export default function BusinessDev() {
             )}
           </div>
         )}
+
+        {/* ── BIDS TAB (Phase 4.2) ─────────────────────────────────────────── */}
+        {tab === 'bids' && <BidsTab />}
 
         {/* ── FOLLOW-UPS TAB ────────────────────────────────────────────────── */}
         {tab === 'followups' && (

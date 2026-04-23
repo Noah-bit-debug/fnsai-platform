@@ -68,6 +68,8 @@ import notificationPrefsRouter from './routes/notificationPrefs';
 import errorLogRouter, { errorCaptureMiddleware } from './routes/errorLog';
 import adminRouter from './routes/admin';
 import docTypesRouter from './routes/docTypes';
+// Phase 4
+import businessDevRouter from './routes/businessDev';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -360,6 +362,8 @@ app.use('/api/v1/notification-prefs', notificationPrefsRouter);
 app.use('/api/v1/error-log', errorLogRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/doc-types', docTypesRouter);
+// Phase 4 — Business Development (bids + leads + contacts + follow-ups)
+app.use('/api/v1/bd', businessDevRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -401,6 +405,8 @@ async function runMigrations(): Promise<void> {
     'notification_prefs_migration.sql',
     'phase2_document_types.sql',
     'phase2_courses.sql',
+    'phase4_bd_bids.sql',
+    'phase4_bd_core.sql',
   ];
 
   const client = await pool.connect();

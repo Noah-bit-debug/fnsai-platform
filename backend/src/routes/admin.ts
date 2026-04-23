@@ -61,6 +61,8 @@ const MIGRATION_FILES = [
   'notification_prefs_migration.sql',
   'phase2_document_types.sql',
   'phase2_courses.sql',
+  'phase4_bd_bids.sql',
+  'phase4_bd_core.sql',
 ];
 
 interface MigrationResult {

@@ -253,6 +253,130 @@ export const incidentsApi = {
   create: (data: Partial<Incident>) => api.post<Incident>('/incidents', data),
   update: (id: string, data: Partial<Incident>) => api.put<Incident>(`/incidents/${id}`, data),
   close: (id: string) => api.delete(`/incidents/${id}`),
+  // Phase 4.1 — AI-assisted incident report creation.
+  // aiNextQuestion: given context + answers so far, return the next question (or { done }).
+  // aiDraft: given the full answer set, return a narrative for the description textarea.
+  aiNextQuestion: (data: {
+    type: string;
+    staff_name?: string | null;
+    facility_name?: string | null;
+    answers: { question: string; answer: string }[];
+  }) => api.post<{ done: boolean; question?: string }>('/incidents/ai-next-question', data),
+  aiDraft: (data: {
+    type: string;
+    staff_name?: string | null;
+    facility_name?: string | null;
+    date?: string | null;
+    answers: { question: string; answer: string }[];
+  }) => api.post<{ description: string }>('/incidents/ai-draft', data),
+};
+
+// ─── Phase 4 — Business Development ───────────────────────────────────────
+// Bids + Leads + Contacts + Follow-ups. Backend mounted at /api/v1/bd/*.
+export interface BDBid {
+  id: string;
+  title: string;
+  client_name?: string | null;
+  facility_id?: string | null;
+  facility_name?: string | null;
+  status: 'draft' | 'in_progress' | 'submitted' | 'won' | 'lost';
+  due_date?: string | null;
+  estimated_value?: number | null;
+  assigned_to?: string | null;
+  notes?: string | null;
+  checklist_total?: number;
+  checklist_completed?: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface BDBidChecklistItem {
+  id: string;
+  bid_id: string;
+  label: string;
+  required: boolean;
+  completed: boolean;
+  completed_at?: string | null;
+  completed_by?: string | null;
+  order_index: number;
+}
+export interface BDBidStats {
+  open_count: number;
+  open_value: number;
+  won_count: number;
+  lost_count: number;
+  win_rate: number | null;
+  due_this_week: number;
+}
+export interface BDLead {
+  id: string;
+  company: string;
+  contact_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  status: 'prospect' | 'qualified' | 'proposal' | 'negotiating' | 'closed' | 'lost';
+  source: 'cold_call' | 'referral' | 'website' | 'linkedin' | 'event';
+  last_contact?: string | null;
+  next_follow_up?: string | null;
+  notes?: string | null;
+}
+export interface BDContact {
+  id: string;
+  name: string;
+  title?: string | null;
+  company?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  last_contact?: string | null;
+  notes?: string | null;
+}
+export interface BDFollowup {
+  id: string;
+  company_contact: string;
+  follow_up_date: string;
+  type: 'call' | 'email' | 'meeting';
+  priority: 'high' | 'medium' | 'low';
+  status: 'pending' | 'done';
+  notes?: string | null;
+}
+
+export const bdApi = {
+  // Bids
+  listBids: (params?: { status?: string; assigned_to?: string }) =>
+    api.get<{ bids: BDBid[] }>('/bd/bids', { params }),
+  getBid: (id: string) =>
+    api.get<{ bid: BDBid; checklist: BDBidChecklistItem[] }>(`/bd/bids/${id}`),
+  createBid: (data: Partial<BDBid> & { checklist?: { label: string; required?: boolean }[] }) =>
+    api.post<{ bid: BDBid; checklist: BDBidChecklistItem[] }>('/bd/bids', data),
+  updateBid: (id: string, data: Partial<BDBid>) =>
+    api.put<BDBid>(`/bd/bids/${id}`, data),
+  deleteBid: (id: string) => api.delete(`/bd/bids/${id}`),
+  addChecklistItem: (bidId: string, data: { label: string; required?: boolean }) =>
+    api.post<BDBidChecklistItem>(`/bd/bids/${bidId}/checklist`, data),
+  updateChecklistItem: (bidId: string, itemId: string, data: Partial<BDBidChecklistItem>) =>
+    api.put<BDBidChecklistItem>(`/bd/bids/${bidId}/checklist/${itemId}`, data),
+  deleteChecklistItem: (bidId: string, itemId: string) =>
+    api.delete(`/bd/bids/${bidId}/checklist/${itemId}`),
+  bidStats: () => api.get<BDBidStats>('/bd/bids-stats'),
+  aiDraftBid: (data: { context: string; client_name?: string | null }) =>
+    api.post<{ title: string; notes: string; checklist: { label: string; required: boolean }[] }>('/bd/bids/ai-draft', data),
+
+  // Leads
+  listLeads: () => api.get<{ leads: BDLead[] }>('/bd/leads'),
+  createLead: (data: Partial<BDLead>) => api.post<BDLead>('/bd/leads', data),
+  updateLead: (id: string, data: Partial<BDLead>) => api.put<BDLead>(`/bd/leads/${id}`, data),
+  deleteLead: (id: string) => api.delete(`/bd/leads/${id}`),
+
+  // Contacts
+  listContacts: () => api.get<{ contacts: BDContact[] }>('/bd/contacts'),
+  createContact: (data: Partial<BDContact>) => api.post<BDContact>('/bd/contacts', data),
+  updateContact: (id: string, data: Partial<BDContact>) => api.put<BDContact>(`/bd/contacts/${id}`, data),
+  deleteContact: (id: string) => api.delete(`/bd/contacts/${id}`),
+
+  // Follow-ups
+  listFollowups: () => api.get<{ followups: BDFollowup[] }>('/bd/followups'),
+  createFollowup: (data: Partial<BDFollowup>) => api.post<BDFollowup>('/bd/followups', data),
+  updateFollowup: (id: string, data: Partial<BDFollowup>) => api.put<BDFollowup>(`/bd/followups/${id}`, data),
+  deleteFollowup: (id: string) => api.delete(`/bd/followups/${id}`),
 };
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────

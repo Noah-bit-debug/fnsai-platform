@@ -54,4 +54,12 @@ export const MODEL_FOR = {
 
   // Time-tracking anomaly / natural-language queries — Sonnet.
   timeTracking:      SONNET,
+
+  // Phase 4 — Incident report drafting: guided questions + narrative
+  // generation. Needs to understand context + write clearly. Sonnet.
+  incidentDraft:     SONNET,
+
+  // Phase 4 — Business Development bid drafting: generate title +
+  // checklist + draft notes from an RFP / description. Sonnet for copy.
+  bidDraft:          SONNET,
 } as const;

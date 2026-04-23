@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { incidentsApi, staffApi, facilitiesApi, Incident, Staff, Facility } from '../lib/api';
 import QueryState, { EmptyCta } from '../components/QueryState';
+import AIGuidedInterview from '../components/Incidents/AIGuidedInterview';
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—';
@@ -55,10 +55,13 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function Incidents() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>({ ...EMPTY_FORM });
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Phase 4.1 — AI guided interview modal. Fully optional: clicking the
+  // "✦ Start AI Guided Report" button opens it; the Description textarea
+  // below is always manually editable regardless.
+  const [showAI, setShowAI] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['incidents'],
@@ -283,16 +286,40 @@ export default function Incidents() {
           >
             {createMut.isPending ? 'Submitting…' : 'Submit Report'}
           </button>
+          {/* Phase 4.1 — AI-guided interview. Previously this button just
+              navigated to /ai-assistant (a separate page) which lost the
+              incident context. Now it opens an inline modal that asks
+              targeted questions about THIS incident and generates a
+              narrative for the Description field. Manual mode (typing in
+              the textarea above) is always available — this button is
+              purely optional assistance. */}
           <button
             className="btn btn-ghost btn-sm"
             type="button"
             style={{ marginLeft: 8, color: 'var(--pu)' }}
-            onClick={() => navigate('/ai-assistant')}
+            onClick={() => setShowAI(true)}
+            title="Let the AI ask a few questions and draft the description for you. Manual editing is always available."
           >
-            ✦ Ask AI What to Include
+            ✦ Start AI Guided Report
           </button>
         </div>
       </div>
+
+      {/* AI guided-interview modal. Writes to the Description field only
+          when the user clicks "Use this description". Closing without
+          accepting leaves the form untouched. */}
+      {showAI && (
+        <AIGuidedInterview
+          type={form.type}
+          staffName={staff.find(s => s.id === form.staff_id)
+            ? `${staff.find(s => s.id === form.staff_id)!.first_name} ${staff.find(s => s.id === form.staff_id)!.last_name}`
+            : null}
+          facilityName={facilities.find(f => f.id === form.facility_id)?.name ?? null}
+          date={form.date || null}
+          onAccept={(description) => setForm(prev => ({ ...prev, description }))}
+          onClose={() => setShowAI(false)}
+        />
+      )}
 
       {/* Closed/Resolved Incidents */}
       <div className="pn">
