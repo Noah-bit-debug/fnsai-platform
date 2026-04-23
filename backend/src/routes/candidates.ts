@@ -39,8 +39,16 @@ const candidateSchema = z.object({
   source: z.string().max(200).optional().nullable(),
 });
 
+// Phase 1.4 QA fix — the enum previously only accepted the 7 legacy
+// stage keys. But Phase 1.4 introduced dynamic pipeline_stages rows
+// (12 default: new_lead, screening, interview, internal_review,
+// submitted, client_submitted, offer, credentialing, onboarding,
+// placed, rejected, withdrawn). Every move to one of the NEW keys
+// was rejected with a zod validation 400 before the handler even ran.
+// Now we accept any non-empty string at the edge; the handler below
+// validates it exists in the pipeline_stages table before any DB write.
 const stageSchema = z.object({
-  stage: z.enum(['application','interview','credentialing','onboarding','placed','rejected','withdrawn']),
+  stage: z.string().min(1).max(50),
   notes: z.string().max(2000).optional().nullable(),
 });
 
@@ -287,6 +295,26 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
   const auth = getAuth(req);
   const { stage, notes } = parse.data;
   try {
+    // Phase 1.4 QA fix — validate that the requested stage is one the
+    // admin has actually configured. Falls back to the legacy 7 keys
+    // if the pipeline_stages table doesn't exist (fresh DB before that
+    // migration ran).
+    const LEGACY_STAGES = ['application','interview','credentialing','onboarding','placed','rejected','withdrawn'];
+    let validStageKeys: string[] = LEGACY_STAGES;
+    try {
+      const stagesRes = await query<{ key: string }>(`SELECT key FROM pipeline_stages WHERE active = TRUE`);
+      if (stagesRes.rows.length > 0) {
+        validStageKeys = stagesRes.rows.map((r) => r.key);
+      }
+    } catch { /* table missing — fall through to legacy list */ }
+
+    if (!validStageKeys.includes(stage)) {
+      res.status(400).json({
+        error: `Unknown stage '${stage}'. Valid stages: ${validStageKeys.join(', ')}`,
+      });
+      return;
+    }
+
     const current = await query(
       `SELECT stage, target_facility_id FROM candidates WHERE id = $1`,
       [id]
