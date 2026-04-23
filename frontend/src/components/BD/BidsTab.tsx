@@ -27,9 +27,15 @@ function fmtMoney(n: number | null | undefined): string {
   if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`;
   return `$${Math.round(n).toLocaleString()}`;
 }
+// Phase 4.4 QA fix — DATE-only or midnight-UTC ISO = treat as local
+// date (bid.due_date). Otherwise normal Date parsing. See Contracts.tsx.
 function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
-  try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
+  const s = String(iso);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/;
+  const m = dateOnly.exec(s);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString();
+  try { return new Date(s).toLocaleDateString(); } catch { return s; }
 }
 
 const STATUS_COLORS: Record<BDBid['status'], string> = {

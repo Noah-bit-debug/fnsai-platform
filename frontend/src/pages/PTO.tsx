@@ -15,7 +15,16 @@ import { ptoApi, staffApi, PtoRequest, PtoBalance, Staff } from '../lib/api';
 const TYPE_COLORS = { vacation: '#1565c0', sick: '#e65100', personal: '#6a1b9a', unpaid: '#64748b' };
 const STATUS_COLORS = { pending: '#e65100', approved: '#2e7d32', denied: '#c62828', cancelled: '#64748b' };
 
-function fmtDate(iso?: string | null): string { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString(); } catch { return iso; } }
+// Phase 4.4 QA fix — see same comment in Contracts.tsx. DATE-only or
+// midnight-UTC ISO = treat as local date. Otherwise let Date() parse.
+function fmtDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const s = String(iso);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/;
+  const m = dateOnly.exec(s);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString();
+  try { return new Date(s).toLocaleDateString(); } catch { return s; }
+}
 
 export default function PTO() {
   const [tab, setTab] = useState<'requests' | 'balances'>('requests');

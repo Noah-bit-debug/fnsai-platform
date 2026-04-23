@@ -150,3 +150,21 @@ CREATE INDEX IF NOT EXISTS idx_bd_rfps_received_at  ON bd_rfps(received_at DESC)
 
 -- No revenue_forecasts table — projections compute from bd_bids in the
 -- route handler so they stay fresh without a recomputation job.
+
+-- ─── Phase 4.4 QA fix — allow NULL facility_id on timesheets ──────────────
+--
+-- The Timekeeping page's facility dropdown was effectively blocking
+-- submissions during QA (empty for users whose facilities haven't been
+-- wired up yet, or when a timesheet genuinely isn't facility-bound like
+-- orientation hours). Relaxing the NOT NULL matches the pattern in
+-- Incidents (facility optional) and Scheduling (facility optional).
+-- Idempotent — no-op if already nullable.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'timesheets' AND column_name = 'facility_id' AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE timesheets ALTER COLUMN facility_id DROP NOT NULL;
+  END IF;
+END $$;

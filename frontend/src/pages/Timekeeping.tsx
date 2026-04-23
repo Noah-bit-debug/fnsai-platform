@@ -30,31 +30,49 @@ export default function Timekeeping() {
 
   async function loadAll() {
     setLoading(true); setError(null);
-    try {
-      const [tRes, sRes, fRes] = await Promise.all([
-        timekeepingApi.list(statusFilter ? { status: statusFilter } : undefined),
-        staffApi.list(),
-        facilitiesApi.list(),
-      ]);
-      setTimesheets(tRes.data.timesheets);
-      setStaff(sRes.data.staff);
-      setFacilities(fRes.data.facilities);
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load.');
-    } finally { setLoading(false); }
+    // Fire the three calls independently so one failure doesn't blank
+    // the other two. Previously we used Promise.all which meant any one
+    // 500 silently cleared the facilities + staff dropdowns. Now each
+    // call settles on its own and we log which ones failed.
+    const [tRes, sRes, fRes] = await Promise.allSettled([
+      timekeepingApi.list(statusFilter ? { status: statusFilter } : undefined),
+      staffApi.list(),
+      facilitiesApi.list(),
+    ]);
+
+    const errs: string[] = [];
+    if (tRes.status === 'fulfilled') setTimesheets(tRes.value.data.timesheets);
+    else { errs.push(`timesheets: ${(tRes.reason as any)?.response?.data?.error ?? (tRes.reason as any)?.message ?? 'failed'}`); console.error('[timekeeping] list failed:', tRes.reason); }
+
+    if (sRes.status === 'fulfilled') setStaff(sRes.value.data.staff);
+    else { errs.push(`staff: ${(sRes.reason as any)?.response?.data?.error ?? 'failed'}`); console.error('[timekeeping] staff failed:', sRes.reason); }
+
+    if (fRes.status === 'fulfilled') {
+      setFacilities(fRes.value.data.facilities);
+      console.log('[timekeeping] loaded', fRes.value.data.facilities.length, 'facilities');
+    } else {
+      errs.push(`facilities: ${(fRes.reason as any)?.response?.data?.error ?? 'failed'}`);
+      console.error('[timekeeping] facilities failed:', fRes.reason);
+    }
+
+    if (errs.length > 0) setError(errs.join('; '));
+    setLoading(false);
   }
   useEffect(() => { void loadAll(); /* eslint-disable-next-line */ }, [statusFilter]);
 
   async function submitTimesheet() {
     setFormErr(null);
-    if (!form.staff_id || !form.facility_id || !form.week_start || !form.hours_worked) {
-      setFormErr('All fields required.'); return;
+    // Phase 4.4 QA fix — facility is no longer required (matches
+    // Incidents + Scheduling patterns). Staff, week, hours are the
+    // only true minimums for a meaningful timesheet.
+    if (!form.staff_id || !form.week_start || !form.hours_worked) {
+      setFormErr('Staff, week, and hours are required.'); return;
     }
     setSubmitting(true);
     try {
       await timekeepingApi.submit({
         staff_id: form.staff_id,
-        facility_id: form.facility_id,
+        facility_id: form.facility_id || undefined,
         week_start: form.week_start,
         hours_worked: Number(form.hours_worked),
       });
@@ -113,7 +131,7 @@ export default function Timekeeping() {
             {staff.map(s => <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}
           </select>
           <select style={field} value={form.facility_id} onChange={e => setForm({ ...form, facility_id: e.target.value })}>
-            <option value="">— Facility —</option>
+            <option value="">— Facility (optional) —</option>
             {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
           <input type="date" style={field} value={form.week_start} onChange={e => setForm({ ...form, week_start: e.target.value })} title="Week start date" />

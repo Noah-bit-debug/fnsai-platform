@@ -21,7 +21,21 @@ const STATUS_COLORS: Record<BDContract['status'], string> = {
   draft: '#64748b', active: '#2e7d32', expired: '#c62828', terminated: '#991b1b',
 };
 
-function fmtDate(iso?: string | null): string { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString(); } catch { return iso; } }
+// Phase 4.4 QA fix — `new Date("2026-06-07")` parses as UTC midnight.
+// `.toLocaleDateString()` in a west-of-UTC timezone shifts it to the
+// previous local day. So for DATE-only columns (expiration_date etc.),
+// parse as local components to avoid the shift.
+// Discriminator: pure YYYY-MM-DD or ISO timestamp at midnight UTC =
+// treat as date-only. Non-midnight timestamps = real TIMESTAMPTZ,
+// let Date() parse them normally so local time is respected.
+function fmtDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const s = String(iso);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/;
+  const m = dateOnly.exec(s);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString();
+  try { return new Date(s).toLocaleDateString(); } catch { return s; }
+}
 function fmtMoney(n: number | null | undefined): string {
   if (n == null) return '—';
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -290,9 +304,26 @@ function ContractModal({ initial, facilities, onClose, onSaved }: {
   async function submit() {
     if (!form.title?.trim()) { setErr('Title required.'); return; }
     setSaving(true); setErr(null);
+    // Phase 4.4 QA fix — QA reported Status picked in the dialog was
+    // being saved as 'draft'. Build the payload explicitly with every
+    // field so axios/JSON can't possibly drop status. Also log it so
+    // we can verify on the wire if this comes up again.
+    const payload: Partial<BDContract> = {
+      title: (form.title ?? '').trim(),
+      client_name: (form.client_name ?? '').trim() || null,
+      facility_id: form.facility_id || null,
+      effective_date: form.effective_date || null,
+      expiration_date: form.expiration_date || null,
+      total_value: form.total_value != null ? Number(form.total_value) : null,
+      status: form.status ?? 'draft',
+      notes: (form.notes ?? '').trim() || null,
+    };
+    console.log('[contracts] submit payload:', payload);
     try {
-      if (isEdit && initial) await bdApi.updateContract(initial.id, form);
-      else await bdApi.createContract(form);
+      const resp = isEdit && initial
+        ? await bdApi.updateContract(initial.id, payload)
+        : await bdApi.createContract(payload);
+      console.log('[contracts] save response:', resp.data);
       onSaved();
     } catch (e: any) { setErr(e?.response?.data?.error ?? 'Save failed.'); }
     finally { setSaving(false); }

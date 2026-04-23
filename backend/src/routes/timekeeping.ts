@@ -6,9 +6,13 @@ import { getAuth } from '@clerk/express';
 
 const router = Router();
 
+// Phase 4.4 QA fix — facility_id became optional to match the Incidents
+// pattern (some timesheet submissions are general, not facility-bound —
+// e.g. travel nurse orientation hours). DB still NOT NULL on facility_id
+// historically, so we need the migration below to loosen it.
 const timesheetSchema = z.object({
   staff_id: z.string().uuid(),
-  facility_id: z.string().uuid(),
+  facility_id: z.string().uuid().optional().nullable(),
   placement_id: z.string().uuid().optional().nullable(),
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   hours_worked: z.number().min(0).max(168),
@@ -49,7 +53,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
               f.name AS facility_name
        FROM timesheets t
        JOIN staff s ON t.staff_id = s.id
-       JOIN facilities f ON t.facility_id = f.id
+       LEFT JOIN facilities f ON t.facility_id = f.id
        ${whereClause}
        ORDER BY t.week_start DESC, s.last_name ASC`,
       params
@@ -73,7 +77,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
               f.name AS facility_name
        FROM timesheets t
        JOIN staff s ON t.staff_id = s.id
-       JOIN facilities f ON t.facility_id = f.id
+       LEFT JOIN facilities f ON t.facility_id = f.id
        WHERE t.id = $1`,
       [id]
     );
@@ -108,7 +112,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
        RETURNING *`,
       [
         data.staff_id,
-        data.facility_id,
+        data.facility_id ?? null,
         data.placement_id ?? null,
         data.week_start,
         data.hours_worked,
