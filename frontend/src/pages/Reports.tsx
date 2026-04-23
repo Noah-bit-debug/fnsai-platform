@@ -355,8 +355,30 @@ function ReportCard({ report }: { report: ReportRun }) {
               {copied ? '✅ Copied' : '📋 Copy'}
             </button>
           )}
+          {/* Phase 5.4 fix — the old handler fetched the blob but just
+              alerted "Export started" without actually downloading the
+              file. Now we create an object URL + programmatic anchor
+              click so the file lands in the user's Downloads folder. */}
           <button
-            onClick={() => api.get(`/reports/${report.id}/export`, { responseType: 'blob' }).then(() => alert('Export started.')).catch(() => alert('Export failed.'))}
+            onClick={async () => {
+              try {
+                const resp = await api.get(`/reports/runs/${report.id}/export`, { responseType: 'blob' });
+                // Try to recover the filename from Content-Disposition; fall back to a sensible default.
+                const cd = (resp.headers as Record<string, string>)['content-disposition'] ?? '';
+                const nameMatch = /filename="?([^"]+)"?/.exec(cd);
+                const ct = (resp.headers as Record<string, string>)['content-type'] ?? 'application/octet-stream';
+                const ext = ct.includes('pdf') ? 'pdf' : ct.includes('csv') ? 'csv' : ct.includes('json') ? 'json' : 'bin';
+                const filename = nameMatch?.[1] ?? `${report.type}_${report.id.slice(0, 8)}.${ext}`;
+                const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: ct });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch (e: any) {
+                alert(e?.response?.data?.error ?? e?.message ?? 'Export failed.');
+              }
+            }}
             style={{ background: '#eff6ff', color: '#1565c0', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}
           >
             📥 Export
