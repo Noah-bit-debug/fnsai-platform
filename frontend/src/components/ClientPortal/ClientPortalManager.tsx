@@ -8,7 +8,7 @@
  *   - Copy a link to clipboard
  *   - Revoke a link (soft delete — row stays for audit)
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { clientPortalApi, ClientPortalToken } from '../../lib/api';
 
 interface Props {
@@ -31,9 +31,19 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newLabel, setNewLabel] = useState('');
-  const [newExpires, setNewExpires] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Phase 6.5 QA fix — use refs instead of controlled-input state for
+  // the two new-link fields. QA reported that expiry was being silently
+  // dropped on submit even though the UI visually accepted the value.
+  // Root cause was almost certainly controlled-component + automation
+  // mismatch: when a test tool sets `input.value = "..."` directly
+  // via DOM, React's synthetic onChange never fires, so the state
+  // setter never runs and `if (newExpires)` is false at submit time.
+  // Reading via ref at submit time reads whatever the DOM currently
+  // shows — works whether the value was set by a human, an automation
+  // tool, or a browser autofill.
+  const labelRef = useRef<HTMLInputElement | null>(null);
+  const expiresRef = useRef<HTMLInputElement | null>(null);
 
   async function load() {
     setLoading(true); setError(null);
@@ -51,18 +61,26 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
 
   async function createToken() {
     setCreating(true); setError(null);
+    // Read directly from the DOM at submit time so automation tools
+    // (or any code path that sets input.value without firing React's
+    // synthetic onChange) still get captured.
+    const labelValue = (labelRef.current?.value ?? '').trim();
+    const expiresValue = (expiresRef.current?.value ?? '').trim();
     try {
       const body: { facility_id?: string; client_id?: string; display_label?: string; expires_at?: string } = {};
       if (facilityId) body.facility_id = facilityId;
       else if (clientId) body.client_id = clientId;
-      if (newLabel.trim()) body.display_label = newLabel.trim();
-      if (newExpires) body.expires_at = new Date(newExpires).toISOString();
-      // Phase 6.5 QA diagnostic — log the outgoing payload so we can
-      // tell if expires_at is being dropped somewhere between here and
-      // the backend. Pair with the backend's [client-portal] logs.
-      console.log('[client-portal] creating token with body:', body, 'raw datetime-local:', newExpires);
-      await clientPortalApi.createToken(body);
-      setShowNewForm(false); setNewLabel(''); setNewExpires('');
+      if (labelValue) body.display_label = labelValue;
+      if (expiresValue) body.expires_at = new Date(expiresValue).toISOString();
+      // Keep the diagnostic log — pair with Railway's [client-portal]
+      // backend logs to triangulate any future disappearance.
+      console.log('[client-portal] creating token with body:', body, 'raw datetime-local:', expiresValue);
+      const resp = await clientPortalApi.createToken(body);
+      console.log('[client-portal] server created token:', resp.data);
+      // Clear the form by resetting the DOM values.
+      if (labelRef.current) labelRef.current.value = '';
+      if (expiresRef.current) expiresRef.current.value = '';
+      setShowNewForm(false);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Failed to create link.');
@@ -108,11 +126,11 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
         <div style={{ padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 12, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10 }}>
           <div>
             <label style={lbl}>Display label (optional)</label>
-            <input style={field} placeholder="e.g. Xyrene Home Health" value={newLabel} onChange={e => setNewLabel(e.target.value)} />
+            <input ref={labelRef} style={field} placeholder="e.g. Xyrene Home Health" defaultValue="" />
           </div>
           <div>
             <label style={lbl}>Expires (optional)</label>
-            <input type="datetime-local" style={field} value={newExpires} onChange={e => setNewExpires(e.target.value)} />
+            <input ref={expiresRef} type="datetime-local" style={field} defaultValue="" />
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button onClick={() => void createToken()} disabled={creating}
