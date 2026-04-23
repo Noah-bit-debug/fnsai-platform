@@ -235,9 +235,35 @@ export default function ESignPrepare() {
         return;
       }
 
+      const contentType = resp.headers.get('content-type') ?? '';
+      console.log('[esign] /file response:', { status: resp.status, contentType });
+
+      // Check content type — if the backend sent back JSON or HTML instead
+      // of a PDF, pdfjs will fail with a confusing error. Catch it here
+      // with a useful message.
+      if (contentType.includes('application/json') || contentType.includes('text/html')) {
+        const text = await resp.text();
+        setPdfError(`Expected a PDF but got ${contentType}. Response: ${text.slice(0, 200)}`);
+        setNumPages(1);
+        return;
+      }
+
       const arrayBuf = await resp.arrayBuffer();
+      console.log('[esign] received bytes:', arrayBuf.byteLength, 'type:', contentType);
+
       if (arrayBuf.byteLength === 0) {
         setPdfError('The file endpoint returned an empty response.');
+        setNumPages(1);
+        return;
+      }
+
+      // If this isn't a PDF (e.g. DOCX uploaded but we only render PDFs),
+      // pdfjs will throw — but the error message is cryptic. Check the
+      // magic bytes: PDFs start with "%PDF-".
+      const firstBytes = new Uint8Array(arrayBuf, 0, Math.min(5, arrayBuf.byteLength));
+      const magic = String.fromCharCode(...firstBytes);
+      if (!magic.startsWith('%PDF')) {
+        setPdfError(`The uploaded file doesn't appear to be a PDF (got magic bytes "${magic}"). eSign field placement only works on PDFs — if you uploaded a DOCX or image, convert it to PDF first.`);
         setNumPages(1);
         return;
       }
@@ -248,8 +274,10 @@ export default function ESignPrepare() {
       // Use the statically-bundled worker URL (imported at top). Previous
       // dynamic import('...?url') didn't always resolve at runtime in Vite.
       pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      console.log('[esign] pdfjs worker URL:', pdfWorkerUrl);
 
       const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      console.log('[esign] PDF parsed, pages:', pdf.numPages);
       setNumPages(pdf.numPages);
 
       const rendered: string[] = [];
@@ -543,17 +571,28 @@ export default function ESignPrepare() {
         y_percent:      +f.y.toFixed(2),
         width_percent:  +f.width.toFixed(2),
         height_percent: +f.height.toFixed(2),
-        signer_id:      f.signer_id ? parseInt(f.signer_id) : null,
+        // Signer IDs are UUIDs, not integers. Previous code called
+        // parseInt(f.signer_id) which turned UUIDs into NaN and dropped
+        // signer assignments. Pass the UUID string through as-is.
+        signer_id:      f.signer_id || null,
         label:          f.label,
         required:       f.required,
         options:        f.options ?? [],
         placeholder:    f.placeholder ?? '',
       }));
+      console.log('[esign] saving fields', payload);
       await esignApi.saveFields(id, payload);
       setSaveMsg('✓ Saved');
       setTimeout(() => setSaveMsg(null), 2500);
-    } catch {
-      setSaveMsg('Save failed');
+    } catch (err: unknown) {
+      // Was swallowing the error entirely — no clue why save failed.
+      // Now surface the actual backend reason (zod details, pg error,
+      // missing signer, etc.) in the status pill AND the console.
+      const e = err as { response?: { data?: { error?: string; details?: unknown } }; message?: string };
+      const detail = e.response?.data?.error ?? e.message ?? 'unknown error';
+      console.error('[esign] save failed', err);
+      setSaveMsg(`Save failed: ${detail.slice(0, 120)}`);
+      setTimeout(() => setSaveMsg(null), 8000);
     } finally {
       setSaving(false);
     }
