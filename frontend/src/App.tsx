@@ -120,6 +120,9 @@ const EmailMonitor = lazy(() => import('./pages/EmailMonitor'));
 const SMSApprovals = lazy(() => import('./pages/SMSApprovals'));
 const Incidents = lazy(() => import('./pages/Incidents'));
 const Timekeeping = lazy(() => import('./pages/Timekeeping'));
+// Phase 4.4
+const Scheduling = lazy(() => import('./pages/Scheduling'));
+const PTO = lazy(() => import('./pages/PTO'));
 const DocumentLogs = lazy(() => import('./pages/DocumentLogs'));
 
 // Business
@@ -260,6 +263,9 @@ function AppRoutes() {
           <Route path="credentialing" element={<Credentialing />} />
           <Route path="placements" element={<Placements />} />
           <Route path="checklists" element={<Checklists />} />
+          {/* Phase 4.4 — scheduling + PTO */}
+          <Route path="scheduling" element={<Scheduling />} />
+          <Route path="pto" element={<PTO />} />
 
           {/* Operations */}
           <Route path="clients" element={<Clients />} />

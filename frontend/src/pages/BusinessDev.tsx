@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { bdApi, BDLead, BDContact, BDFollowup } from '../lib/api';
 import BidsTab from '../components/BD/BidsTab';
+import RFPsTab from '../components/BD/RFPsTab';
+import ForecastTab from '../components/BD/ForecastTab';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Lead {
@@ -387,7 +389,7 @@ function FollowupModal({ onClose, onSave }: {
 // still work the same way from the user's perspective, but their data
 // now lives in Postgres (bd_leads / bd_contacts / bd_followups) instead
 // of localStorage.
-type Tab = 'leads' | 'contacts' | 'followups' | 'bids';
+type Tab = 'leads' | 'contacts' | 'followups' | 'bids' | 'rfps' | 'forecast';
 
 export default function BusinessDev() {
   const [tab, setTab] = useState<Tab>('leads');
@@ -529,6 +531,8 @@ export default function BusinessDev() {
     { key: 'contacts', label: `Contacts (${contacts.length})` },
     { key: 'followups', label: `Follow-ups (${followups.filter(f => f.status === 'pending').length} pending)` },
     { key: 'bids',     label: 'Bids' },
+    { key: 'rfps',     label: 'RFPs' },
+    { key: 'forecast', label: 'Forecast' },
   ];
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -752,6 +756,12 @@ export default function BusinessDev() {
 
         {/* ── BIDS TAB (Phase 4.2) ─────────────────────────────────────────── */}
         {tab === 'bids' && <BidsTab />}
+
+        {/* ── RFPs TAB (Phase 4.4) ────────────────────────────────────────── */}
+        {tab === 'rfps' && <RFPsTab />}
+
+        {/* ── FORECAST TAB (Phase 4.4) ────────────────────────────────────── */}
+        {tab === 'forecast' && <ForecastTab />}
 
         {/* ── FOLLOW-UPS TAB ────────────────────────────────────────────────── */}
         {tab === 'followups' && (

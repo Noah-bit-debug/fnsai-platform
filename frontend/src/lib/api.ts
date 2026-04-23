@@ -377,6 +377,197 @@ export const bdApi = {
   createFollowup: (data: Partial<BDFollowup>) => api.post<BDFollowup>('/bd/followups', data),
   updateFollowup: (id: string, data: Partial<BDFollowup>) => api.put<BDFollowup>(`/bd/followups/${id}`, data),
   deleteFollowup: (id: string) => api.delete(`/bd/followups/${id}`),
+
+  // Phase 4.4 — Contracts + versioning
+  listContracts: (params?: { status?: string; facility_id?: string }) =>
+    api.get<{ contracts: BDContract[] }>('/bd/contracts', { params }),
+  getContract: (id: string) =>
+    api.get<{ contract: BDContract; versions: BDContractVersion[] }>(`/bd/contracts/${id}`),
+  createContract: (data: Partial<BDContract>) => api.post<BDContract>('/bd/contracts', data),
+  updateContract: (id: string, data: Partial<BDContract>) => api.put<BDContract>(`/bd/contracts/${id}`, data),
+  deleteContract: (id: string) => api.delete(`/bd/contracts/${id}`),
+  uploadContractVersion: (id: string, file: File, changesSummary?: string) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (changesSummary) fd.append('changes_summary', changesSummary);
+    return api.post<BDContractVersion>(`/bd/contracts/${id}/versions`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  contractsAlerts: () => api.get<{ alerts: BDContractAlert[] }>('/bd/contracts-alerts'),
+
+  // Phase 4.4 — RFPs
+  listRfps: (params?: { status?: string }) =>
+    api.get<{ rfps: BDRfp[] }>('/bd/rfps', { params }),
+  getRfp: (id: string) => api.get<BDRfp>(`/bd/rfps/${id}`),
+  uploadRfp: (file: File, title?: string, clientName?: string) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (title) fd.append('title', title);
+    if (clientName) fd.append('client_name', clientName);
+    return api.post<BDRfp>('/bd/rfps', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  updateRfp: (id: string, data: Partial<BDRfp>) => api.put<BDRfp>(`/bd/rfps/${id}`, data),
+  deleteRfp: (id: string) => api.delete(`/bd/rfps/${id}`),
+  draftBidFromRfp: (id: string) =>
+    api.post<{ bid: BDBid; rfp_id: string }>(`/bd/rfps/${id}/draft-bid`),
+
+  // Phase 4.4 — Revenue forecast
+  forecast: () => api.get<BDForecast>('/bd/forecast'),
+};
+
+// ─── Phase 4.4 — additional BD types (contracts, RFPs, forecast) ──────
+export interface BDContract {
+  id: string;
+  title: string;
+  client_name?: string | null;
+  facility_id?: string | null;
+  facility_name?: string | null;
+  bid_id?: string | null;
+  current_version: number;
+  effective_date?: string | null;
+  expiration_date?: string | null;
+  total_value?: number | null;
+  status: 'draft' | 'active' | 'expired' | 'terminated';
+  terms_summary?: string | null;
+  notes?: string | null;
+  version_count?: number;
+  expiring_soon?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface BDContractVersion {
+  id: string;
+  contract_id: string;
+  version: number;
+  file_path?: string | null;
+  file_name?: string | null;
+  changes_summary?: string | null;
+  uploaded_by?: string | null;
+  created_at: string;
+}
+export interface BDContractAlert {
+  id: string;
+  title: string;
+  client_name: string | null;
+  expiration_date: string | null;
+  status: string;
+  alert_level: 'expired' | 'expiring_soon' | 'ok';
+}
+export interface BDRfp {
+  id: string;
+  title?: string | null;
+  client_name?: string | null;
+  file_path?: string | null;
+  file_name?: string | null;
+  parsed_text?: string | null;
+  parsed_summary?: string | null;
+  due_date?: string | null;
+  bid_id?: string | null;
+  status: 'new' | 'reviewed' | 'drafted' | 'declined' | 'expired';
+  received_at: string;
+  notes?: string | null;
+}
+export interface BDForecastMonth {
+  month: string;
+  weighted_value: number;
+  gross_value: number;
+  bid_count: number;
+}
+export interface BDForecastBid {
+  id: string;
+  title: string;
+  status: 'draft' | 'in_progress' | 'submitted';
+  due_date: string | null;
+  gross: number;
+  weighted: number;
+  probability: number;
+}
+export interface BDForecast {
+  baseline_win_rate: number;
+  history: { won: number; lost: number; decided_total: number };
+  probabilities: { draft: number; in_progress: number; submitted: number };
+  total_gross_open: number;
+  total_weighted_projection: number;
+  by_month: BDForecastMonth[];
+  by_bid: BDForecastBid[];
+}
+
+// ─── Phase 4.4 — Workforce Scheduling + PTO ─────────────────────────────
+export interface WorkShift {
+  id: string;
+  staff_id: string;
+  first_name?: string;
+  last_name?: string;
+  staff_role?: string;
+  facility_id?: string | null;
+  facility_name?: string | null;
+  role?: string | null;
+  start_time: string;
+  end_time: string;
+  hourly_rate?: number | null;
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface ShiftCoverageDay {
+  day: string;
+  total: number;
+  confirmed: number;
+  no_show: number;
+}
+
+export const schedulingApi = {
+  listShifts: (params?: { staff_id?: string; facility_id?: string; status?: string; from?: string; to?: string }) =>
+    api.get<{ shifts: WorkShift[] }>('/scheduling/shifts', { params }),
+  getShift: (id: string) => api.get<WorkShift>(`/scheduling/shifts/${id}`),
+  createShift: (data: Partial<WorkShift>) => api.post<WorkShift>('/scheduling/shifts', data),
+  updateShift: (id: string, data: Partial<WorkShift>) => api.put<WorkShift>(`/scheduling/shifts/${id}`, data),
+  deleteShift: (id: string) => api.delete(`/scheduling/shifts/${id}`),
+  coverage: (params: { from: string; to: string; facility_id?: string }) =>
+    api.get<{ coverage: ShiftCoverageDay[] }>('/scheduling/coverage', { params }),
+};
+
+export interface PtoRequest {
+  id: string;
+  staff_id: string;
+  first_name?: string;
+  last_name?: string;
+  role?: string;
+  type: 'vacation' | 'sick' | 'personal' | 'unpaid';
+  start_date: string;
+  end_date: string;
+  hours: number;
+  reason?: string | null;
+  status: 'pending' | 'approved' | 'denied' | 'cancelled';
+  approved_by?: string | null;
+  approved_at?: string | null;
+  denial_reason?: string | null;
+  created_at: string;
+}
+export interface PtoBalance {
+  id?: string;
+  staff_id: string;
+  first_name?: string;
+  last_name?: string;
+  role?: string;
+  vacation_hours: number;
+  sick_hours: number;
+  personal_hours: number;
+  updated_at?: string;
+}
+
+export const ptoApi = {
+  listRequests: (params?: { staff_id?: string; status?: string }) =>
+    api.get<{ requests: PtoRequest[] }>('/pto/requests', { params }),
+  createRequest: (data: Partial<PtoRequest>) => api.post<PtoRequest>('/pto/requests', data),
+  updateRequest: (id: string, data: Partial<PtoRequest>) => api.put<PtoRequest>(`/pto/requests/${id}`, data),
+  approveRequest: (id: string) => api.put<PtoRequest>(`/pto/requests/${id}/approve`),
+  denyRequest: (id: string, reason?: string) => api.put<PtoRequest>(`/pto/requests/${id}/deny`, { reason }),
+  cancelRequest: (id: string) => api.put<PtoRequest>(`/pto/requests/${id}/cancel`),
+  deleteRequest: (id: string) => api.delete(`/pto/requests/${id}`),
+  listBalances: () => api.get<{ balances: PtoBalance[] }>('/pto/balances'),
+  getBalance: (staffId: string) => api.get<PtoBalance>(`/pto/balances/${staffId}`),
+  updateBalance: (staffId: string, data: Partial<PtoBalance>) => api.put<PtoBalance>(`/pto/balances/${staffId}`, data),
 };
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────

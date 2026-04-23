@@ -125,10 +125,13 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'],
     defaultOpen: false,
     items: [
-      { to: '/staff',      icon: '👥', label: 'Staff Management',  roles: null },
-      { to: '/placements', icon: '📍', label: 'Active Placements', roles: ['ceo', 'admin', 'manager', 'coordinator'] },
-      { to: '/attendance', icon: '📅', label: 'Attendance',        roles: ['ceo', 'admin'] },
-      { to: '/incidents',  icon: '⚠️', label: 'Incidents',         roles: ['ceo', 'admin'] },
+      { to: '/staff',       icon: '👥', label: 'Staff Management',  roles: null },
+      { to: '/placements',  icon: '📍', label: 'Active Placements', roles: ['ceo', 'admin', 'manager', 'coordinator'] },
+      { to: '/scheduling',  icon: '📆', label: 'Scheduling',        roles: ['ceo', 'admin', 'manager', 'coordinator'] },
+      { to: '/attendance',  icon: '📅', label: 'Attendance',        roles: ['ceo', 'admin'] },
+      { to: '/timekeeping', icon: '⏰', label: 'Timekeeping',       roles: ['ceo', 'admin', 'manager'] },
+      { to: '/pto',         icon: '🏖️', label: 'PTO',              roles: ['ceo', 'admin', 'hr', 'manager'] },
+      { to: '/incidents',   icon: '⚠️', label: 'Incidents',        roles: ['ceo', 'admin'] },
     ],
   },
   {
@@ -141,6 +144,7 @@ const NAV_GROUPS: NavGroupDef[] = [
       // only shortcut (contracts, addresses).
       { to: '/clients',      icon: '🏥', label: 'Facilities',            roles: null },
       { to: '/business-dev', icon: '💼', label: 'Business Development',  roles: null },
+      { to: '/contracts',    icon: '📝', label: 'Contracts',             roles: ['ceo', 'admin', 'manager'] },
     ],
   },
   {

@@ -70,6 +70,9 @@ import adminRouter from './routes/admin';
 import docTypesRouter from './routes/docTypes';
 // Phase 4
 import businessDevRouter from './routes/businessDev';
+// Phase 4.4
+import schedulingRouter from './routes/scheduling';
+import ptoRouter from './routes/pto';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -362,8 +365,11 @@ app.use('/api/v1/notification-prefs', notificationPrefsRouter);
 app.use('/api/v1/error-log', errorLogRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/doc-types', docTypesRouter);
-// Phase 4 — Business Development (bids + leads + contacts + follow-ups)
+// Phase 4 — Business Development (bids + leads + contacts + follow-ups + contracts + rfps + forecast)
 app.use('/api/v1/bd', businessDevRouter);
+// Phase 4.4 — Workforce scheduling + PTO
+app.use('/api/v1/scheduling', schedulingRouter);
+app.use('/api/v1/pto', ptoRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -407,6 +413,7 @@ async function runMigrations(): Promise<void> {
     'phase2_courses.sql',
     'phase4_bd_bids.sql',
     'phase4_bd_core.sql',
+    'phase4_4_expansion.sql',
   ];
 
   const client = await pool.connect();

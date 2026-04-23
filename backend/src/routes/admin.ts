@@ -63,6 +63,7 @@ const MIGRATION_FILES = [
   'phase2_courses.sql',
   'phase4_bd_bids.sql',
   'phase4_bd_core.sql',
+  'phase4_4_expansion.sql',
 ];
 
 interface MigrationResult {

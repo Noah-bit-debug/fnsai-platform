@@ -17,6 +17,11 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
+import mammoth from 'mammoth';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '@clerk/express';
@@ -24,6 +29,65 @@ import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ─── Shared file upload (contracts + RFPs) ──────────────────────────────
+// Uses the same persistent-dir override pattern as esign. Set
+// BD_UPLOAD_DIR to a volume mount on Railway to survive deploys.
+const bdUploadRoot = process.env.BD_UPLOAD_DIR
+  ? path.join(process.env.BD_UPLOAD_DIR)
+  : path.join(process.cwd(), 'uploads', 'bd');
+const contractsDir = path.join(bdUploadRoot, 'contracts');
+const rfpsDir      = path.join(bdUploadRoot, 'rfps');
+[contractsDir, rfpsDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+console.log(`[bd] Upload dir: ${bdUploadRoot}${process.env.BD_UPLOAD_DIR ? ' (persistent)' : ' (ephemeral)'}`);
+
+const makeStorage = (dir: string) => multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, dir),
+  filename: (_req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname).toLowerCase()}`),
+});
+const BD_ALLOWED_MIMETYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'text/plain',
+];
+const contractUpload = multer({
+  storage: makeStorage(contractsDir),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, BD_ALLOWED_MIMETYPES.includes(file.mimetype)),
+});
+const rfpUpload = multer({
+  storage: makeStorage(rfpsDir),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, BD_ALLOWED_MIMETYPES.includes(file.mimetype)),
+});
+
+/** Extract text from an uploaded file. PDFs use pdf-parse via dynamic
+ *  import so the heavy dep only loads when needed. DOCX uses mammoth.
+ *  Returns first 30k chars — Claude's context is plenty but we trim to
+ *  keep the DB row sane and the AI prompt fast. */
+async function extractText(filePath: string, mimetype: string): Promise<string> {
+  try {
+    if (mimetype === 'text/plain') {
+      return fs.readFileSync(filePath, 'utf8').slice(0, 30000);
+    }
+    if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      const r = await mammoth.extractRawText({ path: filePath });
+      return r.value.slice(0, 30000);
+    }
+    if (mimetype === 'application/pdf') {
+      // pdf-parse: dynamic import keeps module-load cost off the hot path.
+      const mod = await import('pdf-parse' as string).catch(() => null);
+      if (!mod) return '';
+      const data = await (mod as any).default(fs.readFileSync(filePath));
+      return String(data.text ?? '').slice(0, 30000);
+    }
+    return '';
+  } catch (err) {
+    console.warn('[bd] text extraction failed:', err);
+    return '';
+  }
+}
 
 const uidFromReq = (req: Request): string => getAuth(req)?.userId ?? 'unknown';
 
@@ -655,6 +719,470 @@ router.delete('/followups/:id', requireAuth, async (req: Request, res: Response)
   } catch (err) {
     console.error('BD followup delete error:', err);
     res.status(500).json({ error: 'Failed to delete follow-up' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  4.4  CONTRACTS  —  /contracts
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// A contract record owns N version rows. The top-level row holds the
+// "current state" (status, expiration, summary). Each version is the
+// snapshot of the document file + the admin's note about what changed.
+// Uploading a new version auto-increments current_version and, if text
+// could be extracted, kicks off an AI terms-summary refresh.
+
+const contractSchema = z.object({
+  title: z.string().min(1).max(200),
+  client_name: z.string().max(200).optional().nullable(),
+  facility_id: z.string().uuid().optional().nullable(),
+  bid_id: z.string().uuid().optional().nullable(),
+  effective_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  expiration_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  total_value: z.number().nonnegative().optional().nullable(),
+  status: z.enum(['draft','active','expired','terminated']).optional().default('draft'),
+  notes: z.string().max(10000).optional().nullable(),
+});
+const contractUpdate = contractSchema.partial();
+
+router.get('/contracts', requireAuth, async (req: Request, res: Response) => {
+  const { status, facility_id } = req.query;
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (typeof status === 'string')      { params.push(status);      conds.push(`c.status = $${params.length}`); }
+  if (typeof facility_id === 'string') { params.push(facility_id); conds.push(`c.facility_id = $${params.length}`); }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+  try {
+    const result = await query(
+      `SELECT c.*,
+              f.name AS facility_name,
+              COUNT(v.id)::int AS version_count,
+              (c.expiration_date IS NOT NULL AND c.expiration_date <= CURRENT_DATE + INTERVAL '30 days' AND c.status = 'active') AS expiring_soon
+         FROM bd_contracts c
+         LEFT JOIN facilities f ON c.facility_id = f.id
+         LEFT JOIN bd_contract_versions v ON v.contract_id = c.id
+         ${where}
+         GROUP BY c.id, f.name
+         ORDER BY
+           CASE c.status WHEN 'active' THEN 1 WHEN 'draft' THEN 2 WHEN 'expired' THEN 3 WHEN 'terminated' THEN 4 END,
+           c.expiration_date NULLS LAST,
+           c.created_at DESC`,
+      params
+    );
+    res.json({ contracts: result.rows });
+  } catch (err) {
+    console.error('BD contracts list error:', err);
+    res.status(500).json({ error: 'Failed to fetch contracts' });
+  }
+});
+
+router.get('/contracts/:id', requireAuth, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const cRes = await query(
+      `SELECT c.*, f.name AS facility_name
+         FROM bd_contracts c
+         LEFT JOIN facilities f ON c.facility_id = f.id
+         WHERE c.id = $1`,
+      [id]
+    );
+    if (cRes.rows.length === 0) { res.status(404).json({ error: 'Contract not found' }); return; }
+    const vRes = await query(
+      `SELECT * FROM bd_contract_versions WHERE contract_id = $1 ORDER BY version DESC`,
+      [id]
+    );
+    res.json({ contract: cRes.rows[0], versions: vRes.rows });
+  } catch (err) {
+    console.error('BD contract detail error:', err);
+    res.status(500).json({ error: 'Failed to fetch contract' });
+  }
+});
+
+router.post('/contracts', requireAuth, async (req: Request, res: Response) => {
+  const parse = contractSchema.safeParse(req.body);
+  if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
+  const d = parse.data;
+  try {
+    const result = await query(
+      `INSERT INTO bd_contracts (title, client_name, facility_id, bid_id, effective_date, expiration_date, total_value, status, notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [d.title, d.client_name ?? null, d.facility_id ?? null, d.bid_id ?? null, d.effective_date ?? null, d.expiration_date ?? null, d.total_value ?? null, d.status, d.notes ?? null, uidFromReq(req)]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('BD contract create error:', err);
+    res.status(500).json({ error: 'Failed to create contract' });
+  }
+});
+
+router.put('/contracts/:id', requireAuth, async (req: Request, res: Response) => {
+  const parse = contractUpdate.safeParse(req.body);
+  if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
+  const d = parse.data;
+  const keys = Object.keys(d);
+  if (keys.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+  const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+  const vals = keys.map(k => (d as Record<string, unknown>)[k] ?? null);
+  try {
+    const result = await query(
+      `UPDATE bd_contracts SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id, ...vals]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Contract not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('BD contract update error:', err);
+    res.status(500).json({ error: 'Failed to update contract' });
+  }
+});
+
+router.delete('/contracts/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(`DELETE FROM bd_contracts WHERE id = $1 RETURNING id`, [req.params.id]);
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Contract not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('BD contract delete error:', err);
+    res.status(500).json({ error: 'Failed to delete contract' });
+  }
+});
+
+// POST /contracts/:id/versions — upload a new version file. Auto-bumps
+// current_version, stores the file, optionally extracts+summarizes.
+router.post('/contracts/:id/versions', requireAuth, contractUpload.single('file'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const userId = uidFromReq(req);
+  const changesSummary = typeof req.body?.changes_summary === 'string' ? req.body.changes_summary : null;
+
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+
+  try {
+    // Find the current max version for this contract.
+    const vMax = await query(`SELECT COALESCE(MAX(version), 0) AS m FROM bd_contract_versions WHERE contract_id = $1`, [id]);
+    const nextVersion = ((vMax.rows[0].m as number) ?? 0) + 1;
+
+    const filePath = path.relative(process.cwd(), req.file.path);
+    const ins = await query(
+      `INSERT INTO bd_contract_versions (contract_id, version, file_path, file_name, changes_summary, uploaded_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [id, nextVersion, filePath, req.file.originalname, changesSummary, userId]
+    );
+    await query(`UPDATE bd_contracts SET current_version = $1, updated_at = NOW() WHERE id = $2`, [nextVersion, id]);
+
+    // Best-effort AI terms summary. Non-fatal if anything fails.
+    (async () => {
+      const text = await extractText(req.file!.path, req.file!.mimetype);
+      if (!text || text.length < 200) return;
+      try {
+        const aiResp = await anthropic.messages.create({
+          model: MODEL_FOR.bidDraft,
+          max_tokens: 600,
+          system: 'You write 3-5 sentence plain-English summaries of healthcare staffing contracts. Capture: parties, scope, rate/value, term length, termination clause, notable risks (indemnification, liability caps, non-solicit). No markdown.',
+          messages: [{ role: 'user', content: text }],
+        });
+        const summary = ((aiResp.content[0] as { type: string; text: string }).text ?? '').trim();
+        if (summary) await query(`UPDATE bd_contracts SET terms_summary = $1, updated_at = NOW() WHERE id = $2`, [summary, id]);
+      } catch (err) { console.warn('[bd] contract summary AI failed:', err); }
+    })();
+
+    await logAudit(null, userId, 'bd_contract.version_upload', id, { version: nextVersion, filename: req.file.originalname }, (req.ip ?? 'unknown'));
+    res.status(201).json(ins.rows[0]);
+  } catch (err) {
+    console.error('BD contract version upload error:', err);
+    res.status(500).json({ error: 'Failed to upload version' });
+  }
+});
+
+// GET /contracts/:id/versions/:vid/file — stream the version file back
+router.get('/contracts/:id/versions/:vid/file', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT file_path, file_name FROM bd_contract_versions WHERE id = $1 AND contract_id = $2`,
+      [req.params.vid, req.params.id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Version not found' }); return; }
+    const row = result.rows[0] as { file_path: string; file_name: string };
+    const absPath = path.isAbsolute(row.file_path) ? row.file_path : path.join(process.cwd(), row.file_path);
+    if (!fs.existsSync(absPath)) { res.status(404).json({ error: 'File is missing from disk (ephemeral storage?)' }); return; }
+    res.download(absPath, row.file_name);
+  } catch (err) {
+    console.error('BD contract file serve error:', err);
+    res.status(500).json({ error: 'Failed to serve file' });
+  }
+});
+
+// GET /contracts-alerts — expiring + expired quick list for a dashboard.
+router.get('/contracts-alerts', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const result = await query(`
+      SELECT id, title, client_name, expiration_date, status,
+        CASE
+          WHEN status = 'expired' THEN 'expired'
+          WHEN expiration_date IS NOT NULL AND expiration_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'expiring_soon'
+          ELSE 'ok'
+        END AS alert_level
+      FROM bd_contracts
+      WHERE status IN ('active','expired')
+        AND (status = 'expired'
+             OR (expiration_date IS NOT NULL AND expiration_date <= CURRENT_DATE + INTERVAL '60 days'))
+      ORDER BY expiration_date ASC NULLS LAST
+      LIMIT 50
+    `);
+    res.json({ alerts: result.rows });
+  } catch (err) {
+    console.error('BD contracts alerts error:', err);
+    res.status(500).json({ error: 'Failed to compute alerts' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  4.4  RFPs  —  /rfps
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Inbox-style. Upload an RFP document → extract text → AI summary →
+// optionally draft a bid from it (reuses POST /bids/ai-draft under the
+// hood but also backlinks the new bid to the RFP).
+
+const rfpUpdateSchema = z.object({
+  title: z.string().max(300).optional(),
+  client_name: z.string().max(200).optional().nullable(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  status: z.enum(['new','reviewed','drafted','declined','expired']).optional(),
+  notes: z.string().max(10000).optional().nullable(),
+});
+
+router.get('/rfps', requireAuth, async (req: Request, res: Response) => {
+  const { status } = req.query;
+  const params: unknown[] = [];
+  let where = '';
+  if (typeof status === 'string') { params.push(status); where = `WHERE status = $${params.length}`; }
+  try {
+    const result = await query(
+      `SELECT id, title, client_name, file_name, parsed_summary, due_date, bid_id, status, received_at, notes, created_at
+         FROM bd_rfps ${where}
+         ORDER BY received_at DESC`,
+      params
+    );
+    res.json({ rfps: result.rows });
+  } catch (err) {
+    console.error('BD rfps list error:', err);
+    res.status(500).json({ error: 'Failed to fetch RFPs' });
+  }
+});
+
+router.get('/rfps/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(`SELECT * FROM bd_rfps WHERE id = $1`, [req.params.id]);
+    if (result.rows.length === 0) { res.status(404).json({ error: 'RFP not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('BD rfp get error:', err);
+    res.status(500).json({ error: 'Failed to fetch RFP' });
+  }
+});
+
+// POST /rfps — upload RFP file, extract text, AI summarize (all in one flow)
+router.post('/rfps', requireAuth, rfpUpload.single('file'), async (req: Request, res: Response) => {
+  const userId = uidFromReq(req);
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+
+  const title = typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim() : req.file.originalname;
+  const clientName = typeof req.body?.client_name === 'string' ? req.body.client_name : null;
+
+  try {
+    // Extract text synchronously so the response includes parsed_summary.
+    const parsedText = await extractText(req.file.path, req.file.mimetype);
+
+    // AI summary — best-effort, non-fatal.
+    let parsedSummary = '';
+    if (parsedText && parsedText.length > 100) {
+      try {
+        const aiResp = await anthropic.messages.create({
+          model: MODEL_FOR.bidDraft,
+          max_tokens: 500,
+          system: 'You summarize RFPs (request for proposal documents) for a healthcare staffing team. 3-5 sentences. Capture: client/issuer, scope of work, location, start/end dates, headcount or shift volume, deadlines, must-have requirements. No markdown.',
+          messages: [{ role: 'user', content: parsedText }],
+        });
+        parsedSummary = ((aiResp.content[0] as { type: string; text: string }).text ?? '').trim();
+      } catch (err) { console.warn('[bd] rfp summary AI failed:', err); }
+    }
+
+    const filePath = path.relative(process.cwd(), req.file.path);
+    const result = await query(
+      `INSERT INTO bd_rfps (title, client_name, file_path, file_name, parsed_text, parsed_summary, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [title, clientName, filePath, req.file.originalname, parsedText, parsedSummary, userId]
+    );
+    await logAudit(null, userId, 'bd_rfp.upload', result.rows[0].id as string, { filename: req.file.originalname }, (req.ip ?? 'unknown'));
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('BD rfp upload error:', err);
+    res.status(500).json({ error: 'Failed to upload RFP' });
+  }
+});
+
+router.put('/rfps/:id', requireAuth, async (req: Request, res: Response) => {
+  const parse = rfpUpdateSchema.safeParse(req.body);
+  if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
+  const d = parse.data;
+  const keys = Object.keys(d);
+  if (keys.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+  const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+  const vals = keys.map(k => (d as Record<string, unknown>)[k] ?? null);
+  try {
+    const result = await query(
+      `UPDATE bd_rfps SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id, ...vals]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'RFP not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('BD rfp update error:', err);
+    res.status(500).json({ error: 'Failed to update RFP' });
+  }
+});
+
+router.delete('/rfps/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await query(`DELETE FROM bd_rfps WHERE id = $1 RETURNING id`, [req.params.id]);
+    if (result.rows.length === 0) { res.status(404).json({ error: 'RFP not found' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('BD rfp delete error:', err);
+    res.status(500).json({ error: 'Failed to delete RFP' });
+  }
+});
+
+// POST /rfps/:id/draft-bid — drafts a bid from an RFP using its parsed
+// text as AI context, creates the bid, and backlinks the RFP.
+router.post('/rfps/:id/draft-bid', requireAuth, async (req: Request, res: Response) => {
+  const userId = uidFromReq(req);
+  try {
+    const rfpRes = await query(`SELECT * FROM bd_rfps WHERE id = $1`, [req.params.id]);
+    if (rfpRes.rows.length === 0) { res.status(404).json({ error: 'RFP not found' }); return; }
+    const rfp = rfpRes.rows[0] as { id: string; title: string; client_name: string | null; parsed_text: string; parsed_summary: string; due_date: string | null };
+    const context = rfp.parsed_text || rfp.parsed_summary || rfp.title || '';
+    if (!context || context.length < 10) { res.status(400).json({ error: 'RFP has no extractable context to draft from.' }); return; }
+
+    // AI draft (reuses the same prompt as /bids/ai-draft but inlined)
+    const aiResp = await anthropic.messages.create({
+      model: MODEL_FOR.bidDraft,
+      max_tokens: 2048,
+      system: `You help a healthcare staffing BD team draft bids. Given an RFP's context, return a short bid title, a tailored checklist (5-10 items), and concise notes. Return ONLY this JSON — no markdown fences: { "title":"…","notes":"…","checklist":[{"label":"…","required":true|false}] }. Checklist items should be actionable. Do not fabricate numbers or names.`,
+      messages: [{ role: 'user', content: (rfp.client_name ? `Client: ${rfp.client_name}\n\n` : '') + context.slice(0, 20000) }],
+    });
+    const raw = (aiResp.content[0] as { type: string; text: string }).text;
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{'); const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+    let parsed: { title?: string; notes?: string; checklist?: { label: string; required?: boolean }[] };
+    try { parsed = JSON.parse(jsonStr); } catch { res.status(502).json({ error: 'AI returned malformed JSON.' }); return; }
+    if (!parsed.title || !Array.isArray(parsed.checklist)) { res.status(502).json({ error: 'AI response missing title or checklist.' }); return; }
+
+    // Create the bid
+    const bidRes = await query(
+      `INSERT INTO bd_bids (title, client_name, due_date, status, notes, assigned_to, created_by)
+       VALUES ($1,$2,$3,'draft',$4,$5,$6) RETURNING *`,
+      [parsed.title, rfp.client_name, rfp.due_date, parsed.notes ?? '', userId, userId]
+    );
+    const bid = bidRes.rows[0] as { id: string };
+    // Seed checklist
+    const items = parsed.checklist;
+    for (let i = 0; i < items.length; i++) {
+      await query(
+        `INSERT INTO bd_bid_checklist_items (bid_id, label, required, order_index) VALUES ($1,$2,$3,$4)`,
+        [bid.id, items[i].label, items[i].required !== false, i]
+      );
+    }
+    // Backlink
+    await query(`UPDATE bd_rfps SET bid_id = $1, status = 'drafted', updated_at = NOW() WHERE id = $2`, [bid.id, rfp.id]);
+    res.status(201).json({ bid, rfp_id: rfp.id });
+  } catch (err: any) {
+    console.error('BD rfp draft-bid error:', err);
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.' }); return; }
+    res.status(500).json({ error: `Failed to draft bid: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  4.4  REVENUE FORECAST  —  /forecast
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Simple weighted pipeline math. Each open bid contributes
+//   expected = estimated_value × win_probability
+// where win_probability depends on status:
+//   draft       → 10%
+//   in_progress → 30%
+//   submitted   → 55%
+// Historical win rate adjusts the baseline if we have data.
+// Projections are grouped by due_date month.
+
+router.get('/forecast', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    // Baseline probabilities, nudged by historical win rate.
+    const histRes = await query(`
+      SELECT COUNT(*) FILTER (WHERE status = 'won')::int AS won,
+             COUNT(*) FILTER (WHERE status = 'lost')::int AS lost
+        FROM bd_bids
+    `);
+    const won = (histRes.rows[0].won as number) ?? 0;
+    const lost = (histRes.rows[0].lost as number) ?? 0;
+    const decided = won + lost;
+    const baseWinRate = decided >= 5 ? won / decided : 0.30;  // default 30% if no history
+
+    // Scale the three status probabilities proportionally so submitted
+    // is still the highest but all three track real history.
+    const probs = {
+      draft:       Math.min(0.5, baseWinRate * 0.35),
+      in_progress: Math.min(0.7, baseWinRate * 1.0),
+      submitted:   Math.min(0.9, baseWinRate * 1.8 + 0.1),
+    };
+
+    const bidsRes = await query(`
+      SELECT id, title, status, due_date, estimated_value
+        FROM bd_bids
+       WHERE status IN ('draft','in_progress','submitted')
+         AND estimated_value IS NOT NULL
+       ORDER BY due_date NULLS LAST
+    `);
+
+    interface BidRow { id: string; title: string; status: 'draft'|'in_progress'|'submitted'; due_date: string | null; estimated_value: number }
+    const rows = bidsRes.rows as unknown as BidRow[];
+
+    // Per-month rollup
+    const byMonth: Record<string, { month: string; weighted_value: number; gross_value: number; bid_count: number }> = {};
+    const perBid = rows.map(b => {
+      const p = probs[b.status] ?? 0.25;
+      const weighted = Number(b.estimated_value) * p;
+      const monthKey = b.due_date ? b.due_date.slice(0, 7) : 'Unscheduled';
+      if (!byMonth[monthKey]) byMonth[monthKey] = { month: monthKey, weighted_value: 0, gross_value: 0, bid_count: 0 };
+      byMonth[monthKey].weighted_value += weighted;
+      byMonth[monthKey].gross_value    += Number(b.estimated_value);
+      byMonth[monthKey].bid_count      += 1;
+      return { id: b.id, title: b.title, status: b.status, due_date: b.due_date, gross: Number(b.estimated_value), weighted, probability: p };
+    });
+
+    const months = Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month));
+    const totalWeighted = perBid.reduce((s, b) => s + b.weighted, 0);
+    const totalGross    = perBid.reduce((s, b) => s + b.gross, 0);
+
+    res.json({
+      baseline_win_rate: Number((baseWinRate * 100).toFixed(1)),
+      history: { won, lost, decided_total: decided },
+      probabilities: {
+        draft: Number((probs.draft * 100).toFixed(1)),
+        in_progress: Number((probs.in_progress * 100).toFixed(1)),
+        submitted: Number((probs.submitted * 100).toFixed(1)),
+      },
+      total_gross_open: Number(totalGross.toFixed(2)),
+      total_weighted_projection: Number(totalWeighted.toFixed(2)),
+      by_month: months,
+      by_bid: perBid,
+    });
+  } catch (err) {
+    console.error('BD forecast error:', err);
+    res.status(500).json({ error: 'Failed to compute forecast' });
   }
 });
 

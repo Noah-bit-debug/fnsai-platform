@@ -1,174 +1,182 @@
-import { useState } from 'react';
+/**
+ * Phase 4.4 — Timekeeping (wired to real backend)
+ *
+ * Replaces the previous pure-mock page. Uses the existing timesheets
+ * table and /api/v1/timekeeping endpoints (POST to submit, GET to list,
+ * POST /:id/verify to approve/dispute). Same visual concept as before
+ * (list of timesheets + submit form) but the data now persists.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { timekeepingApi, staffApi, facilitiesApi, Timesheet, Staff, Facility } from '../lib/api';
 
-interface Timesheet {
-  id: number;
-  staff: string;
-  facility: string;
-  weekOf: string;
-  hours: number;
-  submitted: string;
-  verified: boolean;
-}
-
-const INITIAL_TIMESHEETS: Timesheet[] = [
-  {
-    id: 1,
-    staff: 'Sarah Mitchell',
-    facility: 'Mercy Hospital',
-    weekOf: 'Apr 1–7',
-    hours: 36,
-    submitted: 'Apr 8',
-    verified: false,
-  },
-  {
-    id: 2,
-    staff: 'Marcus Green',
-    facility: "St. Luke's Medical",
-    weekOf: 'Apr 1–7',
-    hours: 40,
-    submitted: 'Apr 8',
-    verified: true,
-  },
-  {
-    id: 3,
-    staff: 'Diana Patel',
-    facility: 'Valley Clinic',
-    weekOf: 'Apr 1–7',
-    hours: 38,
-    submitted: 'Apr 7',
-    verified: true,
-  },
-  {
-    id: 4,
-    staff: 'James Torres',
-    facility: "St. Luke's Medical",
-    weekOf: 'Apr 1–7',
-    hours: 32,
-    submitted: 'Apr 9',
-    verified: false,
-  },
-];
-
-const STAFF_OPTIONS = ['Sarah Mitchell', 'Marcus Green', 'Diana Patel', 'James Torres', 'Angela Reyes', 'Kevin Park'];
-const FACILITY_OPTIONS = ['Mercy Hospital', "St. Luke's Medical", 'Valley Clinic', 'Harris Health System', 'Riverside MC'];
-const HOURLY_RATE = 35;
-
-const EMPTY_FORM = {
-  staff: STAFF_OPTIONS[0],
-  facility: FACILITY_OPTIONS[0],
-  weekOf: '',
-  hours: '',
-  notes: '',
+const STATUS_COLORS: Record<Timesheet['status'], string> = {
+  pending: '#e65100', verified: '#2e7d32', approved: '#1565c0', disputed: '#c62828',
 };
 
+function fmtDate(iso?: string | null): string { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString(); } catch { return iso; } }
+
 export default function Timekeeping() {
-  const [timesheets, setTimesheets] = useState<Timesheet[]>(INITIAL_TIMESHEETS);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [form, setForm] = useState<{ staff_id: string; facility_id: string; week_start: string; hours_worked: string }>({
+    staff_id: '', facility_id: '', week_start: '', hours_worked: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [formErr, setFormErr] = useState<string | null>(null);
 
-  function verify(id: number) {
-    setTimesheets((prev) => prev.map((t) => t.id === id ? { ...t, verified: true } : t));
+  async function loadAll() {
+    setLoading(true); setError(null);
+    try {
+      const [tRes, sRes, fRes] = await Promise.all([
+        timekeepingApi.list(statusFilter ? { status: statusFilter } : undefined),
+        staffApi.list(),
+        facilitiesApi.list(),
+      ]);
+      setTimesheets(tRes.data.timesheets);
+      setStaff(sRes.data.staff);
+      setFacilities(fRes.data.facilities);
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load.');
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void loadAll(); /* eslint-disable-next-line */ }, [statusFilter]);
+
+  async function submitTimesheet() {
+    setFormErr(null);
+    if (!form.staff_id || !form.facility_id || !form.week_start || !form.hours_worked) {
+      setFormErr('All fields required.'); return;
+    }
+    setSubmitting(true);
+    try {
+      await timekeepingApi.submit({
+        staff_id: form.staff_id,
+        facility_id: form.facility_id,
+        week_start: form.week_start,
+        hours_worked: Number(form.hours_worked),
+      });
+      setForm({ staff_id: '', facility_id: '', week_start: '', hours_worked: '' });
+      await loadAll();
+    } catch (e: any) {
+      setFormErr(e?.response?.data?.error ?? 'Submit failed.');
+    } finally { setSubmitting(false); }
   }
 
-  function handleSubmit() {
-    if (!form.weekOf || !form.hours) return;
-    const newSheet: Timesheet = {
-      id: Date.now(),
-      staff: form.staff,
-      facility: form.facility,
-      weekOf: form.weekOf,
-      hours: Number(form.hours),
-      submitted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      verified: false,
-    };
-    setTimesheets((prev) => [...prev, newSheet]);
-    setForm({ ...EMPTY_FORM });
+  async function verify(id: string, status: 'verified' | 'disputed' | 'approved') {
+    const notes = status === 'disputed' ? (prompt('Dispute reason:') ?? undefined) : undefined;
+    try { await timekeepingApi.verify(id, status, notes); await loadAll(); }
+    catch (e: any) { alert(e?.response?.data?.error ?? 'Verify failed.'); }
   }
 
-  const verifiedSheets = timesheets.filter((t) => t.verified);
-  const pendingSheets = timesheets.filter((t) => !t.verified);
-  const totalVerifiedHours = verifiedSheets.reduce((s, t) => s + t.hours, 0);
-  const estimatedPayroll = totalVerifiedHours * HOURLY_RATE;
-
-  function exportExcel() {
-    alert('Export started — downloading timekeeping_Apr2026.xlsx');
-  }
+  const byStatus = useMemo(() => ({
+    pending:  timesheets.filter(t => t.status === 'pending').length,
+    verified: timesheets.filter(t => t.status === 'verified').length,
+    approved: timesheets.filter(t => t.status === 'approved').length,
+    disputed: timesheets.filter(t => t.status === 'disputed').length,
+  }), [timesheets]);
 
   return (
-    <div>
-      {/* Page Header */}
-      <div className="page-header">
-        <div className="page-header-row">
-          <div>
-            <h1>⏱️ Timekeeping Audit</h1>
-            <p>Verify all timesheets before payroll runs</p>
-          </div>
+    <div style={{ padding: '24px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1a2b3c', margin: 0 }}>⏰ Timekeeping</h1>
+          <p style={{ fontSize: 13, color: '#64748b', margin: '2px 0 0' }}>Weekly timesheets and verification</p>
         </div>
       </div>
 
-      {/* Pending Timesheet Approvals */}
-      <div className="pn" style={{ marginBottom: 20 }}>
-        <div className="pnh">
-          <h3>Pending Timesheet Approvals</h3>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span className={pendingSheets.length > 0 ? 'tw' : 'tgr'}>
-              {pendingSheets.length} pending
-            </span>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={exportExcel}>
-              📊 Export Excel
-            </button>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 18 }}>
+        {[
+          { label: 'Pending',  n: byStatus.pending,  c: '#e65100' },
+          { label: 'Verified', n: byStatus.verified, c: '#2e7d32' },
+          { label: 'Approved', n: byStatus.approved, c: '#1565c0' },
+          { label: 'Disputed', n: byStatus.disputed, c: '#c62828' },
+        ].map(s => (
+          <div key={s.label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 16px' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: s.c }}>{s.n}</div>
+            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{s.label}</div>
           </div>
+        ))}
+      </div>
+
+      {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+
+      {/* Submit form */}
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 18, marginBottom: 18 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: '#1a2b3c' }}>Submit Timesheet</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+          <select style={field} value={form.staff_id} onChange={e => setForm({ ...form, staff_id: e.target.value })}>
+            <option value="">— Staff —</option>
+            {staff.map(s => <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}
+          </select>
+          <select style={field} value={form.facility_id} onChange={e => setForm({ ...form, facility_id: e.target.value })}>
+            <option value="">— Facility —</option>
+            {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+          <input type="date" style={field} value={form.week_start} onChange={e => setForm({ ...form, week_start: e.target.value })} title="Week start date" />
+          <input type="number" step="0.25" min={0} max={168} placeholder="Hours worked" style={field} value={form.hours_worked} onChange={e => setForm({ ...form, hours_worked: e.target.value })} />
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Staff</th>
-                <th>Facility</th>
-                <th>Week Of</th>
-                <th>Hours</th>
-                <th>Submitted</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
+        {formErr && <div style={{ color: '#c62828', fontSize: 12, marginTop: 8 }}>{formErr}</div>}
+        <button onClick={() => void submitTimesheet()} disabled={submitting}
+          style={{ marginTop: 10, padding: '8px 18px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          {submitting ? 'Submitting…' : 'Submit'}
+        </button>
+      </div>
+
+      {/* Filter */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {['', 'pending', 'verified', 'approved', 'disputed'].map(s => (
+          <button key={s} onClick={() => setStatusFilter(s)}
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600,
+              border: '1px solid #e2e8f0', borderRadius: 8,
+              background: statusFilter === s ? '#1565c0' : '#fff',
+              color: statusFilter === s ? '#fff' : '#64748b', cursor: 'pointer',
+            }}>
+            {s === '' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      {loading ? <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading…</div>
+      : timesheets.length === 0 ? <div style={{ padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+          <div style={{ fontSize: 14, color: '#1a2b3c', fontWeight: 600 }}>No timesheets</div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>Submit one above to get started.</div>
+        </div>
+      : (
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ background: '#f8fafc' }}>
+              {['Staff', 'Facility', 'Week of', 'Hours', 'Status', 'Submitted', 'Actions'].map(h =>
+                <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>)}
+            </tr></thead>
             <tbody>
-              {timesheets.map((t) => (
-                <tr
-                  key={t.id}
-                  style={
-                    t.verified
-                      ? { background: 'rgba(46,204,113,0.05)' }
-                      : undefined
-                  }
-                >
-                  <td>
-                    <strong>{t.staff}</strong>
+              {timesheets.map(t => (
+                <tr key={t.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                  <td style={td}>{t.first_name} {t.last_name}</td>
+                  <td style={td}>{t.facility_name}</td>
+                  <td style={td}>{fmtDate(t.week_start)}</td>
+                  <td style={td}>{t.hours_worked ?? '—'}h</td>
+                  <td style={td}>
+                    <span style={{ padding: '2px 8px', borderRadius: 10, background: STATUS_COLORS[t.status] + '22', color: STATUS_COLORS[t.status], fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {t.status}
+                    </span>
                   </td>
-                  <td className="t2">{t.facility}</td>
-                  <td className="t2">{t.weekOf}</td>
-                  <td>
-                    <strong>{t.hours}h</strong>
-                  </td>
-                  <td className="t3">{t.submitted}</td>
-                  <td>
-                    {t.verified ? (
-                      <span className="tg">Verified</span>
-                    ) : (
-                      <span className="tw">Pending audit</span>
+                  <td style={{ ...td, fontSize: 12, color: '#64748b' }}>{fmtDate(t.created_at)}</td>
+                  <td style={td}>
+                    {t.status === 'pending' && (
+                      <div style={{ display: 'flex', gap: 5 }}>
+                        <button onClick={() => void verify(t.id, 'verified')} style={{ ...actionBtn, background: '#2e7d32' }}>Verify</button>
+                        <button onClick={() => void verify(t.id, 'disputed')} style={{ ...actionBtn, background: '#c62828' }}>Dispute</button>
+                      </div>
                     )}
-                  </td>
-                  <td>
-                    {t.verified ? (
-                      <span style={{ color: 'var(--t3)', fontSize: 13 }}>—</span>
-                    ) : (
-                      <button
-                        className="btn btn-sm"
-                        type="button"
-                        style={{ background: 'var(--pr)', color: '#fff' }}
-                        onClick={() => verify(t.id)}
-                      >
-                        Verify
-                      </button>
+                    {t.status === 'verified' && (
+                      <button onClick={() => void verify(t.id, 'approved')} style={{ ...actionBtn, background: '#1565c0' }}>Approve</button>
                     )}
                   </td>
                 </tr>
@@ -176,124 +184,11 @@ export default function Timekeeping() {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Submit New Timesheet */}
-      <div className="pn" style={{ marginBottom: 20 }}>
-        <div className="pnh">
-          <h3>Submit New Timesheet</h3>
-        </div>
-        <div className="pnb">
-          <div className="grid-2" style={{ gap: 14, marginBottom: 14 }}>
-            <div className="form-group">
-              <label className="form-label">Staff Member</label>
-              <select
-                className="form-select"
-                value={form.staff}
-                onChange={(e) => setForm({ ...form, staff: e.target.value })}
-              >
-                {STAFF_OPTIONS.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Facility</label>
-              <select
-                className="form-select"
-                value={form.facility}
-                onChange={(e) => setForm({ ...form, facility: e.target.value })}
-              >
-                {FACILITY_OPTIONS.map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Week Of</label>
-              <input
-                className="form-input"
-                type="date"
-                value={form.weekOf}
-                onChange={(e) => setForm({ ...form, weekOf: e.target.value })}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Hours Worked</label>
-              <input
-                className="form-input"
-                type="number"
-                min={0}
-                max={168}
-                placeholder="e.g. 36"
-                value={form.hours}
-                onChange={(e) => setForm({ ...form, hours: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Notes</label>
-            <textarea
-              className="form-textarea"
-              placeholder="Optional notes — overtime, call shifts, adjustments..."
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            />
-          </div>
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={handleSubmit}
-          >
-            Submit Timesheet
-          </button>
-        </div>
-      </div>
-
-      {/* Payroll Summary */}
-      <div className="pn">
-        <div className="pnh">
-          <h3>💰 Payroll Summary</h3>
-          <span className="tb">Week of Apr 1–7</span>
-        </div>
-        <div className="pnb">
-          <div className="grid-3" style={{ gap: 16 }}>
-            <div className="sc" style={{ borderTop: '3px solid var(--ac)' }}>
-              <div className="sc-icon" style={{ background: 'rgba(46,204,113,0.1)', color: 'var(--ac)' }}>⏱️</div>
-              <div className="sc-label">Total Verified Hours</div>
-              <div className="sc-value">{totalVerifiedHours}h</div>
-              <div className="sc-sub">Across {verifiedSheets.length} verified timesheet{verifiedSheets.length !== 1 ? 's' : ''}</div>
-            </div>
-            <div className="sc" style={{ borderTop: '3px solid var(--pr)' }}>
-              <div className="sc-icon" style={{ background: 'rgba(26,95,122,0.1)', color: 'var(--pr)' }}>💵</div>
-              <div className="sc-label">Estimated Payroll</div>
-              <div className="sc-value">${estimatedPayroll.toLocaleString()}</div>
-              <div className="sc-sub">At ${HOURLY_RATE}/hr placeholder rate</div>
-            </div>
-            <div className="sc" style={{ borderTop: `3px solid ${pendingSheets.length > 0 ? 'var(--wn)' : 'var(--tgr)'}` }}>
-              <div
-                className="sc-icon"
-                style={{
-                  background: pendingSheets.length > 0 ? 'rgba(243,156,18,0.1)' : 'rgba(113,128,150,0.1)',
-                  color: pendingSheets.length > 0 ? 'var(--wn)' : 'var(--t3)',
-                }}
-              >
-                📋
-              </div>
-              <div className="sc-label">Timesheets Pending</div>
-              <div
-                className="sc-value"
-                style={{ color: pendingSheets.length > 0 ? 'var(--wn)' : 'var(--t1)' }}
-              >
-                {pendingSheets.length}
-              </div>
-              <div className="sc-sub">
-                {pendingSheets.length === 0 ? 'All timesheets verified' : 'Awaiting verification'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
+
+const field: React.CSSProperties = { padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 7, fontSize: 13, outline: 'none', background: '#fff', color: '#1e293b' };
+const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13, color: '#1e293b' };
+const actionBtn: React.CSSProperties = { padding: '5px 11px', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' };
