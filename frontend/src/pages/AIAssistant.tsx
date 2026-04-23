@@ -99,20 +99,33 @@ function EntityLinkButton({ entity, value, onNavigate, onDisambiguate }: {
   onDisambiguate: (entity: EntityType, value: string, matches: EntityMatch[]) => void;
 }) {
   const c = ENTITY_COLORS[entity];
-  async function onClick() {
+  async function onClick(evt: React.MouseEvent) {
+    // Phase 5.3 QA fix — QA reported clicking the pill did nothing.
+    // Add diagnostic logging at every branch so whatever path the
+    // handler takes is visible in DevTools Console. Also stop
+    // propagation in case a parent handler was swallowing the event.
+    evt.preventDefault();
+    evt.stopPropagation();
+    console.log('[ai-chat] entity pill clicked:', { entity, value });
     try {
-      const { data } = await aiApi.resolveEntity(entity, value);
-      if (data.matches.length === 0) {
+      const resp = await aiApi.resolveEntity(entity, value);
+      const matches = Array.isArray(resp?.data?.matches) ? resp.data.matches : [];
+      console.log('[ai-chat] resolve-entity response:', { entity, value, matchCount: matches.length, matches });
+      if (matches.length === 0) {
         alert(`No ${entity} found matching "${value}".`);
         return;
       }
-      if (data.matches.length === 1) {
-        onNavigate(hrefFor(entity, data.matches[0]));
+      if (matches.length === 1) {
+        const href = hrefFor(entity, matches[0]);
+        console.log('[ai-chat] navigating to:', href);
+        onNavigate(href);
         return;
       }
-      onDisambiguate(entity, value, data.matches);
+      console.log('[ai-chat] opening disambiguation picker');
+      onDisambiguate(entity, value, matches);
     } catch (e: any) {
-      alert(e?.response?.data?.error ?? 'Lookup failed.');
+      console.error('[ai-chat] resolve-entity error:', e);
+      alert(e?.response?.data?.error ?? e?.message ?? 'Lookup failed.');
     }
   }
   return (

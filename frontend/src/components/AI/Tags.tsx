@@ -91,14 +91,24 @@ export function EntityLinkButton({ entity, value, onDisambiguate }: {
 }) {
   const navigate = useNavigate();
   const c = ENTITY_COLORS[entity];
-  async function onClick() {
+  async function onClick(evt: React.MouseEvent) {
+    // Phase 5.3 QA fix — log every branch + stop propagation so clicks
+    // inside nested containers (e.g. a dashboard card) don't get
+    // swallowed by parent handlers. Matches the inline implementation
+    // in AIAssistant.tsx.
+    evt.preventDefault();
+    evt.stopPropagation();
+    console.log('[ai-tags] entity pill clicked:', { entity, value });
     try {
-      const { data } = await aiApi.resolveEntity(entity, value);
-      if (data.matches.length === 0) { alert(`No ${entity} found matching "${value}".`); return; }
-      if (data.matches.length === 1) { navigate(hrefFor(entity, data.matches[0])); return; }
-      onDisambiguate(entity, value, data.matches);
+      const resp = await aiApi.resolveEntity(entity, value);
+      const matches = Array.isArray(resp?.data?.matches) ? resp.data.matches : [];
+      console.log('[ai-tags] resolve-entity response:', { entity, value, matchCount: matches.length });
+      if (matches.length === 0) { alert(`No ${entity} found matching "${value}".`); return; }
+      if (matches.length === 1) { navigate(hrefFor(entity, matches[0])); return; }
+      onDisambiguate(entity, value, matches);
     } catch (e: any) {
-      alert(e?.response?.data?.error ?? 'Lookup failed.');
+      console.error('[ai-tags] resolve-entity error:', e);
+      alert(e?.response?.data?.error ?? e?.message ?? 'Lookup failed.');
     }
   }
   return (

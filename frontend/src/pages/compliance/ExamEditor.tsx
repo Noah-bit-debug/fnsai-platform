@@ -730,6 +730,54 @@ export default function ExamEditor() {
     setQuestions((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // Phase 2 QA fix — the AI / Excel wizard button was previously hidden
+  // when editing a NEW exam (id === undefined). QA reported it missing.
+  // Expose a helper that saves the current exam as a draft first, then
+  // navigates to the wizard with the fresh id.
+  async function saveAsDraftAndOpenWizard() {
+    if (!form.title.trim()) {
+      alert('Please enter a title for the exam, then click ✦ AI / Excel again to save a draft and open the wizard.');
+      return;
+    }
+    setSaving(true); setError(null);
+    try {
+      const payload = buildSavePayload('draft');
+      const createRes = await api.post('/compliance/exams', payload);
+      const newExam = createRes.data?.exam ?? createRes.data;
+      const newId = String(newExam.id);
+      // Save any buffered questions too so nothing is lost
+      for (let i = 0; i < questions.length; i++) {
+        await saveQuestionToApi(newId, { ...questions[i], sort_order: i });
+      }
+      navigate(`/compliance/admin/exams/${newId}/ai-wizard`);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message);
+      setSaving(false);
+    }
+  }
+
+  /** Extracted so both handleSave and saveAsDraftAndOpenWizard share
+   *  the same payload shape. */
+  function buildSavePayload(targetStatus: 'draft' | 'published') {
+    return {
+      title:               form.title.trim(),
+      description:         form.description.trim() || null,
+      instructions:        form.instructions.trim() || null,
+      passing_score:       form.passing_score,
+      max_attempts:        form.max_attempts,
+      expiration_type:     form.expiration_type,
+      time_limit:          form.time_limit ? parseInt(form.time_limit, 10) : null,
+      ceus:                form.ceus ? parseFloat(form.ceus) : null,
+      question_count:      form.question_count,
+      randomize_questions: form.randomize_questions,
+      status:              targetStatus,
+      applicable_roles:    form.applicable_roles,
+      cat1_id:             form.cat1_id || null,
+      cat2_id:             form.cat2_id || null,
+      cat3_id:             form.cat3_id || null,
+    };
+  }
+
   async function handleSave(targetStatus: 'draft' | 'published') {
     if (!form.title.trim()) {
       setError('Title is required.');
@@ -1129,20 +1177,26 @@ export default function ExamEditor() {
                 + Add Question
               </button>
             )}
-            {/* Phase 2.4 — AI + Excel bulk import wizard */}
-            {id && (
-              <button
-                onClick={() => window.location.href = `/compliance/admin/exams/${id}/ai-wizard`}
-                style={{
-                  padding: '9px 18px', fontSize: 13, fontWeight: 600,
-                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff',
-                  border: 'none', borderRadius: 7, cursor: 'pointer', marginLeft: 8,
-                }}
-                title="Generate with AI or bulk-import from Excel"
-              >
-                ✦ AI / Excel
-              </button>
-            )}
+            {/* Phase 2.4 — AI + Excel bulk import wizard.
+                Phase 2 QA fix: previously gated behind `{id && ...}`
+                so it was hidden on brand-new exams. Now always visible:
+                for new exams we save as draft first, then navigate. */}
+            <button
+              onClick={() => {
+                if (id) window.location.href = `/compliance/admin/exams/${id}/ai-wizard`;
+                else void saveAsDraftAndOpenWizard();
+              }}
+              disabled={saving}
+              style={{
+                padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff',
+                border: 'none', borderRadius: 7, cursor: saving ? 'wait' : 'pointer', marginLeft: 8,
+                opacity: saving ? 0.6 : 1,
+              }}
+              title={id ? 'Generate with AI or bulk-import from Excel' : 'Save exam as draft and open the AI / Excel wizard'}
+            >
+              {saving ? 'Saving…' : '✦ AI / Excel'}
+            </button>
           </div>
 
           {/* Existing questions */}

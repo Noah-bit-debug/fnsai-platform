@@ -316,8 +316,20 @@ router.post('/runs', requireAuth, requirePermission('reports_view'), async (req:
 
     res.status(201).json(runResult.rows[0]);
   } catch (err) {
-    console.error('Generate report run error:', err);
-    res.status(500).json({ error: 'Failed to generate report' });
+    // Phase 5.4 QA fix — QA reported "Failed to generate report" on
+    // every type with no indication of WHY. The catch was swallowing
+    // the specific pg error (missing column, bad JOIN, etc.). Now we
+    // log the full error server-side AND return the message to the
+    // client so it's visible in the modal's error banner.
+    const e = err as { message?: string; code?: string; detail?: string; position?: string };
+    console.error('Generate report run error:', {
+      message: e.message, code: e.code, detail: e.detail, position: e.position,
+      stack: (err as Error)?.stack?.split('\n').slice(0, 5).join('\n'),
+    });
+    res.status(500).json({
+      error: `Failed to generate report: ${e.message?.slice(0, 300) ?? 'unknown'}`,
+      code: e.code,
+    });
   }
 });
 

@@ -256,6 +256,55 @@ export default function ChecklistEditor() {
 
   // ─── Save logic ───────────────────────────────────────────
 
+  // Phase 2 QA fix — mirror of the ExamEditor fix. The AI/Excel wizard
+  // button was hidden behind `{id && ...}` on brand-new checklists.
+  // Save the metadata as a draft, then navigate the user to the wizard
+  // so they don't have to do a double-click "save then open wizard"
+  // dance. Existing sections/skills the user may have buffered are
+  // also saved so nothing is lost.
+  async function saveAsDraftAndOpenWizard() {
+    if (!form.title.trim()) {
+      alert('Please enter a title for the checklist, then click ✦ AI / Excel again to save a draft and open the wizard.');
+      return;
+    }
+    setSaving(true); setError(null);
+    try {
+      const payload = {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        mode: form.mode,
+        status: 'draft' as const,
+        applicable_roles: form.applicable_roles,
+        cat1_id: form.cat1_id ? parseInt(form.cat1_id, 10) : null,
+        cat2_id: form.cat2_id ? parseInt(form.cat2_id, 10) : null,
+        cat3_id: form.cat3_id ? parseInt(form.cat3_id, 10) : null,
+      };
+      const res = await api.post('/compliance/checklists', payload);
+      const newId = String(res.data.id ?? res.data.checklist?.id);
+      // Persist any buffered sections + skills too.
+      for (let si = 0; si < sections.length; si++) {
+        const sec = sections[si];
+        const secRes = await api.post(`/compliance/checklists/${newId}/sections`, {
+          title: sec.title, sort_order: si,
+        });
+        const sectionId = String(secRes.data.id ?? secRes.data.section?.id);
+        for (let ski = 0; ski < sec.skills.length; ski++) {
+          const sk = sec.skills[ski];
+          await api.post(`/compliance/checklists/${newId}/sections/${sectionId}/skills`, {
+            skill_name: sk.skill_name,
+            description: sk.description,
+            exclude_from_score: sk.exclude_from_score,
+            sort_order: ski,
+          });
+        }
+      }
+      navigate(`/compliance/admin/checklists/${newId}/ai-wizard`);
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message);
+      setSaving(false);
+    }
+  }
+
   async function handleSave(publishOverride?: 'published') {
     if (!form.title.trim()) { setError('Title is required.'); return; }
     setError(null);
@@ -521,22 +570,27 @@ export default function ChecklistEditor() {
               >
                 + Add Section
               </button>
-              {/* Phase 2.5 — AI + Excel bulk import */}
-              {id && (
-                <button
-                  type="button"
-                  onClick={() => window.location.href = `/compliance/admin/checklists/${id}/ai-wizard`}
-                  style={{
-                    padding: '7px 16px', fontSize: 13, fontWeight: 600,
-                    color: '#fff',
-                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                    border: 'none', borderRadius: 7, cursor: 'pointer',
-                  }}
-                  title="Generate with AI or bulk-import from Excel"
-                >
-                  ✦ AI / Excel
-                </button>
-              )}
+              {/* Phase 2.5 — AI + Excel bulk import.
+                  Phase 2 QA fix: always visible; for new checklists
+                  we save as draft first, then navigate to the wizard. */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (id) window.location.href = `/compliance/admin/checklists/${id}/ai-wizard`;
+                  else void saveAsDraftAndOpenWizard();
+                }}
+                disabled={saving}
+                style={{
+                  padding: '7px 16px', fontSize: 13, fontWeight: 600,
+                  color: '#fff',
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  border: 'none', borderRadius: 7, cursor: saving ? 'wait' : 'pointer',
+                  opacity: saving ? 0.6 : 1,
+                }}
+                title={id ? 'Generate with AI or bulk-import from Excel' : 'Save checklist as draft and open the AI / Excel wizard'}
+              >
+                {saving ? 'Saving…' : '✦ AI / Excel'}
+              </button>
             </div>
           </div>
 

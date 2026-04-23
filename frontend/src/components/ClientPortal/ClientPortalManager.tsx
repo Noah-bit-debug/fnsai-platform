@@ -61,6 +61,14 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
 
   async function createToken() {
     setCreating(true); setError(null);
+    // Force the expiry input to commit any partially-entered value by
+    // blurring it first. Modern browsers' <input type="date"> only
+    // updates .value when the input loses focus OR when the user
+    // completes the full YYYY-MM-DD format. Automation tools and
+    // fast-click users can hit Create while the input still has focus
+    // and an incomplete value that shows up as "" in .value.
+    expiresRef.current?.blur();
+    labelRef.current?.blur();
     // Read directly from the DOM at submit time so automation tools
     // (or any code path that sets input.value without firing React's
     // synthetic onChange) still get captured.
@@ -71,10 +79,23 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
       if (facilityId) body.facility_id = facilityId;
       else if (clientId) body.client_id = clientId;
       if (labelValue) body.display_label = labelValue;
-      if (expiresValue) body.expires_at = new Date(expiresValue).toISOString();
+      // Phase 6.5 QA fix (confirmed via Railway logs showing
+      // `expires_at_raw: null`): input type="datetime-local" is
+      // unreliable — browsers and automation tools leave .value empty
+      // when the input isn't fully committed. Switched to input
+      // type="date" (YYYY-MM-DD) which commits as soon as a valid
+      // date is present, and we interpret it as end-of-day in the
+      // admin's LOCAL time zone. Minute-level precision isn't useful
+      // for portal share links; date precision is the right unit.
+      if (expiresValue && /^\d{4}-\d{2}-\d{2}$/.test(expiresValue)) {
+        const [y, m, d] = expiresValue.split('-').map(Number);
+        // 23:59:59.999 local → toISOString for wire format
+        const endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
+        body.expires_at = endOfDay.toISOString();
+      }
       // Keep the diagnostic log — pair with Railway's [client-portal]
       // backend logs to triangulate any future disappearance.
-      console.log('[client-portal] creating token with body:', body, 'raw datetime-local:', expiresValue);
+      console.log('[client-portal] creating token with body:', body, 'raw date:', expiresValue);
       const resp = await clientPortalApi.createToken(body);
       console.log('[client-portal] server created token:', resp.data);
       // Clear the form by resetting the DOM values.
@@ -130,7 +151,10 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
           </div>
           <div>
             <label style={lbl}>Expires (optional)</label>
-            <input ref={expiresRef} type="datetime-local" style={field} defaultValue="" />
+            {/* date (not datetime-local) because datetime-local has a
+                .value commit gotcha that was silently dropping the
+                expiry. End-of-day local time is applied at submit. */}
+            <input ref={expiresRef} type="date" style={field} defaultValue="" />
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button onClick={() => void createToken()} disabled={creating}

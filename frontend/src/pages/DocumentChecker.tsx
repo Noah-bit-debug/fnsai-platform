@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { documentsApi } from '../lib/api';
+import { useRBAC } from '../contexts/RBACContext';
 
 const DOCUMENT_TYPES = [
   'RN License',
@@ -38,6 +40,12 @@ export default function DocumentChecker() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Phase 2 QA fix — expose the "+ New Type" admin surface from this
+  // page. The DocTypesAdmin page already exists at
+  // /compliance/admin/doc-types but was unreachable from the user's
+  // flow. Surface it as a header button for admins only.
+  const { role } = useRBAC();
+  const isAdmin = role === 'admin' || role === 'ceo';
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -95,6 +103,19 @@ export default function DocumentChecker() {
             <h1>📎 Document Checker</h1>
             <p>AI-powered compliance verification for healthcare staffing documents</p>
           </div>
+          {isAdmin && (
+            <Link
+              to="/compliance/admin/doc-types"
+              style={{
+                padding: '9px 16px', background: '#1565c0', color: '#fff',
+                borderRadius: 8, fontSize: 13, fontWeight: 600,
+                textDecoration: 'none', whiteSpace: 'nowrap',
+              }}
+              title="Create or edit document types the AI checker recognizes"
+            >
+              + Manage Document Types
+            </Link>
+          )}
         </div>
       </div>
 
