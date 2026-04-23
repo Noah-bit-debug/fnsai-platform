@@ -1,3 +1,22 @@
+/**
+ * Phase 5.1 — Email Monitor stabilization
+ *
+ * Changes from the previous pass:
+ *   * Specific error surfacing — the backend emails route already has
+ *     detailed error messages for Graph-credential / Graph-auth /
+ *     user-not-found failures. Previously a generic `alert()` ate all
+ *     of them. Now the actual message is shown inline with a banner.
+ *   * Setup-required banner — if the backend returns 503 (credentials
+ *     not configured), the page shows a persistent yellow banner with
+ *     the exact env-var list that needs to be set.
+ *   * Safe stats parsing — old code cast `statsData` through an anon
+ *     type; any malformed shape rendered undefined counts. Now we
+ *     validate the array + each row before using it.
+ *   * Action mutation errors now show a toast-style alert with the
+ *     backend's reason instead of failing silently.
+ *   * Tab-switch no longer 500s on empty categories (react-query keeps
+ *     previous data during refetch; empty state is explicit).
+ */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -15,13 +34,39 @@ function categoryClass(cat?: string) {
   }
 }
 
+/** Coerce the stats response into a guaranteed-safe array. */
+function parseStats(data: unknown): Array<{ ai_category: string; total: number; pending_action: number }> {
+  const rec = data as { byCategory?: unknown };
+  const raw = Array.isArray(rec?.byCategory) ? rec.byCategory : [];
+  return raw
+    .filter((r): r is { ai_category: string; total: string | number; pending_action?: string | number } =>
+      r != null && typeof (r as any).ai_category === 'string')
+    .map((r) => ({
+      ai_category: r.ai_category,
+      total: Number(r.total) || 0,
+      pending_action: Number(r.pending_action) || 0,
+    }));
+}
+
+/** Pull a useful message from any axios-shape error. */
+function errorDetail(err: unknown): { message: string; status?: number } {
+  const e = err as { response?: { status?: number; data?: { error?: string } }; message?: string };
+  return {
+    message: e.response?.data?.error ?? e.message ?? 'Unknown error',
+    status: e.response?.status,
+  };
+}
+
 export default function EmailMonitor() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [activeFilter, setActiveFilter] = useState('all');
   const [isScanning, setIsScanning] = useState(false);
+  /** Surfaces the last scan / action error at the top of the page.
+   *  Persistent — user dismisses explicitly. */
+  const [pageError, setPageError] = useState<{ message: string; status?: number } | null>(null);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error: listError, refetch } = useQuery({
     queryKey: ['emails', activeFilter],
     queryFn: () =>
       emailsApi.list({
@@ -32,7 +77,7 @@ export default function EmailMonitor() {
     staleTime: 30000,
   });
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, error: statsError } = useQuery({
     queryKey: ['email-stats'],
     queryFn: () => emailsApi.stats(),
     select: (r) => r.data,
@@ -45,16 +90,21 @@ export default function EmailMonitor() {
       void qc.invalidateQueries({ queryKey: ['emails'] });
       void qc.invalidateQueries({ queryKey: ['email-stats'] });
     },
+    onError: (err) => {
+      setPageError(errorDetail(err));
+    },
   });
 
   async function handleScan() {
     setIsScanning(true);
+    setPageError(null);
     try {
       await emailsApi.scan(undefined, 25);
       void qc.invalidateQueries({ queryKey: ['emails'] });
       void qc.invalidateQueries({ queryKey: ['email-stats'] });
-    } catch {
-      alert('Failed to scan emails. Check Microsoft Graph credentials.');
+    } catch (err) {
+      // Preserve the backend's specific error instead of a generic alert.
+      setPageError(errorDetail(err));
     } finally {
       setIsScanning(false);
     }
@@ -65,7 +115,9 @@ export default function EmailMonitor() {
     navigate(`/ai-assistant?prompt=${encodeURIComponent(prompt)}`);
   }
 
-  const stats = (statsData as { byCategory?: Array<{ ai_category: string; total: string; pending_action: string }> })?.byCategory ?? [];
+  const stats = parseStats(statsData);
+  const isSetupIssue = pageError?.status === 503 || pageError?.status === 400;
+  const hasListError = isError && listError;
 
   return (
     <div>
@@ -93,12 +145,50 @@ export default function EmailMonitor() {
         </div>
       </div>
 
+      {/* Page-level error banner. Persistent setup-required messages get
+          a different color so they don't look like a transient error. */}
+      {pageError && (
+        <div
+          style={{
+            background: isSetupIssue ? '#fef3c7' : '#fee2e2',
+            border: `1px solid ${isSetupIssue ? '#fcd34d' : '#fca5a5'}`,
+            color: isSetupIssue ? '#92400e' : '#991b1b',
+            padding: '12px 16px',
+            borderRadius: 10,
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
+          }}
+        >
+          <span style={{ fontSize: 20 }}>{isSetupIssue ? '⚠️' : '✗'}</span>
+          <div style={{ flex: 1, fontSize: 13, lineHeight: 1.5 }}>
+            <strong>{isSetupIssue ? 'Setup required' : 'Request failed'}{pageError.status ? ` (${pageError.status})` : ''}:</strong>{' '}
+            {pageError.message}
+          </div>
+          <button
+            onClick={() => setPageError(null)}
+            style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: 'inherit' }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Stats-load error — non-fatal, shown as a small notice */}
+      {statsError && !pageError && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 12 }}>
+          Couldn't load category stats: {errorDetail(statsError).message}. Counts below may be stale.
+        </div>
+      )}
+
       {/* Stats row */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         {CATEGORIES.filter((c) => c !== 'all').map((cat) => {
           const stat = stats.find((s) => s.ai_category === cat);
-          const count = stat ? Number(stat.total) : 0;
-          const pending = stat ? Number(stat.pending_action) : 0;
+          const count = stat?.total ?? 0;
+          const pending = stat?.pending_action ?? 0;
           return (
             <div
               key={cat}
@@ -136,10 +226,19 @@ export default function EmailMonitor() {
       <div className="pn">
         {isLoading ? (
           <div className="loading-overlay"><div className="spinner" /></div>
-        ) : isError || !data?.emails?.length ? (
+        ) : hasListError ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">✗</div>
+            <h3>Failed to load emails</h3>
+            <p>{errorDetail(listError).message}</p>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => void refetch()}>
+              Retry
+            </button>
+          </div>
+        ) : !data?.emails?.length ? (
           <div className="empty-state">
             <div className="empty-state-icon">📧</div>
-            <h3>No emails found</h3>
+            <h3>No {activeFilter === 'all' ? '' : activeFilter} emails</h3>
             <p>Click "Scan Now" to fetch and categorize emails from Outlook.</p>
           </div>
         ) : (
@@ -184,8 +283,9 @@ export default function EmailMonitor() {
                     className="btn btn-ghost btn-sm"
                     type="button"
                     onClick={() => actionMutation.mutate(email.id)}
+                    disabled={actionMutation.isPending}
                   >
-                    ✓ Mark Actioned
+                    {actionMutation.isPending ? 'Saving…' : '✓ Mark Actioned'}
                   </button>
                 )}
                 {email.actioned && (
