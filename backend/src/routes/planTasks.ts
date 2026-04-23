@@ -399,13 +399,22 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
   const { goal, answers } = parse.data;
 
-  const systemPrompt = `You turn a goal + collected answers into a concrete task definition for a healthcare staffing ops team. Return JSON only, no markdown fences:
+  // Phase 6.6 QA fix — include today's date in the prompt so Claude
+  // doesn't draft due dates in the past. Without this the model
+  // defaults to its training-cutoff date, which was producing 2025
+  // dates in mid-2026.
+  const today = new Date().toISOString().slice(0, 10);
+  const systemPrompt = `You turn a goal + collected answers into a concrete task definition for a healthcare staffing ops team.
+
+Today's date is ${today}. All due dates you generate MUST be on or after this date — never in the past.
+
+Return JSON only, no markdown fences:
 
 {
   "title": "<short action-verb task title, under 80 chars>",
   "category": "<one of: Step 1 Urgent|Step 2 Insurance|Step 3 Funding|Step 4 Planning|Step 5 Controls|Step 6 Contracts|General>",
   "priority": "High|Medium|Low",
-  "due_date": "YYYY-MM-DD or null",
+  "due_date": "YYYY-MM-DD (must be >= ${today}) or null",
   "notes": "<2-4 sentence context capturing what the answers revealed>",
   "subtasks": ["<ordered actionable steps, 3-8 items, each ≤120 chars>"],
   "suggested_reminder_days": <integer 1-30, how many days before due_date to remind; null if no due date>
@@ -413,7 +422,8 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
 
 Rules:
 - Subtasks must be verb-first and actionable ("Call Sarah at BankEasy to confirm account number", not "Account stuff").
-- If the answers didn't pin down a date, set due_date to null.
+- If the answers didn't pin down a date, set due_date to null. Do NOT guess a date from training data — use today (${today}) as the earliest possible date.
+- If the user said "by Friday" or "next week", calculate the actual YYYY-MM-DD relative to ${today}.
 - Do not invent facts the answers didn't provide.
 - priority = High if the answers indicate a blocker / deadline in ≤7 days; Medium otherwise; Low if purely housekeeping.`;
 
@@ -438,11 +448,27 @@ Rules:
     try { parsed = JSON.parse(jsonStr); }
     catch { res.status(502).json({ error: 'AI returned malformed JSON.', raw_preview: raw.slice(0, 500) }); return; }
     if (!parsed.title) { res.status(502).json({ error: 'AI response missing title' }); return; }
+
+    // Phase 6.6 QA fix — belt-and-suspenders guard against Claude
+    // emitting a due_date in the past despite the prompt. If it does,
+    // null it out so the frontend doesn't save an overdue task out of
+    // the gate.
+    let dueDate: string | null = parsed.due_date ?? null;
+    if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+      if (dueDate < today) {
+        console.warn('[plan-tasks] AI returned past due_date', dueDate, 'today is', today, '— nulling it out');
+        dueDate = null;
+      }
+    } else if (dueDate) {
+      // malformed string → drop
+      dueDate = null;
+    }
+
     res.json({
       title: parsed.title,
       category: parsed.category ?? 'General',
       priority: (['High','Medium','Low'] as const).includes(parsed.priority as any) ? parsed.priority : 'Medium',
-      due_date: parsed.due_date ?? null,
+      due_date: dueDate,
       notes: parsed.notes ?? '',
       subtasks: Array.isArray(parsed.subtasks) ? parsed.subtasks.filter(s => typeof s === 'string').slice(0, 12) : [],
       suggested_reminder_days: typeof parsed.suggested_reminder_days === 'number' ? parsed.suggested_reminder_days : null,

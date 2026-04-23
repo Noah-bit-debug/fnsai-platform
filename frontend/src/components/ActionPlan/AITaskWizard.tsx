@@ -93,6 +93,13 @@ export default function AITaskWizard({ groups, onCreated, onClose, initialGoal }
   async function saveTask() {
     if (!draft) return;
     setStage('saving'); setError(null);
+    // Phase 6.6 QA aid — log the exact draft at submit time so a lost
+    // edit shows up in the console instead of being invisible.
+    console.log('[ai-task-wizard] saving draft:', {
+      title: draft.title, category: draft.category, priority: draft.priority,
+      due_date: draft.due_date, notes_length: draft.notes?.length ?? 0,
+      subtask_count: editedSubtasks.length, group_id: groupId || null,
+    });
     try {
       // 1. Create task
       const t = await planTasksApi.createTask({
@@ -227,23 +234,31 @@ export default function AITaskWizard({ groups, onCreated, onClose, initialGoal }
         {stage === 'review' && draft && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {/* Phase 6.6 QA fix — every setDraft uses the functional
+                  form `setDraft(prev => ({...prev, key: val}))` instead
+                  of the object form `setDraft({...draft, key: val})`.
+                  The object form captures the `draft` variable from the
+                  render closure; if a state update is still in-flight
+                  when the user clicks "Create task", the edit gets lost
+                  (QA saw a due-date edit disappear). Functional form
+                  always reads the freshest state. */}
               <div style={{ gridColumn: 'span 2' }}>
                 <label style={lbl}>Title</label>
-                <input style={field} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} />
+                <input style={field} value={draft.title} onChange={e => setDraft(prev => prev ? ({ ...prev, title: e.target.value }) : prev)} />
               </div>
               <div>
                 <label style={lbl}>Category</label>
-                <input style={field} value={draft.category} onChange={e => setDraft({ ...draft, category: e.target.value })} />
+                <input style={field} value={draft.category} onChange={e => setDraft(prev => prev ? ({ ...prev, category: e.target.value }) : prev)} />
               </div>
               <div>
                 <label style={lbl}>Priority</label>
-                <select style={field} value={draft.priority} onChange={e => setDraft({ ...draft, priority: e.target.value as PlanAIDraftResult['priority'] })}>
+                <select style={field} value={draft.priority} onChange={e => setDraft(prev => prev ? ({ ...prev, priority: e.target.value as PlanAIDraftResult['priority'] }) : prev)}>
                   <option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option>
                 </select>
               </div>
               <div>
                 <label style={lbl}>Due date</label>
-                <input type="date" style={field} value={draft.due_date ?? ''} onChange={e => setDraft({ ...draft, due_date: e.target.value || null })} />
+                <input type="date" style={field} value={draft.due_date ?? ''} onChange={e => setDraft(prev => prev ? ({ ...prev, due_date: e.target.value || null }) : prev)} />
               </div>
               <div>
                 <label style={lbl}>Group</label>
@@ -254,7 +269,7 @@ export default function AITaskWizard({ groups, onCreated, onClose, initialGoal }
               </div>
               <div style={{ gridColumn: 'span 2' }}>
                 <label style={lbl}>Notes</label>
-                <textarea style={{ ...field, minHeight: 60, resize: 'vertical' }} value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
+                <textarea style={{ ...field, minHeight: 60, resize: 'vertical' }} value={draft.notes} onChange={e => setDraft(prev => prev ? ({ ...prev, notes: e.target.value }) : prev)} />
               </div>
               <div style={{ gridColumn: 'span 2' }}>
                 <label style={lbl}>Subtasks ({editedSubtasks.length})</label>
