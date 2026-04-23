@@ -48,7 +48,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
         width: 44,
         height: 24,
         borderRadius: 12,
-        background: checked ? 'var(--ac, #3b82f6)' : 'rgba(255,255,255,0.15)',
+        background: checked ? 'var(--ac, #3b82f6)' : '#cbd5e1',
         position: 'relative',
         cursor: disabled ? 'not-allowed' : 'pointer',
         transition: 'background 0.2s',
@@ -106,13 +106,13 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.05)',
-      border: '1px solid rgba(255,255,255,0.1)',
+      background: '#fff',
+      border: '1px solid #e2e8f0',
       borderRadius: 12,
       padding: '20px 24px',
       marginBottom: 20,
     }}>
-      <div style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', marginBottom: 16 }}>{title}</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>{title}</div>
       {children}
     </div>
   );
@@ -278,8 +278,8 @@ export default function NotificationSettings() {
       {/* Header */}
       <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9' }}>Notification Settings</div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#1a2b3c' }}>Notification Settings</div>
+          <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
             Configure automated compliance notifications
           </div>
         </div>
@@ -290,8 +290,8 @@ export default function NotificationSettings() {
             padding: '10px 20px',
             borderRadius: 8,
             border: 'none',
-            background: hasPending ? '#3b82f6' : 'rgba(255,255,255,0.1)',
-            color: hasPending ? '#fff' : 'rgba(255,255,255,0.5)',
+            background: hasPending ? '#3b82f6' : '#e2e8f0',
+            color: hasPending ? '#fff' : '#94a3b8',
             fontSize: 14,
             fontWeight: 600,
             cursor: saving ? 'not-allowed' : 'pointer',
@@ -307,7 +307,7 @@ export default function NotificationSettings() {
             <span style={{
               width: 13,
               height: 13,
-              border: '2px solid rgba(255,255,255,0.3)',
+              border: '2px solid #e2e8f0',
               borderTopColor: '#fff',
               borderRadius: '50%',
               animation: 'spin 0.7s linear infinite',
@@ -352,7 +352,7 @@ export default function NotificationSettings() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '11px 0',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                borderBottom: '1px solid #f1f5f9',
               }}
             >
               <div style={{ flex: 1, marginRight: 16 }}>
@@ -360,21 +360,21 @@ export default function NotificationSettings() {
                   height: 14,
                   width: `${50 + (i % 3) * 20}%`,
                   borderRadius: 6,
-                  background: 'rgba(255,255,255,0.08)',
+                  background: '#f8fafc',
                   marginBottom: 6,
                 }} />
                 <div style={{
                   height: 11,
                   width: '60%',
                   borderRadius: 6,
-                  background: 'rgba(255,255,255,0.05)',
+                  background: '#fff',
                 }} />
               </div>
               <div style={{
                 width: 44,
                 height: 24,
                 borderRadius: 12,
-                background: 'rgba(255,255,255,0.08)',
+                background: '#f8fafc',
                 flexShrink: 0,
               }} />
             </div>
@@ -388,12 +388,12 @@ export default function NotificationSettings() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '11px 0',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                borderBottom: '1px solid #f1f5f9',
               }}
             >
               <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0' }}>{s.label}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{s.description}</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>{s.label}</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{s.description}</div>
               </div>
               <Toggle
                 checked={getBoolSetting(s.key)}
@@ -415,14 +415,14 @@ export default function NotificationSettings() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '11px 0',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                borderBottom: '1px solid #f1f5f9',
               }}
             >
               <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ height: 14, width: '55%', borderRadius: 6, background: 'rgba(255,255,255,0.08)', marginBottom: 6 }} />
-                <div style={{ height: 11, width: '40%', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }} />
+                <div style={{ height: 14, width: '55%', borderRadius: 6, background: '#f8fafc', marginBottom: 6 }} />
+                <div style={{ height: 11, width: '40%', borderRadius: 6, background: '#fff' }} />
               </div>
-              <div style={{ width: 72, height: 34, borderRadius: 7, background: 'rgba(255,255,255,0.08)' }} />
+              <div style={{ width: 72, height: 34, borderRadius: 7, background: '#f8fafc' }} />
             </div>
           ))
         ) : (
@@ -434,12 +434,12 @@ export default function NotificationSettings() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '11px 0',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                borderBottom: '1px solid #f1f5f9',
               }}
             >
               <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0' }}>{s.label}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>{s.description}</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>{s.label}</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{s.description}</div>
               </div>
               <input
                 type="number"
@@ -451,9 +451,9 @@ export default function NotificationSettings() {
                   width: 72,
                   padding: '6px 10px',
                   borderRadius: 7,
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.08)',
-                  color: '#f1f5f9',
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#1a2b3c',
                   fontSize: 14,
                   textAlign: 'center',
                   outline: 'none',
@@ -481,9 +481,9 @@ export default function NotificationSettings() {
                   width: '100%',
                   padding: '9px 14px',
                   borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.2)',
+                  border: '1px solid #cbd5e1',
                   background: 'transparent',
-                  color: '#e2e8f0',
+                  color: '#1e293b',
                   fontSize: 13,
                   fontWeight: 500,
                   cursor: runningJob === job.label ? 'not-allowed' : 'pointer',
@@ -500,8 +500,8 @@ export default function NotificationSettings() {
                     style={{
                       width: 12,
                       height: 12,
-                      border: '2px solid rgba(255,255,255,0.3)',
-                      borderTopColor: '#fff',
+                      border: '2px solid #e2e8f0',
+                      borderTopColor: '#1565c0',
                       borderRadius: '50%',
                       animation: 'spin 0.7s linear infinite',
                       display: 'inline-block',
@@ -519,23 +519,23 @@ export default function NotificationSettings() {
       {/* Section 4: Job History */}
       <Card title="Job Execution History">
         {loadingJobs ? (
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Loading…</div>
+          <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading…</div>
         ) : jobs.length === 0 ? (
-          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>No job history available.</div>
+          <div style={{ color: '#94a3b8', fontSize: 13 }}>No job history available.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                   {['Job Name', 'Status', 'Processed', 'Affected', 'Last Run', 'Duration'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{h}</th>
+                    <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: '#64748b', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {jobs.map((j, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <td style={{ padding: '9px 10px', color: '#e2e8f0' }}>{j.job_name}</td>
+                  <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '9px 10px', color: '#1e293b' }}>{j.job_name}</td>
                     <td style={{ padding: '9px 10px' }}>
                       <span style={{
                         background: `${statusColor[j.status] ?? '#94a3b8'}22`,
@@ -548,10 +548,10 @@ export default function NotificationSettings() {
                         {j.status}
                       </span>
                     </td>
-                    <td style={{ padding: '9px 10px', color: 'rgba(255,255,255,0.7)' }}>{j.records_processed ?? '—'}</td>
-                    <td style={{ padding: '9px 10px', color: 'rgba(255,255,255,0.7)' }}>{j.records_affected ?? '—'}</td>
-                    <td style={{ padding: '9px 10px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap' }}>{formatDate(j.started_at)}</td>
-                    <td style={{ padding: '9px 10px', color: 'rgba(255,255,255,0.6)' }}>{formatDuration(j.started_at, j.completed_at)}</td>
+                    <td style={{ padding: '9px 10px', color: '#374151' }}>{j.records_processed ?? '—'}</td>
+                    <td style={{ padding: '9px 10px', color: '#374151' }}>{j.records_affected ?? '—'}</td>
+                    <td style={{ padding: '9px 10px', color: '#475569', whiteSpace: 'nowrap' }}>{formatDate(j.started_at)}</td>
+                    <td style={{ padding: '9px 10px', color: '#475569' }}>{formatDuration(j.started_at, j.completed_at)}</td>
                   </tr>
                 ))}
               </tbody>
