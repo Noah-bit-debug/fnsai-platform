@@ -19,14 +19,17 @@ interface RiskAlert {
   message: string;
 }
 
+type SummaryPeriod = 'day' | 'week' | 'month';
+
 interface DailySummaryRecord {
   id: string;
   summary_date: string;
+  period: SummaryPeriod;
   headline: string;
   narrative: string;
   status: 'generated' | 'reviewed' | 'dismissed';
   metrics: SummaryMetrics;
-  risk_alerts: RiskAlert[];
+  risk_alerts: RiskAlert[] | string[];
   suggestions_generated: number;
   questions_generated: number;
   generated_at: string;
@@ -140,6 +143,10 @@ export default function DailySummary() {
   const todayStr = toISODate(new Date());
 
   const [selectedDate, setSelectedDate]   = useState(todayStr);
+  // Period extension — user can flip between Day / Week / Month and each
+  // is stored as its own row keyed by (summary_date, period). Defaults
+  // to 'day' on first load to match prior behavior.
+  const [period, setPeriod]               = useState<SummaryPeriod>('day');
   const [summary, setSummary]             = useState<DailySummaryRecord | null>(null);
   const [recentList, setRecentList]       = useState<RecentSummary[]>([]);
   const [loading, setLoading]             = useState(true);
@@ -147,25 +154,31 @@ export default function DailySummary() {
   const [marking, setMarking]             = useState(false);
   const [error, setError]                 = useState<string | null>(null);
 
-  const fetchSummary = async (date: string) => {
+  const fetchSummary = async (date: string, p: SummaryPeriod) => {
     setLoading(true);
     setError(null);
     setSummary(null);
     try {
-      const res = await api.get('/daily-summary', { params: { date } });
-      setSummary(res.data?.summary ?? null);
+      // Backend: GET /daily-summary/:date?period=X returns the record
+      // directly (not wrapped in a `summary` field).
+      const res = await api.get(`/daily-summary/${date}`, { params: { period: p } });
+      setSummary(res.data ?? null);
     } catch (e: any) {
       if (e?.response?.status !== 404) {
         setError(e?.response?.data?.error ?? 'Failed to load summary.');
       }
+      // 404 is the expected "not generated yet" case — leave summary null
+      // so the empty state renders with a "Generate" button.
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchRecent = async () => {
+  const fetchRecent = async (p?: SummaryPeriod) => {
     try {
-      const res = await api.get('/daily-summary/recent');
+      // Recent list — optionally filtered by period. When undefined we
+      // show all periods mixed for cross-reference.
+      const res = await api.get('/daily-summary', { params: p ? { period: p } : {} });
       setRecentList(res.data?.summaries ?? []);
     } catch {
       // non-critical
@@ -173,8 +186,9 @@ export default function DailySummary() {
   };
 
   useEffect(() => {
-    fetchSummary(selectedDate);
-  }, [selectedDate]);
+    fetchSummary(selectedDate, period);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, period]);
 
   useEffect(() => {
     fetchRecent();
@@ -184,8 +198,10 @@ export default function DailySummary() {
     setGenerating(true);
     setError(null);
     try {
-      const res = await api.post('/daily-summary/generate', { date: selectedDate });
-      setSummary(res.data?.summary ?? null);
+      // POST body carries { date, period } so the backend upserts the
+      // right (date, period) row.
+      const res = await api.post('/daily-summary/generate', { date: selectedDate, period });
+      setSummary(res.data ?? null);
       fetchRecent();
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Failed to generate summary.');
@@ -218,23 +234,53 @@ export default function DailySummary() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a2b3c', marginBottom: 4 }}>📅 Daily Summary</h1>
-            <p style={{ fontSize: 14, color: '#64748b' }}>AI-generated intelligence digest for your operations</p>
+            <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a2b3c', marginBottom: 4 }}>
+              📅 {period === 'day' ? 'Daily' : period === 'week' ? 'Weekly' : 'Monthly'} Summary
+            </h1>
+            <p style={{ fontSize: 14, color: '#64748b' }}>
+              AI-generated intelligence digest {period === 'day' ? 'for the selected day' : period === 'week' ? 'for the trailing 7 days' : 'for the trailing 30 days'}
+            </p>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Period toggle. Each option is stored as its own row so
+                switching between Day / Week / Month is instant and the
+                comparison-over-time history survives. */}
+            <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 3, border: '1px solid #e2e8f0' }}>
+              {(['day', 'week', 'month'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  style={{
+                    padding: '6px 14px',
+                    background: period === p ? '#fff' : 'transparent',
+                    color: period === p ? '#1565c0' : '#64748b',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: period === p ? 700 : 500,
+                    cursor: 'pointer',
+                    boxShadow: period === p ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
             <input
               type="date"
               value={selectedDate}
               max={todayStr}
               onChange={e => setSelectedDate(e.target.value)}
               style={{ padding: '8px 12px', border: '1px solid #e8edf2', borderRadius: 8, fontSize: 14, color: '#1a2b3c', outline: 'none', background: '#fff' }}
+              title={period === 'day' ? 'Select a day' : period === 'week' ? 'Select end-of-week date' : 'Select end-of-month date'}
             />
             <button
               onClick={handleGenerate}
               disabled={generating}
               style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: generating ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, opacity: generating ? 0.7 : 1 }}
             >
-              {generating ? 'Generating...' : '🔄 Regenerate'}
+              {generating ? 'Generating...' : `🔄 Generate ${period === 'day' ? 'Daily' : period === 'week' ? 'Weekly' : 'Monthly'}`}
             </button>
           </div>
         </div>
@@ -347,12 +393,20 @@ export default function DailySummary() {
                     Risk Alerts
                   </div>
                   <div style={{ padding: '12px' }}>
+                    {/* Normalize alerts: backend may return plain strings
+                        (current shape) or {severity,message} objects. Both
+                        are accepted here. */}
                     {summary.risk_alerts.map((alert, i) => {
-                      const m = ALERT_META[alert.severity] ?? ALERT_META.low;
+                      const isObj = typeof alert === 'object' && alert !== null;
+                      const severity: RiskAlert['severity'] = isObj && 'severity' in alert
+                        ? (alert as RiskAlert).severity
+                        : 'medium';
+                      const message = isObj ? (alert as RiskAlert).message : String(alert);
+                      const m = ALERT_META[severity] ?? ALERT_META.low;
                       return (
                         <div key={i} style={{ background: m.bg, borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: i < summary.risk_alerts.length - 1 ? 8 : 0 }}>
                           <span style={{ fontSize: 16, flexShrink: 0 }}>{m.icon}</span>
-                          <div style={{ fontSize: 13, color: m.color, fontWeight: 500, lineHeight: 1.5 }}>{alert.message}</div>
+                          <div style={{ fontSize: 13, color: m.color, fontWeight: 500, lineHeight: 1.5 }}>{message}</div>
                         </div>
                       );
                     })}

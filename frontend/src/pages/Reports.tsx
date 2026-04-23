@@ -253,6 +253,46 @@ function GenerateModal({ onClose, onGenerated }: { onClose: () => void; onGenera
           <input style={inp()} value={form.name} onChange={set('name')} placeholder={`e.g. ${selectedType.label} – ${new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`} />
         </div>
 
+        {/* Quick-range shortcuts. Clicking one of these populates the
+            From/To inputs below for a common window so users don't have
+            to compute dates manually. Custom ranges still work via the
+            date inputs. */}
+        <div style={{ marginBottom: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[
+            { label: 'Today',          days: 0  },
+            { label: 'Last 7 days',    days: 7  },
+            { label: 'Last 30 days',   days: 30 },
+            { label: 'Last 90 days',   days: 90 },
+            { label: 'This month',     days: -1 }, // sentinel, handled below
+          ].map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              onClick={() => {
+                const now = new Date();
+                const to = now.toISOString().slice(0, 10);
+                let from = to;
+                if (r.days === 0) from = to;
+                else if (r.days === -1) {
+                  const m = new Date(now.getFullYear(), now.getMonth(), 1);
+                  from = m.toISOString().slice(0, 10);
+                } else {
+                  const d = new Date(now); d.setDate(d.getDate() - r.days);
+                  from = d.toISOString().slice(0, 10);
+                }
+                setForm((f) => ({ ...f, date_from: from, date_to: to }));
+              }}
+              style={{
+                padding: '5px 11px', background: '#f1f5f9', color: '#475569',
+                border: '1px solid #e2e8f0', borderRadius: 999, fontSize: 12,
+                fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
         {/* Date range */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
           <div>

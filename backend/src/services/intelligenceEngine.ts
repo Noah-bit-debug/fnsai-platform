@@ -23,14 +23,33 @@ const MODEL = MODEL_FOR.intelligence;
 // Types
 // ---------------------------------------------------------------------------
 
+/** Summary periods. 'day' is the original daily rollup; 'week' and
+ *  'month' aggregate over the trailing 7 and 30 days respectively. */
+export type SummaryPeriod = 'day' | 'week' | 'month';
+
+/** Window (days) used for the "new this period" counts. */
+function windowDaysFor(period: SummaryPeriod): number {
+  return period === 'day' ? 1 : period === 'week' ? 7 : 30;
+}
+
+/** Human label for prompts + headings. */
+function periodLabel(period: SummaryPeriod): string {
+  return period === 'day' ? 'today' : period === 'week' ? 'this week' : 'this month';
+}
+
 interface OperationalMetrics {
+  period: SummaryPeriod;
+  window_days: number;
   candidates: {
     total: number;
     by_stage: Record<string, number>;
-    created_this_week: number;
+    /** Count of candidates created within the trailing window_days. */
+    created_in_period: number;
   };
   reminders: {
     overdue: number;
+    /** Reminders whose due_date falls within the trailing window. */
+    due_in_period: number;
   };
   onboarding: {
     incomplete: number;
@@ -43,6 +62,15 @@ interface OperationalMetrics {
   };
   clarification_questions: {
     pending: number;
+  };
+  placements: {
+    /** Placements created in the trailing window. */
+    started_in_period: number;
+    active: number;
+  };
+  incidents: {
+    /** Incidents reported in the trailing window. */
+    reported_in_period: number;
   };
 }
 
@@ -83,11 +111,17 @@ async function safeQuery<T>(
 }
 
 /**
- * Gather operational metrics from multiple tables.
- * Each sub-query is wrapped independently so a missing table never kills the
- * entire metrics run.
+ * Gather operational metrics from multiple tables for the requested
+ * period. Point-in-time state (totals, pending counts, expiring-soon
+ * credentials) is the same regardless of period; activity counts
+ * ("new this period") scale with the window.
+ *
+ * Each sub-query is wrapped independently so a missing table never
+ * kills the entire metrics run.
  */
-async function gatherMetrics(): Promise<OperationalMetrics> {
+async function gatherMetrics(period: SummaryPeriod = 'day'): Promise<OperationalMetrics> {
+  const windowDays = windowDaysFor(period);
+
   // --- candidates ---
   const candidateTotal = await safeQuery<{ count: string }>(
     'SELECT COUNT(*)::text AS count FROM candidates',
@@ -95,16 +129,11 @@ async function gatherMetrics(): Promise<OperationalMetrics> {
     { count: '0' }
   );
 
-  const candidateByStage = await safeQuery<{ rows: Array<{ stage: string; count: string }> }>(
-    `SELECT stage, COUNT(*)::text AS count FROM candidates GROUP BY stage`,
-    [],
-    { rows: [] }
-  );
-  // candidateByStage comes from pool.query directly — re-query with pool for grouping
+  // Re-query with pool for grouping by stage (safeQuery returns single row).
   let byStage: Record<string, number> = {};
   try {
     const stageResult = await pool.query(
-      'SELECT COALESCE(stage, \'unknown\') AS stage, COUNT(*)::int AS count FROM candidates GROUP BY stage'
+      "SELECT COALESCE(stage, 'unknown') AS stage, COUNT(*)::int AS count FROM candidates GROUP BY stage"
     );
     for (const row of stageResult.rows) {
       byStage[row.stage] = row.count;
@@ -113,10 +142,10 @@ async function gatherMetrics(): Promise<OperationalMetrics> {
     byStage = {};
   }
 
-  const candidateWeek = await safeQuery<{ count: string }>(
+  const candidatesInPeriod = await safeQuery<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM candidates
-     WHERE created_at >= NOW() - INTERVAL '7 days'`,
-    [],
+      WHERE created_at >= NOW() - ($1 || ' days')::interval`,
+    [String(windowDays)],
     { count: '0' }
   );
 
@@ -125,6 +154,12 @@ async function gatherMetrics(): Promise<OperationalMetrics> {
     `SELECT COUNT(*)::text AS count FROM reminders
      WHERE due_date < NOW() AND status != 'sent'`,
     [],
+    { count: '0' }
+  );
+  const remindersInPeriod = await safeQuery<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM reminders
+      WHERE due_date >= NOW() AND due_date < NOW() + ($1 || ' days')::interval`,
+    [String(windowDays)],
     { count: '0' }
   );
 
@@ -158,14 +193,38 @@ async function gatherMetrics(): Promise<OperationalMetrics> {
     { count: '0' }
   );
 
+  // --- placements ---
+  const placementsInPeriod = await safeQuery<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM placements
+      WHERE created_at >= NOW() - ($1 || ' days')::interval`,
+    [String(windowDays)],
+    { count: '0' }
+  );
+  const activePlacements = await safeQuery<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM placements WHERE status = 'active'`,
+    [],
+    { count: '0' }
+  );
+
+  // --- incidents ---
+  const incidentsInPeriod = await safeQuery<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM incidents
+      WHERE created_at >= NOW() - ($1 || ' days')::interval`,
+    [String(windowDays)],
+    { count: '0' }
+  );
+
   return {
+    period,
+    window_days: windowDays,
     candidates: {
       total: parseInt(candidateTotal.count, 10),
       by_stage: byStage,
-      created_this_week: parseInt(candidateWeek.count, 10),
+      created_in_period: parseInt(candidatesInPeriod.count, 10),
     },
     reminders: {
       overdue: parseInt(overdueReminders.count, 10),
+      due_in_period: parseInt(remindersInPeriod.count, 10),
     },
     onboarding: {
       incomplete: parseInt(incompleteOnboarding.count, 10),
@@ -178,6 +237,13 @@ async function gatherMetrics(): Promise<OperationalMetrics> {
     },
     clarification_questions: {
       pending: parseInt(pendingQuestions.count, 10),
+    },
+    placements: {
+      started_in_period: parseInt(placementsInPeriod.count, 10),
+      active: parseInt(activePlacements.count, 10),
+    },
+    incidents: {
+      reported_in_period: parseInt(incidentsInPeriod.count, 10),
     },
   };
 }
@@ -288,20 +354,31 @@ REQUIRED FORMAT:
 }
 
 /**
- * Generate a narrative daily summary for the given ISO date string (YYYY-MM-DD)
- * and upsert it into the daily_summaries table.
+ * Generate a narrative operations summary for the given ISO date string
+ * (YYYY-MM-DD) and period, and upsert it into the daily_summaries table.
+ *
+ * The table name is historical — it holds day/week/month summaries
+ * discriminated by the `period` column (phase5_weekly_monthly_summaries
+ * migration). Unique constraint is (summary_date, period).
  */
-export async function generateDailySummary(date: string): Promise<void> {
-  const metrics = await gatherMetrics();
+export async function generateDailySummary(
+  date: string,
+  period: SummaryPeriod = 'day',
+): Promise<void> {
+  const metrics = await gatherMetrics(period);
+  const windowDays = windowDaysFor(period);
+  const label = periodLabel(period);
 
-  // Pull suggestion and question counts for the target date
+  // Count suggestions + clarifications generated within the window
+  // ending on `date`. For weekly/monthly we want trailing counts.
   let suggestionsGenerated = 0;
   let questionsGenerated = 0;
   try {
     const sgRes = await pool.query(
       `SELECT COUNT(*)::int AS count FROM suggestions
-       WHERE DATE(generated_at) = $1`,
-      [date]
+        WHERE generated_at > ($1::date + INTERVAL '1 day' - ($2 || ' days')::interval)
+          AND generated_at <= ($1::date + INTERVAL '1 day')`,
+      [date, String(windowDays)]
     );
     suggestionsGenerated = sgRes.rows[0]?.count ?? 0;
   } catch { /* table may not exist yet */ }
@@ -309,26 +386,33 @@ export async function generateDailySummary(date: string): Promise<void> {
   try {
     const qRes = await pool.query(
       `SELECT COUNT(*)::int AS count FROM clarification_questions
-       WHERE DATE(created_at) = $1`,
-      [date]
+        WHERE created_at > ($1::date + INTERVAL '1 day' - ($2 || ' days')::interval)
+          AND created_at <= ($1::date + INTERVAL '1 day')`,
+      [date, String(windowDays)]
     );
     questionsGenerated = qRes.rows[0]?.count ?? 0;
   } catch { /* table may not exist yet */ }
 
+  const periodLongLabel = period === 'day' ? 'daily' : period === 'week' ? 'weekly' : 'monthly';
+  const periodWindowDesc = period === 'day'
+    ? `for ${date}`
+    : `for the ${windowDays}-day period ending ${date}`;
+
   const prompt = `You are an operations intelligence assistant for Frontline Healthcare Staffing.
 
-Write a concise daily operations summary for ${date}.
+Write a concise ${periodLongLabel} operations summary ${periodWindowDesc}.
 
-METRICS SNAPSHOT:
+METRICS SNAPSHOT (period = ${period}, window = ${windowDays} days):
 ${JSON.stringify(metrics, null, 2)}
 
-TODAY'S ACTIVITY:
+ACTIVITY ${label.toUpperCase()}:
 - AI suggestions generated: ${suggestionsGenerated}
 - Clarification questions raised: ${questionsGenerated}
 
 INSTRUCTIONS:
-- Write a 2–4 sentence headline summary suitable for a dashboard banner.
-- Then write a 3–5 sentence narrative expanding on risks, highlights, and recommended focus areas.
+- Write a 2–4 sentence headline summary suitable for a dashboard banner. Reference the period explicitly (e.g. "${label}" or "the past ${windowDays} days").
+- Then write a 3–5 sentence narrative expanding on risks, highlights, and recommended focus areas for this period.
+- For week/month summaries, identify trends and compare against the period-over-period shape when metrics imply it.
 - Identify up to 3 risk alerts (brief bullet points).
 - Return ONLY valid JSON — no prose outside the object, no markdown fences.
 
@@ -339,7 +423,7 @@ REQUIRED FORMAT:
   "risk_alerts": ["Risk 1", "Risk 2", "Risk 3"]
 }`;
 
-  let headline = `Operations summary for ${date}`;
+  let headline = `Operations summary for ${periodWindowDesc}`;
   let narrative = 'Summary generation encountered an error. Manual review recommended.';
   let riskAlerts: string[] = [];
 
@@ -366,10 +450,10 @@ REQUIRED FORMAT:
   try {
     await pool.query(
       `INSERT INTO daily_summaries
-         (summary_date, headline, narrative, metrics, risk_alerts,
+         (summary_date, period, headline, narrative, metrics, risk_alerts,
           suggestions_generated, questions_generated, status, generated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'generated', NOW())
-       ON CONFLICT (summary_date) DO UPDATE SET
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'generated', NOW())
+       ON CONFLICT (summary_date, period) DO UPDATE SET
          headline             = EXCLUDED.headline,
          narrative            = EXCLUDED.narrative,
          metrics              = EXCLUDED.metrics,
@@ -380,6 +464,7 @@ REQUIRED FORMAT:
          generated_at         = NOW()`,
       [
         date,
+        period,
         headline,
         narrative,
         JSON.stringify(metrics),
@@ -388,7 +473,7 @@ REQUIRED FORMAT:
         questionsGenerated,
       ]
     );
-    console.log(`[intelligenceEngine] generateDailySummary: upserted summary for ${date}`);
+    console.log(`[intelligenceEngine] generateDailySummary: upserted ${period} summary for ${date}`);
   } catch (dbErr) {
     console.error('[intelligenceEngine] Failed to upsert daily summary:', dbErr);
     throw dbErr;

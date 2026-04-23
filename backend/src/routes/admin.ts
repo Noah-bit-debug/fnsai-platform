@@ -66,6 +66,7 @@ const MIGRATION_FILES = [
   'phase4_4_expansion.sql',
   'phase5_plan_tasks.sql',
   'phase5_4_reports_columns.sql',
+  'phase5_weekly_monthly_summaries.sql',
   'phase6_client_portal.sql',
 ];
 
