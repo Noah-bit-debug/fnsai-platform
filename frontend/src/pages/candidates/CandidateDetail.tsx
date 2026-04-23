@@ -139,29 +139,24 @@ function MoveStageModal({
 }
 
 // ─── Add Document Modal ───────────────────────────────────────────────────────
-// Standardized document types — keeps records consistent across candidates.
-// Each entry provides the stable backend key and the human-friendly label.
-const DOC_TYPE_OPTIONS: Array<{ type: string; label: string; hasExpiry: boolean }> = [
+// Document types come from /api/v1/doc-types (admin-defined via Phase 2.2
+// DocTypesAdmin page). This fallback list is used only if the API call
+// fails — matches the seeded types in phase2_document_types.sql so the
+// picker stays usable during migration / offline dev.
+const FALLBACK_DOC_TYPES: Array<{ type: string; label: string; hasExpiry: boolean }> = [
   { type: 'rn_license',        label: 'RN License',                  hasExpiry: true },
   { type: 'lpn_license',       label: 'LPN / LVN License',           hasExpiry: true },
   { type: 'cna_certification', label: 'CNA Certification',           hasExpiry: true },
-  { type: 'bls_cert',          label: 'BLS Certification',           hasExpiry: true },
-  { type: 'acls_cert',         label: 'ACLS Certification',          hasExpiry: true },
-  { type: 'pals_cert',         label: 'PALS Certification',          hasExpiry: true },
-  { type: 'state_license',     label: 'State License',               hasExpiry: true },
-  { type: 'compact_license',   label: 'Compact License',             hasExpiry: true },
+  { type: 'bls',               label: 'BLS Certification',           hasExpiry: true },
+  { type: 'acls',              label: 'ACLS Certification',          hasExpiry: true },
+  { type: 'pals',              label: 'PALS Certification',          hasExpiry: true },
   { type: 'tb_test',           label: 'TB Test / PPD',               hasExpiry: true },
-  { type: 'flu_vaccine',       label: 'Flu Vaccine',                 hasExpiry: true },
-  { type: 'covid_vaccine',     label: 'COVID Vaccine',               hasExpiry: false },
   { type: 'background_check',  label: 'Background Check',            hasExpiry: true },
   { type: 'drug_screen',       label: 'Drug Screen',                 hasExpiry: true },
-  { type: 'driver_license',    label: 'Driver\u2019s License',       hasExpiry: true },
-  { type: 'ssn_card',          label: 'Social Security Card',        hasExpiry: false },
-  { type: 'i9_form',           label: 'I-9 Form',                    hasExpiry: false },
-  { type: 'w4_form',           label: 'W-4 Form',                    hasExpiry: false },
   { type: 'resume',            label: 'Resume / CV',                 hasExpiry: false },
   { type: 'diploma',           label: 'Diploma / Transcript',        hasExpiry: false },
-  { type: 'reference',         label: 'Reference Letter',            hasExpiry: false },
+  { type: 'i9',                label: 'I-9 Form',                    hasExpiry: false },
+  { type: 'w4',                label: 'W-4 Form',                    hasExpiry: false },
   { type: 'other',             label: 'Other (specify in notes)',    hasExpiry: true },
 ];
 
@@ -174,8 +169,28 @@ function AddDocumentModal({
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [docType, setDocType] = useState(DOC_TYPE_OPTIONS[0].type);
-  const [label, setLabel] = useState(DOC_TYPE_OPTIONS[0].label);
+  // Phase 2.2 — load doc types from the admin-managed table so newly-added
+  // types (via /compliance/admin/doc-types) appear here immediately. Falls
+  // back to the hardcoded list if the API call fails.
+  const [docTypeOptions, setDocTypeOptions] = useState<Array<{ type: string; label: string; hasExpiry: boolean }>>(FALLBACK_DOC_TYPES);
+  useEffect(() => {
+    void import('../../lib/api').then(({ docTypesApi }) =>
+      docTypesApi.list({ active: 'true' })
+        .then((r) => {
+          const fromDb = r.data.doc_types.map((t) => ({
+            type: t.key,
+            label: t.label,
+            // Treat any type with a defined expires_months as "has expiry"
+            hasExpiry: t.expires_months != null,
+          }));
+          if (fromDb.length > 0) setDocTypeOptions(fromDb);
+        })
+        .catch(() => { /* fall back silently to hardcoded */ })
+    );
+  }, []);
+
+  const [docType, setDocType] = useState(FALLBACK_DOC_TYPES[0].type);
+  const [label, setLabel] = useState(FALLBACK_DOC_TYPES[0].label);
   const [required, setRequired] = useState(true);
   const [expiryDate, setExpiryDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -183,13 +198,22 @@ function AddDocumentModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // When doc types load from API, pick the first one as default
+  useEffect(() => {
+    if (docTypeOptions.length > 0 && !docTypeOptions.find((o) => o.type === docType)) {
+      setDocType(docTypeOptions[0].type);
+      if (!labelManuallyEdited) setLabel(docTypeOptions[0].label);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docTypeOptions]);
+
   // Autosync label when type changes (unless user has typed a custom label)
   const [labelManuallyEdited, setLabelManuallyEdited] = useState(false);
-  const selectedOption = DOC_TYPE_OPTIONS.find((o) => o.type === docType) ?? DOC_TYPE_OPTIONS[0];
+  const selectedOption = docTypeOptions.find((o) => o.type === docType) ?? docTypeOptions[0];
   const onTypeChange = (newType: string) => {
     setDocType(newType);
     if (!labelManuallyEdited) {
-      const opt = DOC_TYPE_OPTIONS.find((o) => o.type === newType);
+      const opt = docTypeOptions.find((o) => o.type === newType);
       if (opt) setLabel(opt.label);
     }
   };
@@ -234,7 +258,7 @@ function AddDocumentModal({
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Document Type *</label>
           <select style={inputStyle()} value={docType} onChange={(e) => onTypeChange(e.target.value)}>
-            {DOC_TYPE_OPTIONS.map((o) => (
+            {docTypeOptions.map((o) => (
               <option key={o.type} value={o.type}>{o.label}</option>
             ))}
           </select>

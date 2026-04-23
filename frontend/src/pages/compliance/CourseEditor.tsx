@@ -56,7 +56,7 @@ export default function CourseEditor() {
       if (isNew) {
         const res = await compCoursesApi.create(payload);
         toast.success(`Course created${nextStatus === 'published' ? ' & published' : ''}`);
-        nav(`/compliance/courses/${res.data.course.id}/edit`);
+        nav(`/compliance/admin/courses/${res.data.course.id}/edit`);
       } else {
         await compCoursesApi.update(id!, payload);
         toast.success(`Saved${nextStatus === 'published' ? ' & published' : ''}`);
@@ -72,7 +72,7 @@ export default function CourseEditor() {
   return (
     <div style={{ padding: '24px 32px', maxWidth: 960, margin: '0 auto' }}>
       <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 8 }}>
-        <Link to="/compliance/courses" style={{ color: 'var(--t3)', textDecoration: 'none' }}>Courses</Link> ›{' '}
+        <Link to="/compliance/admin/courses" style={{ color: 'var(--t3)', textDecoration: 'none' }}>Courses</Link> ›{' '}
         <span style={{ color: 'var(--t2)' }}>{isNew ? 'New course' : form.title ?? 'Edit'}</span>
       </div>
 

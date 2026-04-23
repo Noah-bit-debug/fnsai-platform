@@ -342,8 +342,10 @@ function AppRoutes() {
           <Route path="/compliance/admin/bundles/new" element={<BundleEditor />} />
           <Route path="/compliance/admin/bundles/:id/edit" element={<BundleEditor />} />
           <Route path="/compliance/admin/bundles/:id/assign" element={<BundleAssign />} />
-          {/* Phase 2.6 — Courses */}
+          {/* Phase 2.6 — Courses. `/new` must come BEFORE `/:id/edit` so it
+              doesn't get matched as id="new" by a stricter guard. */}
           <Route path="/compliance/admin/courses" element={<CourseList />} />
+          <Route path="/compliance/admin/courses/new" element={<CourseEditor />} />
           <Route path="/compliance/admin/courses/:id/edit" element={<CourseEditor />} />
           <Route path="/compliance/courses/:id" element={<CourseViewer />} />
           <Route path="/compliance/course/:id" element={<CourseViewer />} />

@@ -35,7 +35,7 @@ export default function CourseList() {
             <option value="published">Published</option>
             <option value="archived">Archived</option>
           </select>
-          <button onClick={() => nav('/compliance/courses/new/edit')}
+          <button onClick={() => nav('/compliance/admin/courses/new')}
             style={{ padding: '8px 16px', background: 'var(--pr)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             + New Course
           </button>
@@ -51,7 +51,7 @@ export default function CourseList() {
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {courses.map((c) => (
-            <div key={c.id} onClick={() => nav(`/compliance/courses/${c.id}/edit`)}
+            <div key={c.id} onClick={() => nav(`/compliance/admin/courses/${c.id}/edit`)}
               style={{ padding: 14, background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 'var(--br)', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'center' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{c.title}</div>

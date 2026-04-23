@@ -17,7 +17,7 @@ interface CompetencyRecord {
   require_read_ack?: boolean;
 }
 
-type FilterTab = 'all' | 'policy' | 'document' | 'exam' | 'checklist' | 'bundle';
+type FilterTab = 'all' | 'policy' | 'document' | 'exam' | 'checklist' | 'bundle' | 'course';
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
   not_started: { label: 'Not Started', color: '#94a3b8', bg: '#f1f5f9' },
@@ -179,6 +179,7 @@ export default function MyCompliance() {
     { key: 'exam', label: 'Exams' },
     { key: 'checklist', label: 'Checklists' },
     { key: 'bundle', label: 'Bundles' },
+    { key: 'course', label: 'Courses' },
   ];
 
   return (
@@ -323,7 +324,9 @@ export default function MyCompliance() {
               Retry
             </button>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && activeTab !== 'course' ? (
+          // Phase 2.6 — don't show this empty state on the Courses tab
+          // since courses render below in their own section.
           <div
             style={{
               textAlign: 'center',
@@ -428,8 +431,9 @@ export default function MyCompliance() {
 
         {/* Phase 2.1 + 2.6 — Training Courses section. Rendered from the
             unified /compliance/my-all rollup so courses assigned via
-            bundles appear alongside other compliance items. */}
-        {courses.length > 0 && (
+            bundles appear alongside other compliance items. Shown on the
+            "All" and "Courses" tabs. */}
+        {courses.length > 0 && (activeTab === 'all' || activeTab === 'course') && (
           <div style={{ marginTop: 32 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1a2b3c' }}>📚 Training Courses</h2>
