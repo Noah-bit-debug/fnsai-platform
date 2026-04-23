@@ -2,7 +2,7 @@
  * ESignTemplates — Browse, create, edit, duplicate & delete templates
  */
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { esignApi, ESignTemplate } from '../../lib/api';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -148,6 +148,21 @@ export default function ESignTemplates() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'system' | 'custom'>('all');
 
   const [modalOpen, setModalOpen]     = useState(false);
+
+  // Phase 3.3 — ?new=1 query param opens the create-template modal on mount.
+  // This is how the eSign Dashboard's "+ New Template" button jumps
+  // straight into creation without an extra click.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setModalOpen(true);
+      // Strip the query so refresh doesn't re-open it unexpectedly
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [editTarget, setEditTarget]   = useState<ESignTemplate | null>(null);
   const [deleting, setDeleting]       = useState<string | null>(null);
   const [duplicating, setDuplicating] = useState<string | null>(null);

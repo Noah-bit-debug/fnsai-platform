@@ -335,25 +335,48 @@ export default function ESignDashboard() {
               Manage digital signatures, templates, and signing workflows
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/esign/documents/new')}
-            style={{
-              background: 'var(--ac, #6366f1)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 8,
-              padding: '10px 20px',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New Document
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {/* Phase 3.3 — dedicated template creation from dashboard */}
+            <button
+              type="button"
+              onClick={() => navigate('/esign/templates?new=1')}
+              title="Create a reusable template with pre-placed fields"
+              style={{
+                background: '#fff',
+                color: '#6366f1',
+                border: '1px solid #c7d2fe',
+                borderRadius: 8,
+                padding: '10px 16px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New Template
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/esign/documents/new')}
+              style={{
+                background: 'var(--ac, #6366f1)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '10px 20px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New Document
+            </button>
+          </div>
         </div>
       </div>
 
@@ -615,7 +638,7 @@ export default function ESignDashboard() {
               </div>
               <button
                 type="button"
-                onClick={() => navigate('/esign/templates/new')}
+                onClick={() => navigate('/esign/templates?new=1')}
                 style={{
                   background: 'var(--ac, #6366f1)',
                   color: '#fff',

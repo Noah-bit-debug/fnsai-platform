@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { esignApi, ESignTemplate } from '../../lib/api';
 
 type Step = 'upload' | 'signers';
@@ -33,11 +33,39 @@ export default function ESignDocumentNew() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
 
+  const [searchParams] = useSearchParams();
+
   useEffect(() => {
-    esignApi.listTemplates().then((r) => setTemplates(r.data.templates)).catch(() => {});
-    // Pre-select template from navigation state
+    esignApi.listTemplates().then((r) => {
+      setTemplates(r.data.templates);
+      // Phase 3.2 — pre-select template if passed via ?template=<id>
+      // from the SendForESignButton shared picker. Also seeds title,
+      // recipient name, and recipient email from query params so the
+      // user doesn't have to re-enter them.
+      const templateId = searchParams.get('template');
+      if (templateId) {
+        const t = r.data.templates.find((x) => x.id === templateId);
+        if (t) {
+          setSelectedTemplate(t);
+          setTemplateMode('template');
+          setTitle(searchParams.get('title') || t.name);
+        }
+      }
+    }).catch(() => {});
+
+    // Apply query-param seeds regardless of template state
+    const qTitle = searchParams.get('title');
+    const qName  = searchParams.get('recipient_name');
+    const qEmail = searchParams.get('recipient_email');
+    if (qTitle) setTitle(qTitle);
+    if (qName || qEmail) {
+      setSigners([{ name: qName ?? '', email: qEmail ?? '', role: 'Signer', auth_method: 'email_link' }]);
+    }
+
+    // Preserve legacy navigation state for backward compat
     const state = location.state as any;
     if (state?.template) { setSelectedTemplate(state.template); setTemplateMode('template'); setTitle(state.template.name); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onDrop = (e: React.DragEvent) => {

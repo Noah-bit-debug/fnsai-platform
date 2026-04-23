@@ -70,6 +70,10 @@ export default function ESignPrepare() {
 
   const [pdfPages, setPdfPages]     = useState<string[]>([]);
   const [pdfLoading, setPdfLoading] = useState(false);
+  // Phase 3.4 — surface PDF render errors instead of silently showing
+  // blank pages. If this is set, the prepare canvas shows a red error
+  // card instead of the "Drag fields here" placeholder.
+  const [pdfError, setPdfError]     = useState<string | null>(null);
   const [numPages, setNumPages]     = useState(1);
 
   const [selectedId, setSelectedId]       = useState<string | null>(null);
@@ -214,8 +218,15 @@ export default function ESignPrepare() {
       const bytes = new Uint8Array(arrayBuf);
 
       const pdfjsLib = await import('pdfjs-dist');
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+      // Phase 3.4 fix: previous code pulled the worker from cdnjs using
+      // pdfjsLib.version, but cdnjs doesn't always have every
+      // pdfjs-dist version (and we're on 5.x which isn't mirrored reliably).
+      // When the worker 404'd, getDocument() rejected silently and the
+      // user saw blank pages while trying to place fields.
+      // Using Vite's ?url suffix ships the worker with our own bundle
+      // so it's always available and version-matched.
+      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
       const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
       setNumPages(pdf.numPages);
@@ -233,7 +244,8 @@ export default function ESignPrepare() {
       }
       setPdfPages(rendered);
     } catch (e) {
-      console.warn('PDF render failed', e);
+      console.error('PDF render failed', e);
+      setPdfError((e as Error).message || 'PDF could not be rendered.');
       setNumPages(1);
     } finally {
       setPdfLoading(false);
@@ -1048,10 +1060,22 @@ export default function ESignPrepare() {
                   />
                 ) : (
                   !pdfLoading && pageIdx === 0 && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#ccc', pointerEvents: 'none' }}>
-                      <span style={{ fontSize: 48 }}>📄</span>
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>Drag fields from the left onto this page</span>
-                    </div>
+                    pdfError ? (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#991b1b', padding: 24, textAlign: 'center' }}>
+                        <span style={{ fontSize: 40 }}>⚠️</span>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>PDF failed to render</div>
+                        <div style={{ fontSize: 12, color: '#7f1d1d', maxWidth: 500 }}>{pdfError}</div>
+                        <button onClick={() => { setPdfError(null); void loadPdf(id!); }}
+                          style={{ marginTop: 8, padding: '6px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          Retry
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#ccc', pointerEvents: 'none' }}>
+                        <span style={{ fontSize: 48 }}>📄</span>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>Drag fields from the left onto this page</span>
+                      </div>
+                    )
                   )
                 )}
 

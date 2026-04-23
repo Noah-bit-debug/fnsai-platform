@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { openTextingPanel } from '../../components/TextingPanel';
 import NursysLookup from '../../components/NursysLookup';
+import SendForESignButton from '../../components/ESign/SendForESignButton';
 import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
@@ -636,7 +637,16 @@ export default function CandidateDetail() {
               {candidate.role ?? 'No role set'} {candidate.email ? `· ${candidate.email}` : ''}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {/* Phase 3.2 — Send for eSign. Opens modal picker for existing
+                templates or blank doc; pre-fills recipient from candidate. */}
+            <SendForESignButton
+              recipientName={`${candidate.first_name} ${candidate.last_name}`}
+              recipientEmail={candidate.email}
+              referenceId={candidate.id}
+              referenceType="candidate"
+              defaultDocTitle={`Docs for ${candidate.first_name} ${candidate.last_name}`}
+            />
             {/* Phase 1.1B — Text Candidate. Opens the global texting panel
                 (TextingPanel component in AppShell) pre-loaded with this
                 candidate. Disabled if no phone on file. */}

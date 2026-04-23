@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
+import SendForESignButton from '../../components/ESign/SendForESignButton';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -288,6 +289,18 @@ export default function PolicyList() {
                       >
                         Edit
                       </Link>
+                      {/* Phase 3.2 — Send this policy for eSign signature.
+                          Opens the shared picker; the policy's title is
+                          used as the default doc title. */}
+                      {p.status === 'published' && (
+                        <SendForESignButton
+                          compact
+                          label="eSign"
+                          referenceId={String(p.id)}
+                          referenceType="policy"
+                          defaultDocTitle={p.title}
+                        />
+                      )}
                       {p.status !== 'archived' && (
                         <button
                           onClick={() => handleArchive(p.id)}
