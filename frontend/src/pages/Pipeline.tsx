@@ -25,6 +25,11 @@ import {
 } from '../lib/api';
 import { useToast } from '../components/ToastHost';
 import { extractApiError } from '../lib/apiErrors';
+// Drag-free alternative for users whose browser + dnd-kit combo drops
+// drag events. Clicking the ⋯ Move button on any card opens a modal
+// where the target stage + optional notes + documents can all be
+// captured before the move commits.
+import MoveStageModal from '../components/Pipeline/MoveStageModal';
 
 /**
  * Candidate Pipeline — Phase 1.4 rewrite.
@@ -47,6 +52,9 @@ export default function Pipeline() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCard, setActiveCard] = useState<PipelineCandidateCard | null>(null);
+  // Move-modal candidate. null = closed. Opens when the user clicks
+  // the ⋯ Move button on any pipeline card.
+  const [moveCandidate, setMoveCandidate] = useState<PipelineCandidateCard | null>(null);
 
   // Phase 1.4.B — multi-select. Candidate IDs in the current selection set.
   // Ctrl+click (or Cmd+click on Mac) toggles membership. Dragging any
@@ -301,6 +309,7 @@ export default function Pipeline() {
                 column={col}
                 selected={selected}
                 onCardClick={onCardClick}
+                onMove={(c) => setMoveCandidate(c)}
               />
             ))}
           </div>
@@ -313,17 +322,31 @@ export default function Pipeline() {
           </DragOverlay>
         </DndContext>
       )}
+
+      {/* Drag-free Move modal. Opens from the ⋯ Move button on any
+          card. Captures target stage + optional note + document
+          uploads in one flow, then runs stage change + doc uploads
+          serially. */}
+      {moveCandidate && (
+        <MoveStageModal
+          candidate={moveCandidate}
+          columns={columns}
+          onClose={() => setMoveCandidate(null)}
+          onMoved={() => { toast.success(`Moved ${moveCandidate.first_name} ${moveCandidate.last_name}`, { ttl: 2500 }); void load(); }}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Stage column ───────────────────────────────────────────────────────────
 function StageColumn({
-  column, selected, onCardClick,
+  column, selected, onCardClick, onMove,
 }: {
   column: PipelineStageColumn;
   selected: Set<string>;
   onCardClick: (c: PipelineCandidateCard, e: React.MouseEvent) => void;
+  onMove: (c: PipelineCandidateCard) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.key });
   const bg = isOver ? `${column.color}22` : 'var(--sf)';
@@ -355,6 +378,7 @@ function StageColumn({
               card={card}
               isSelected={selected.has(card.id)}
               onClick={onCardClick}
+              onMove={onMove}
             />
           ))
         )}
@@ -365,11 +389,12 @@ function StageColumn({
 
 // ─── Draggable wrapper ──────────────────────────────────────────────────────
 function DraggableCard({
-  card, isSelected, onClick,
+  card, isSelected, onClick, onMove,
 }: {
   card: PipelineCandidateCard;
   isSelected: boolean;
   onClick: (c: PipelineCandidateCard, e: React.MouseEvent) => void;
+  onMove: (c: PipelineCandidateCard) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id });
   return (
@@ -389,18 +414,22 @@ function DraggableCard({
         marginBottom: 8,
       }}
     >
-      <CandidateCardInner card={card} isSelected={isSelected} />
+      <CandidateCardInner card={card} isSelected={isSelected} onMove={onMove} />
     </div>
   );
 }
 
 // ─── Card visuals ───────────────────────────────────────────────────────────
 function CandidateCardInner({
-  card, isSelected, isDraggingSet,
+  card, isSelected, isDraggingSet, onMove,
 }: {
   card: PipelineCandidateCard;
   isSelected: boolean;
   isDraggingSet?: boolean;
+  /** Opens the drag-free Move modal for this candidate. Only passed
+   *  by the in-column render — omitted by DragOverlay so the button
+   *  doesn't appear on the floating drag ghost. */
+  onMove?: (c: PipelineCandidateCard) => void;
 }) {
   return (
     <div
@@ -419,7 +448,26 @@ function CandidateCardInner({
           borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 700,
         }}>+batch</div>
       )}
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginBottom: 2 }}>
+      {/* Drag-free Move button. Always visible in the top-right of the
+          card. pointerDown stop-propagation prevents dnd-kit from
+          starting a drag when the user clicks it. */}
+      {onMove && (
+        <button
+          onPointerDown={(e) => { e.stopPropagation(); }}
+          onClick={(e) => { e.stopPropagation(); onMove(card); }}
+          title="Move to another stage (with documents + notes)"
+          style={{
+            position: 'absolute', top: 6, right: 6,
+            padding: '2px 8px', background: '#eff6ff', color: '#1565c0',
+            border: '1px solid #bfdbfe', borderRadius: 6,
+            fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4,
+            zIndex: 5,
+          }}
+        >
+          Move ▸
+        </button>
+      )}
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginBottom: 2, paddingRight: 58 }}>
         {card.first_name} {card.last_name}
       </div>
       {card.role && (
