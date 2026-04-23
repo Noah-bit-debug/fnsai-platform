@@ -375,6 +375,7 @@ Rules:
   } catch (err: any) {
     console.error('suggest-actions error:', err);
     if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.' }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is over capacity. Retry in ~30s.', retry_after_seconds: 30 }); return; }
     res.status(500).json({ error: `AI service error: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });

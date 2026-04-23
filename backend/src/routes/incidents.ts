@@ -292,6 +292,7 @@ Rules:
   } catch (err: any) {
     console.error('Incident AI next-question error:', err);
     if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry in a minute.' }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is over capacity. Retry in ~30s.', retry_after_seconds: 30 }); return; }
     res.status(500).json({ error: `AI failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });
@@ -338,6 +339,7 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Incident AI draft error:', err);
     if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry in a minute.' }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is over capacity. Retry in ~30s.', retry_after_seconds: 30 }); return; }
     res.status(500).json({ error: `AI failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });

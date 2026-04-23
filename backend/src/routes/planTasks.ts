@@ -125,6 +125,30 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// Phase 5.2 QA fix — /upcoming-reminders MUST be registered BEFORE
+// /:id because Express matches in declaration order. If :id comes
+// first, a GET /upcoming-reminders matches as id="upcoming-reminders"
+// and the handler tries SELECT WHERE id='upcoming-reminders' which
+// either 500s (invalid UUID) or returns 404. Same reason we hoist
+// any other static-path GETs above /:id.
+router.get('/upcoming-reminders', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const result = await query(`
+      SELECT r.*, t.title AS task_title, t.priority, t.due_date
+        FROM plan_task_reminders r
+        JOIN plan_tasks t ON r.task_id = t.id
+       WHERE r.dismissed = FALSE
+         AND r.remind_at <= NOW() + INTERVAL '30 days'
+       ORDER BY r.remind_at ASC
+       LIMIT 100
+    `);
+    res.json({ reminders: result.rows });
+  } catch (err) {
+    console.error('upcoming reminders error:', err);
+    res.status(500).json({ error: 'Failed to fetch reminders' });
+  }
+});
+
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const tRes = await query(
@@ -309,24 +333,9 @@ router.delete('/:id/reminders/:rid', requireAuth, async (req: Request, res: Resp
   }
 });
 
-// GET /upcoming — all upcoming undismissed reminders across tasks
-router.get('/upcoming-reminders', requireAuth, async (_req: Request, res: Response) => {
-  try {
-    const result = await query(`
-      SELECT r.*, t.title AS task_title, t.priority, t.due_date
-        FROM plan_task_reminders r
-        JOIN plan_tasks t ON r.task_id = t.id
-       WHERE r.dismissed = FALSE
-         AND r.remind_at <= NOW() + INTERVAL '30 days'
-       ORDER BY r.remind_at ASC
-       LIMIT 100
-    `);
-    res.json({ reminders: result.rows });
-  } catch (err) {
-    console.error('upcoming reminders error:', err);
-    res.status(500).json({ error: 'Failed to fetch reminders' });
-  }
-});
+// /upcoming-reminders moved to the top of the file above /:id (Phase 5.2
+// QA fix) — see comment there. This location is now a no-op; left only
+// as a breadcrumb so future readers don't wonder where it went.
 
 // ── AI Guided task creation ─────────────────────────────────────────────
 
@@ -381,7 +390,12 @@ Rules:
     res.json({ done: false, question: parsed.question });
   } catch (err: any) {
     console.error('plan_tasks ai-next-question error:', err);
-    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.' }); return; }
+    // Phase 5.2 QA — surface rate-limit (429) and overload (529)
+    // separately so the frontend can auto-retry vs. show a persistent
+    // banner. 529 = Anthropic is currently over capacity; usually
+    // resolves in <30s.
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.', retry_after_seconds: 15 }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is temporarily over capacity. Retrying automatically usually works within a minute.', retry_after_seconds: 30 }); return; }
     res.status(500).json({ error: `AI failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });
@@ -475,7 +489,12 @@ Rules:
     });
   } catch (err: any) {
     console.error('plan_tasks ai-draft error:', err);
-    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.' }); return; }
+    // Phase 5.2 QA — surface rate-limit (429) and overload (529)
+    // separately so the frontend can auto-retry vs. show a persistent
+    // banner. 529 = Anthropic is currently over capacity; usually
+    // resolves in <30s.
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.', retry_after_seconds: 15 }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is temporarily over capacity. Retrying automatically usually works within a minute.', retry_after_seconds: 30 }); return; }
     res.status(500).json({ error: `AI failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });
