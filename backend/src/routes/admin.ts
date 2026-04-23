@@ -65,6 +65,7 @@ const MIGRATION_FILES = [
   'phase4_bd_core.sql',
   'phase4_4_expansion.sql',
   'phase5_plan_tasks.sql',
+  'phase6_client_portal.sql',
 ];
 
 interface MigrationResult {

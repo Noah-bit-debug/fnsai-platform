@@ -65,6 +65,8 @@ const ESignForms = lazy(() => import('./pages/esign/ESignForms'));
 const ComplianceReports = lazy(() => import('./pages/compliance/ComplianceReports'));
 const MyCertificates = lazy(() => import('./pages/compliance/MyCertificates'));
 const CertificateVerify = lazy(() => import('./pages/compliance/CertificateVerify'));
+// Phase 6.5 — public client portal (token-auth, no sign-in required)
+const ClientPortalView = lazy(() => import('./pages/ClientPortalView'));
 const ComplianceAdminHub = lazy(() => import('./pages/compliance/ComplianceAdminHub'));
 const CategoryManager = lazy(() => import('./pages/compliance/CategoryManager'));
 const PolicyList = lazy(() => import('./pages/compliance/PolicyList'));
@@ -401,6 +403,10 @@ function AppRoutes() {
 
         {/* Public certificate verification — no auth */}
         <Route path="/verify-cert/:number" element={<CertificateVerify />} />
+
+        {/* Phase 6.5 — Public client portal view. Token in URL is the
+            only credential. Backend validates + revokes + expires. */}
+        <Route path="/client-view/:token" element={<ClientPortalView />} />
 
         <Route path="/sign-in/*" element={<RedirectToSignIn />} />
       </Routes>

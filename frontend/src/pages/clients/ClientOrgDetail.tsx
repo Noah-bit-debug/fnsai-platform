@@ -6,6 +6,7 @@ import {
   ClientContact,
   ClientRequirementTemplate,
 } from '../../lib/api';
+import ClientPortalManager from '../../components/ClientPortal/ClientPortalManager';
 
 interface FacilityStub { id: string; name: string; type?: string; address?: string }
 
@@ -205,6 +206,10 @@ export default function ClientOrgDetail() {
             </div>
           )}
         </Section>
+
+        {/* Phase 6.5 — Client portal share links. Scoped to this client
+            org so all facilities under it appear in the portal view. */}
+        {id && <ClientPortalManager clientId={id} scopeLabel={client?.name ?? 'this client'} />}
       </div>
     </div>
   );

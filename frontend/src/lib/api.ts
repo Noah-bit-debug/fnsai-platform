@@ -667,6 +667,67 @@ export const planTasksApi = {
     api.post<PlanAIDraftResult>('/plan-tasks/ai-draft', data),
 };
 
+// ─── Phase 6.5 — Client Portal ────────────────────────────────────────
+export interface ClientPortalToken {
+  id: string;
+  token: string;
+  facility_id?: string | null;
+  client_id?: string | null;
+  facility_name?: string | null;
+  client_name?: string | null;
+  display_label?: string | null;
+  expires_at?: string | null;
+  revoked: boolean;
+  last_accessed_at?: string | null;
+  access_count: number;
+  created_at: string;
+}
+export interface ClientPortalView {
+  label: string;
+  scope: 'facility' | 'client';
+  generated_at: string;
+  facilities: Array<{ id: string; name: string; city?: string; state?: string }>;
+  active_staff: Array<{
+    placement_id: string;
+    status: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    first_name: string;
+    last_name: string;
+    role?: string;
+    facility_name?: string;
+  }>;
+  upcoming_submissions: Array<{
+    id: string;
+    status: string;
+    submitted_at?: string | null;
+    created_at: string;
+    first_name: string;
+    last_name: string;
+    candidate_role?: string;
+    job_title?: string;
+    facility_name?: string;
+  }>;
+  open_jobs: Array<{
+    id: string;
+    title: string;
+    status: string;
+    created_at: string;
+    facility_name?: string;
+  }>;
+}
+
+export const clientPortalApi = {
+  listTokens: (params?: { facility_id?: string; client_id?: string }) =>
+    api.get<{ tokens: ClientPortalToken[] }>('/client-portal/admin-tokens', { params }),
+  createToken: (data: { facility_id?: string; client_id?: string; display_label?: string; expires_at?: string }) =>
+    api.post<ClientPortalToken>('/client-portal/admin-tokens', data),
+  revokeToken: (id: string) => api.delete(`/client-portal/admin-tokens/${id}`),
+  // Public — no auth. The apiClient still attaches Clerk bearer if a user
+  // happens to be logged in, but the backend doesn't require it for /view/.
+  view: (token: string) => api.get<ClientPortalView>(`/client-portal/view/${token}`),
+};
+
 export const ptoApi = {
   listRequests: (params?: { staff_id?: string; status?: string }) =>
     api.get<{ requests: PtoRequest[] }>('/pto/requests', { params }),

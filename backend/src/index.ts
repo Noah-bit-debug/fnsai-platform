@@ -75,6 +75,8 @@ import schedulingRouter from './routes/scheduling';
 import ptoRouter from './routes/pto';
 // Phase 5.2
 import planTasksRouter from './routes/planTasks';
+// Phase 6.5
+import clientPortalRouter from './routes/clientPortal';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -374,6 +376,8 @@ app.use('/api/v1/scheduling', schedulingRouter);
 app.use('/api/v1/pto', ptoRouter);
 // Phase 5.2 — Action Plan tasks with subtasks + reminders + AI
 app.use('/api/v1/plan-tasks', planTasksRouter);
+// Phase 6.5 — Client portal (admin token CRUD + unauthenticated /view/:token)
+app.use('/api/v1/client-portal', clientPortalRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -419,6 +423,7 @@ async function runMigrations(): Promise<void> {
     'phase4_bd_core.sql',
     'phase4_4_expansion.sql',
     'phase5_plan_tasks.sql',
+    'phase6_client_portal.sql',
   ];
 
   const client = await pool.connect();
