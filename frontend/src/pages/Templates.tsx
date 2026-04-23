@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -239,12 +239,15 @@ function VersionModal({ templateId, templateName, onClose }: { templateId: strin
   const [versions, setVersions] = useState<TemplateVersion[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useState(() => {
+  // Phase 5.5 fix — this was `useState(() => {...})` which treats the
+  // function as a lazy initializer that runs ONCE with its return value
+  // ignored. Versions never loaded. Correct hook is useEffect.
+  useEffect(() => {
     api.get(`/templates/${templateId}/versions`)
       .then((res: { data: { versions?: unknown[] } }) => setVersions((res.data?.versions ?? []) as TemplateVersion[]))
       .catch(() => setVersions([]))
       .finally(() => setLoading(false));
-  });
+  }, [templateId]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
@@ -473,8 +476,10 @@ export default function Templates() {
     }
   };
 
-  // Initial load
-  useState(() => { fetchTemplates(); });
+  // Initial load — Phase 5.5 fix: same bug as VersionModal above.
+  // The templates list was never actually fetched, so the page showed
+  // an empty state on every visit.
+  useEffect(() => { fetchTemplates(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this template? This cannot be undone.')) return;
