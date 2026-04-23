@@ -22,11 +22,15 @@ interface Props {
   groups: PlanTaskGroup[];
   onCreated: () => void;
   onClose: () => void;
+  /** Optional pre-filled goal. If provided, the wizard starts at the
+   *  goal stage with this text already typed — the user can hit Start
+   *  immediately or edit it. Used by the AI Chat action buttons. */
+  initialGoal?: string;
 }
 
-export default function AITaskWizard({ groups, onCreated, onClose }: Props) {
+export default function AITaskWizard({ groups, onCreated, onClose, initialGoal }: Props) {
   const [stage, setStage] = useState<Stage>('goal');
-  const [goal, setGoal] = useState('');
+  const [goal, setGoal] = useState(initialGoal ?? '');
   const [pairs, setPairs] = useState<QA[]>([]);
   const [currentQ, setCurrentQ] = useState('');
   const [currentA, setCurrentA] = useState('');

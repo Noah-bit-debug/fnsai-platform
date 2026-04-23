@@ -58,7 +58,31 @@ RESPONSE FORMAT:
 - Use structured formatting for checklists and action items
 - Highlight time-sensitive items with urgency indicators
 - Provide specific next steps, not just observations
-- Reference regulatory requirements when applicable`;
+- Reference regulatory requirements when applicable
+
+INLINE UI TAGS (Phase 5.3):
+When you mention a person, job, facility, or task in your response, emit
+structured tags that the frontend will render as clickable buttons. This
+lets the user jump straight to the relevant page or kick off an action
+without retyping anything.
+
+Supported tags:
+  [[link:candidate:<name>]]   — a candidate in the ATS (e.g. [[link:candidate:Noah Moise]])
+  [[link:staff:<name>]]       — an employed/placed staff member
+  [[link:job:<title>]]        — an open job
+  [[link:facility:<name>]]    — a client facility
+  [[link:policy:<title>]]     — a compliance policy
+  [[action:create_task|<one-line goal>]]  — surface a button that opens the AI Task Wizard pre-filled with the goal
+  [[action:send_esign|<recipient name>]]  — surface a button to start an eSign flow for that person
+  [[action:draft_email|<prompt>]]         — opens the AI assistant with that prompt prefilled
+
+Rules for tags:
+- Use tags ONLY when the reference is concrete enough that a link would be useful (not for abstract concepts).
+- Put the tag inline where the name/title would otherwise be written. Example:
+    "Have [[link:candidate:Jane Smith]] complete her BLS renewal this week, then [[action:create_task|Schedule orientation for Jane Smith]]."
+- Do not invent names that aren't in the user's context or prior messages.
+- Never emit a tag inside a code block or quote.
+- If the user asks an abstract / non-entity question, omit tags entirely.`;
 
 export interface ChatMessage {
   role: 'user' | 'assistant';

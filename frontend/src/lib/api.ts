@@ -169,6 +169,25 @@ export interface ChatMessage {
 export const aiApi = {
   chat: (messages: ChatMessage[], userContext?: string) =>
     api.post<{ response: string; model: string }>('/ai/chat', { messages, userContext }),
+  // Phase 5.3d — multipart chat with file attachment. Sends the file +
+  // messages (JSON-stringified) + optional userContext to the backend,
+  // which extracts text or passes vision content to Claude.
+  chatWithFile: (messages: ChatMessage[], file: File, userContext?: string) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('messages', JSON.stringify(messages));
+    if (userContext) fd.append('userContext', userContext);
+    return api.post<{ response: string; attached: { filename: string; mime: string; size: number } }>(
+      '/ai/chat-with-file', fd, { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+  },
+  // Phase 5.3c — search for an entity referenced by name in an AI response
+  // (so a [[link:candidate:Noah]] click can show disambiguation if there
+  // are multiple Noahs).
+  resolveEntity: (type: 'candidate' | 'staff' | 'job' | 'facility' | 'policy', q: string) =>
+    api.get<{ type: string; matches: Array<{ id: string; [k: string]: unknown }> }>(
+      '/ai/resolve-entity', { params: { type, q } }
+    ),
   analyzeDocument: (documentText: string, documentType: string, staffId?: string) =>
     api.post('/ai/analyze-document', { documentText, documentType, staffId }),
   categorizeEmail: (subject: string, body: string, from: string) =>

@@ -1,12 +1,24 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
+import mammoth from 'mammoth';
+import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, logAudit } from '../middleware/auth';
-import { chatCompletion, analyzeDocument, categorizeEmail } from '../services/ai';
+import { chatCompletion, analyzeDocument, categorizeEmail, SYSTEM_PROMPT } from '../services/ai';
 import { MODEL_FOR } from '../services/aiModels';
 import { getAuth } from '@clerk/express';
 import { query } from '../db/client';
 
 const router = Router();
+
+// Phase 5.3d — in-memory file upload for AI chat. We don't persist
+// these; they only live in the chat context. 20 MB cap is plenty for
+// the image/PDF attachments this is meant for.
+const chatFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Shared guard — returns `true` if the request has been short-circuited
 // because the AI backend is unconfigured. Prevents 500s with obscure
@@ -129,6 +141,173 @@ router.post('/categorize-email', requireAuth, async (req: Request, res: Response
   } catch (err) {
     console.error('Categorize email route error:', err);
     res.status(500).json({ error: 'Email categorization failed' });
+  }
+});
+
+// POST /ai/chat-with-file — Phase 5.3d
+// multipart/form-data with: file (required), messages (JSON string),
+// userContext (optional string). Server extracts text (PDF/DOCX/TXT)
+// or sends the image inline to Claude's vision endpoint.
+router.post('/chat-with-file', requireAuth, chatFileUpload.single('file'), async (req: Request, res: Response) => {
+  if (aiUnavailable(res)) return;
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+
+  let messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  try {
+    messages = JSON.parse(req.body?.messages ?? '[]');
+    if (!Array.isArray(messages) || messages.length === 0) throw new Error();
+  } catch {
+    res.status(400).json({ error: 'messages must be a non-empty JSON array' });
+    return;
+  }
+
+  const userContext = typeof req.body?.userContext === 'string' ? req.body.userContext : undefined;
+  const systemWithContext = userContext
+    ? `${SYSTEM_PROMPT}\n\nCURRENT USER CONTEXT:\n${userContext}`
+    : SYSTEM_PROMPT;
+
+  const mime = req.file.mimetype;
+  const buffer = req.file.buffer;
+  const filename = req.file.originalname;
+  const isImage = mime.startsWith('image/');
+
+  try {
+    // Build the user-turn content. For images: include as a vision block.
+    // For PDFs/DOCX/TXT: extract text and include as a second text block.
+    const lastUser = messages[messages.length - 1];
+    const priorMessages = messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+
+    // Extract text (non-image) or prepare image base64
+    let attachmentBlock: any = null;
+    if (isImage) {
+      const base64 = buffer.toString('base64');
+      // Anthropic supports jpeg/png/gif/webp in the source.media_type field
+      attachmentBlock = {
+        type: 'image',
+        source: { type: 'base64', media_type: mime, data: base64 },
+      };
+    } else {
+      let text = '';
+      if (mime === 'text/plain') {
+        text = buffer.toString('utf8').slice(0, 60000);
+      } else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              || mime === 'application/msword') {
+        const r = await mammoth.extractRawText({ buffer });
+        text = r.value.slice(0, 60000);
+      } else if (mime === 'application/pdf') {
+        try {
+          const mod = await import('pdf-parse' as string).catch(() => null);
+          if (mod) {
+            const data = await (mod as any).default(buffer);
+            text = String(data.text ?? '').slice(0, 60000);
+          }
+        } catch { /* best effort */ }
+      }
+      if (!text || text.length < 10) {
+        res.status(400).json({ error: `Couldn't extract text from ${filename}. Paste the content into chat instead or upload an image.` });
+        return;
+      }
+      attachmentBlock = { type: 'text', text: `[Attached file: ${filename}]\n\n${text}` };
+    }
+
+    const userContentBlocks = [
+      attachmentBlock,
+      { type: 'text', text: lastUser.content || `Please review the attached ${isImage ? 'image' : 'document'}.` },
+    ];
+
+    const response = await anthropicClient.messages.create({
+      model: MODEL_FOR.brainChat,
+      max_tokens: 4096,
+      system: systemWithContext,
+      messages: [
+        ...priorMessages,
+        { role: 'user', content: userContentBlocks },
+      ] as any,
+    });
+
+    const block = response.content[0];
+    const text = block.type === 'text' ? block.text : 'Unable to generate response.';
+
+    await logAudit(null, getAuth(req)?.userId ?? 'unknown', 'ai.chat_with_file', filename, { mime, size: buffer.length }, req.ip);
+    res.json({ response: text, attached: { filename, mime, size: buffer.length } });
+  } catch (err: any) {
+    console.error('chat-with-file error:', err);
+    res.status(500).json({ error: `AI service error: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
+// GET /ai/resolve-entity?type=candidate&q=noah
+// Phase 5.3c — name disambiguation. When an AI response contains a
+// [[link:candidate:Noah]] tag and the user clicks it, the frontend
+// hits this endpoint. If one match is returned, navigate there. If
+// multiple are returned, show the picker. If none, show "not found".
+router.get('/resolve-entity', requireAuth, async (req: Request, res: Response) => {
+  const type = String(req.query.type ?? '').toLowerCase();
+  const q = String(req.query.q ?? '').trim();
+  if (!q) { res.json({ matches: [] }); return; }
+  const fuzzy = `%${q}%`;
+
+  try {
+    switch (type) {
+      case 'candidate': {
+        const r = await query(
+          `SELECT id, first_name, last_name, email, phone, current_role AS role, stage
+             FROM candidates
+            WHERE (first_name || ' ' || last_name) ILIKE $1
+               OR first_name ILIKE $1 OR last_name ILIKE $1
+               OR email ILIKE $1
+            ORDER BY created_at DESC
+            LIMIT 10`,
+          [fuzzy]
+        );
+        res.json({ type, matches: r.rows });
+        return;
+      }
+      case 'staff': {
+        const r = await query(
+          `SELECT id, first_name, last_name, email, role, status
+             FROM staff
+            WHERE (first_name || ' ' || last_name) ILIKE $1
+               OR first_name ILIKE $1 OR last_name ILIKE $1
+               OR email ILIKE $1
+            ORDER BY last_name ASC
+            LIMIT 10`,
+          [fuzzy]
+        );
+        res.json({ type, matches: r.rows });
+        return;
+      }
+      case 'job': {
+        const r = await query(
+          `SELECT id, title, facility_id, status
+             FROM jobs WHERE title ILIKE $1 ORDER BY created_at DESC LIMIT 10`,
+          [fuzzy]
+        );
+        res.json({ type, matches: r.rows });
+        return;
+      }
+      case 'facility': {
+        const r = await query(
+          `SELECT id, name, city, state FROM facilities WHERE name ILIKE $1 ORDER BY name LIMIT 10`,
+          [fuzzy]
+        );
+        res.json({ type, matches: r.rows });
+        return;
+      }
+      case 'policy': {
+        const r = await query(
+          `SELECT id, title, version, status FROM comp_policies WHERE title ILIKE $1 ORDER BY created_at DESC LIMIT 10`,
+          [fuzzy]
+        );
+        res.json({ type, matches: r.rows });
+        return;
+      }
+      default:
+        res.status(400).json({ error: `Unknown entity type: ${type}` });
+    }
+  } catch (err) {
+    console.error('resolve-entity error:', err);
+    res.status(500).json({ error: 'Resolve failed' });
   }
 });
 
