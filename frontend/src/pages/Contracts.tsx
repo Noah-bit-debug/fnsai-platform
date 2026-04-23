@@ -14,7 +14,7 @@
  *   * Download any past version
  *   * AI-generated terms summary displayed in the detail view
  */
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { bdApi, facilitiesApi, BDContract, BDContractVersion, BDContractAlert, Facility } from '../lib/api';
 
 const STATUS_COLORS: Record<BDContract['status'], string> = {
@@ -128,8 +128,8 @@ export default function Contracts() {
               {contracts.map(c => {
                 const isExpanded = expandedId === c.id;
                 return (
-                  <>
-                    <tr key={c.id} style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer', background: isExpanded ? '#f8fafc' : '#fff' }} onClick={() => setExpandedId(isExpanded ? null : c.id)}>
+                  <Fragment key={c.id}>
+                    <tr style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer', background: isExpanded ? '#f8fafc' : '#fff' }} onClick={() => setExpandedId(isExpanded ? null : c.id)}>
                       <td style={{ ...td, fontWeight: 600, color: '#1a2b3c' }}>
                         <span style={{ color: '#94a3b8', marginRight: 6 }}>{isExpanded ? '▼' : '▶'}</span>
                         {c.title}
@@ -158,7 +158,7 @@ export default function Contracts() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

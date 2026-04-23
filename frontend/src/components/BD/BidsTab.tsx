@@ -11,7 +11,7 @@
  *   [✓] AI help with bid creation → "✦ AI assist" button in the New Bid modal
  *   [✓] CEO-level tools          → stats header (open count, open value, win rate, due this week)
  */
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   bdApi,
   BDBid,
@@ -463,8 +463,8 @@ export default function BidsTab() {
                 const pct = total > 0 ? Math.round((done / total) * 100) : 0;
                 const isExpanded = expandedBidId === b.id;
                 return (
-                  <>
-                    <tr key={b.id} style={{ borderTop: '1px solid #f1f5f9', background: isExpanded ? '#f8fafc' : '#fff', cursor: 'pointer' }}
+                  <Fragment key={b.id}>
+                    <tr style={{ borderTop: '1px solid #f1f5f9', background: isExpanded ? '#f8fafc' : '#fff', cursor: 'pointer' }}
                         onClick={() => setExpandedBidId(isExpanded ? null : b.id)}>
                       <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1a2b3c', fontSize: 14 }}>
                         <span style={{ color: '#94a3b8', marginRight: 6 }}>{isExpanded ? '▼' : '▶'}</span>
@@ -502,7 +502,7 @@ export default function BidsTab() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

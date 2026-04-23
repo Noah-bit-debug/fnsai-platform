@@ -1139,15 +1139,23 @@ router.get('/forecast', requireAuth, async (_req: Request, res: Response) => {
       submitted:   Math.min(0.9, baseWinRate * 1.8 + 0.1),
     };
 
+    // NOTE: TO_CHAR forces due_date to a string ('YYYY-MM') in SQL so we
+    // don't have to worry about the pg driver returning DATE as a Date
+    // object (which would make `.slice(0, 7)` a runtime error — the
+    // forecast endpoint used to 500 on any non-null due_date because of
+    // this).
     const bidsRes = await query(`
-      SELECT id, title, status, due_date, estimated_value
+      SELECT id, title, status,
+             TO_CHAR(due_date, 'YYYY-MM-DD') AS due_date,
+             TO_CHAR(due_date, 'YYYY-MM')     AS due_month,
+             estimated_value
         FROM bd_bids
        WHERE status IN ('draft','in_progress','submitted')
          AND estimated_value IS NOT NULL
        ORDER BY due_date NULLS LAST
     `);
 
-    interface BidRow { id: string; title: string; status: 'draft'|'in_progress'|'submitted'; due_date: string | null; estimated_value: number }
+    interface BidRow { id: string; title: string; status: 'draft'|'in_progress'|'submitted'; due_date: string | null; due_month: string | null; estimated_value: number }
     const rows = bidsRes.rows as unknown as BidRow[];
 
     // Per-month rollup
@@ -1155,7 +1163,7 @@ router.get('/forecast', requireAuth, async (_req: Request, res: Response) => {
     const perBid = rows.map(b => {
       const p = probs[b.status] ?? 0.25;
       const weighted = Number(b.estimated_value) * p;
-      const monthKey = b.due_date ? b.due_date.slice(0, 7) : 'Unscheduled';
+      const monthKey = b.due_month ?? 'Unscheduled';
       if (!byMonth[monthKey]) byMonth[monthKey] = { month: monthKey, weighted_value: 0, gross_value: 0, bid_count: 0 };
       byMonth[monthKey].weighted_value += weighted;
       byMonth[monthKey].gross_value    += Number(b.estimated_value);

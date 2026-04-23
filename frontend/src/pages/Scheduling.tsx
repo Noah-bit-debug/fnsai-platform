@@ -31,7 +31,15 @@ function startOfWeek(d: Date): Date {
   return x;
 }
 function addDays(d: Date, n: number): Date { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-function fmtISODate(d: Date): string { return d.toISOString().slice(0, 10); }
+// Format as YYYY-MM-DD using *local* components. Using .toISOString() would
+// shift the date by the UTC offset — e.g. midnight local time in UTC+2
+// would become the previous day's date.
+function fmtISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function fmtShortDay(d: Date): string { return d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' }); }
 function fmtTime(iso: string): string { try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return iso; } }
 
