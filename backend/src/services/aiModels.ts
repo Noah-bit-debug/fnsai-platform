@@ -62,4 +62,8 @@ export const MODEL_FOR = {
   // Phase 4 — Business Development bid drafting: generate title +
   // checklist + draft notes from an RFP / description. Sonnet for copy.
   bidDraft:          SONNET,
+
+  // Phase 5.2 — Action Plan AI task creation: guided interview + task
+  // draft with subtasks + suggested reminder. Same tier as incidents.
+  taskDraft:         SONNET,
 } as const;

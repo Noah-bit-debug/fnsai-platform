@@ -556,6 +556,98 @@ export interface PtoBalance {
   updated_at?: string;
 }
 
+// ─── Phase 5.2 — Action Plan tasks ────────────────────────────────────
+export interface PlanTaskGroup {
+  id: string;
+  name: string;
+  color?: string | null;
+  created_at: string;
+}
+export interface PlanSubtask {
+  id: string;
+  task_id: string;
+  title: string;
+  done: boolean;
+  done_at?: string | null;
+  done_by?: string | null;
+  order_index: number;
+  created_at: string;
+}
+export interface PlanReminder {
+  id: string;
+  task_id: string;
+  remind_at: string;
+  message?: string | null;
+  dismissed: boolean;
+  dismissed_at?: string | null;
+  task_title?: string;
+  priority?: 'High' | 'Medium' | 'Low';
+  due_date?: string | null;
+}
+export interface PlanTask {
+  id: string;
+  title: string;
+  category?: string | null;
+  priority: 'High' | 'Medium' | 'Low';
+  due_date?: string | null;
+  notes?: string | null;
+  done: boolean;
+  done_at?: string | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  group_color?: string | null;
+  assigned_to?: string | null;
+  subtask_total?: number;
+  subtask_done?: number;
+  reminder_soon?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface PlanAIDraftResult {
+  title: string;
+  category: string;
+  priority: 'High' | 'Medium' | 'Low';
+  due_date: string | null;
+  notes: string;
+  subtasks: string[];
+  suggested_reminder_days: number | null;
+}
+
+export const planTasksApi = {
+  listTasks: (params?: { done?: boolean; group_id?: string; priority?: string }) =>
+    api.get<{ tasks: PlanTask[] }>('/plan-tasks', { params }),
+  getTask: (id: string) =>
+    api.get<{ task: PlanTask; subtasks: PlanSubtask[]; reminders: PlanReminder[] }>(`/plan-tasks/${id}`),
+  createTask: (data: Partial<PlanTask>) => api.post<PlanTask>('/plan-tasks', data),
+  updateTask: (id: string, data: Partial<PlanTask>) => api.put<PlanTask>(`/plan-tasks/${id}`, data),
+  deleteTask: (id: string) => api.delete(`/plan-tasks/${id}`),
+
+  listGroups: () => api.get<{ groups: PlanTaskGroup[] }>('/plan-tasks/groups'),
+  createGroup: (data: { name: string; color?: string }) => api.post<PlanTaskGroup>('/plan-tasks/groups', data),
+  deleteGroup: (id: string) => api.delete(`/plan-tasks/groups/${id}`),
+
+  addSubtask: (taskId: string, data: { title: string; done?: boolean }) =>
+    api.post<PlanSubtask>(`/plan-tasks/${taskId}/subtasks`, data),
+  updateSubtask: (taskId: string, sid: string, data: Partial<PlanSubtask>) =>
+    api.put<PlanSubtask>(`/plan-tasks/${taskId}/subtasks/${sid}`, data),
+  deleteSubtask: (taskId: string, sid: string) =>
+    api.delete(`/plan-tasks/${taskId}/subtasks/${sid}`),
+
+  addReminder: (taskId: string, data: { remind_at: string; message?: string }) =>
+    api.post<PlanReminder>(`/plan-tasks/${taskId}/reminders`, data),
+  dismissReminder: (taskId: string, rid: string) =>
+    api.put<PlanReminder>(`/plan-tasks/${taskId}/reminders/${rid}/dismiss`),
+  deleteReminder: (taskId: string, rid: string) =>
+    api.delete(`/plan-tasks/${taskId}/reminders/${rid}`),
+  upcomingReminders: () =>
+    api.get<{ reminders: PlanReminder[] }>('/plan-tasks/upcoming-reminders'),
+
+  aiNextQuestion: (data: { goal: string; answers: { question: string; answer: string }[] }) =>
+    api.post<{ done: boolean; question?: string }>('/plan-tasks/ai-next-question', data),
+  aiDraft: (data: { goal: string; answers: { question: string; answer: string }[] }) =>
+    api.post<PlanAIDraftResult>('/plan-tasks/ai-draft', data),
+};
+
 export const ptoApi = {
   listRequests: (params?: { staff_id?: string; status?: string }) =>
     api.get<{ requests: PtoRequest[] }>('/pto/requests', { params }),

@@ -73,6 +73,8 @@ import businessDevRouter from './routes/businessDev';
 // Phase 4.4
 import schedulingRouter from './routes/scheduling';
 import ptoRouter from './routes/pto';
+// Phase 5.2
+import planTasksRouter from './routes/planTasks';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -370,6 +372,8 @@ app.use('/api/v1/bd', businessDevRouter);
 // Phase 4.4 — Workforce scheduling + PTO
 app.use('/api/v1/scheduling', schedulingRouter);
 app.use('/api/v1/pto', ptoRouter);
+// Phase 5.2 — Action Plan tasks with subtasks + reminders + AI
+app.use('/api/v1/plan-tasks', planTasksRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -414,6 +418,7 @@ async function runMigrations(): Promise<void> {
     'phase4_bd_bids.sql',
     'phase4_bd_core.sql',
     'phase4_4_expansion.sql',
+    'phase5_plan_tasks.sql',
   ];
 
   const client = await pool.connect();
