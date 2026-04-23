@@ -52,3 +52,44 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_daily_summaries_period ON daily_summaries(period);
 CREATE INDEX IF NOT EXISTS idx_daily_summaries_date_desc ON daily_summaries(summary_date DESC);
+
+-- 3. Columns the route already referenced but the original schema
+--    never added. These caused the list query to 500 with
+--    "column daily_summaries.reviewed_by does not exist". Safe add.
+ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+
+-- 4. Role-scoped summaries (recruiting / hr / credentialing / bd / ceo).
+--    Every (date, period, scope) combination is a distinct row, so a
+--    single day can have e.g. a day-all summary, a week-recruiting
+--    summary, and a month-ceo summary at the same time.
+ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS scope VARCHAR(20) NOT NULL DEFAULT 'all'
+  CHECK (scope IN ('all', 'recruiting', 'hr', 'credentialing', 'bd', 'ceo'));
+
+-- Replace the (date, period) unique with (date, period, scope). Same
+-- introspection pattern as the earlier block so it's idempotent.
+DO $$
+DECLARE
+  con_name TEXT;
+BEGIN
+  SELECT conname INTO con_name
+    FROM pg_constraint
+   WHERE conrelid = 'daily_summaries'::regclass
+     AND contype = 'u'
+     AND conname = 'daily_summaries_date_period_uniq';
+  IF con_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE daily_summaries DROP CONSTRAINT %I', con_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'daily_summaries'::regclass
+       AND contype = 'u'
+       AND conname = 'daily_summaries_date_period_scope_uniq'
+  ) THEN
+    ALTER TABLE daily_summaries
+      ADD CONSTRAINT daily_summaries_date_period_scope_uniq UNIQUE (summary_date, period, scope);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_scope ON daily_summaries(scope);

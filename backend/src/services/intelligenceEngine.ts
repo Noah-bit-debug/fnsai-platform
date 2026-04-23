@@ -27,6 +27,11 @@ const MODEL = MODEL_FOR.intelligence;
  *  'month' aggregate over the trailing 7 and 30 days respectively. */
 export type SummaryPeriod = 'day' | 'week' | 'month';
 
+/** Role-scope lens on the same metrics. Changes what Claude emphasizes
+ *  in the narrative — 'all' is organization-wide (original behavior),
+ *  the others give each team a targeted view. */
+export type SummaryScope = 'all' | 'recruiting' | 'hr' | 'credentialing' | 'bd' | 'ceo';
+
 /** Window (days) used for the "new this period" counts. */
 function windowDaysFor(period: SummaryPeriod): number {
   return period === 'day' ? 1 : period === 'week' ? 7 : 30;
@@ -35,6 +40,44 @@ function windowDaysFor(period: SummaryPeriod): number {
 /** Human label for prompts + headings. */
 function periodLabel(period: SummaryPeriod): string {
   return period === 'day' ? 'today' : period === 'week' ? 'this week' : 'this month';
+}
+
+/** What Claude should focus on for each scope. The metrics snapshot is
+ *  the same regardless of scope; only the prompt framing changes. */
+function scopeFraming(scope: SummaryScope): { audience: string; focus: string } {
+  switch (scope) {
+    case 'recruiting':
+      return {
+        audience: 'recruiting team lead',
+        focus: 'candidate pipeline velocity, stage-conversion rates, time-to-submit, new placements started, and where candidates are getting stuck. Downplay compliance/credentialing details unless they are blocking a placement.',
+      };
+    case 'hr':
+      return {
+        audience: 'HR / people-ops manager',
+        focus: 'onboarding completion, expiring credentials that require outreach, policy + documentation gaps, and incidents requiring HR follow-up. Downplay BD / sales pipeline details.',
+      };
+    case 'credentialing':
+      return {
+        audience: 'credentialing coordinator',
+        focus: 'document expirations in the next 30 days, missing required documents, credential-stage candidates, and anything that could delay clearance for placement. Downplay sales + BD activity.',
+      };
+    case 'bd':
+      return {
+        audience: 'business development / sales team',
+        focus: 'bid pipeline, RFPs received, active client contracts expiring, placements started (revenue-generating), and client-facing activity. Downplay internal HR / credentialing unless blocking revenue.',
+      };
+    case 'ceo':
+      return {
+        audience: 'CEO / executive',
+        focus: 'high-level health across all functions — revenue proxies (active placements, won bids), top 2-3 risks (overdue reminders, expiring credentials, incidents), and one sentence on trend vs. prior period. Keep it short and prioritized.',
+      };
+    case 'all':
+    default:
+      return {
+        audience: 'operations manager',
+        focus: 'a balanced cross-functional view: recruiting pipeline, compliance, BD, and operational risks.',
+      };
+  }
 }
 
 interface OperationalMetrics {
@@ -364,10 +407,12 @@ REQUIRED FORMAT:
 export async function generateDailySummary(
   date: string,
   period: SummaryPeriod = 'day',
+  scope: SummaryScope = 'all',
 ): Promise<void> {
   const metrics = await gatherMetrics(period);
   const windowDays = windowDaysFor(period);
   const label = periodLabel(period);
+  const { audience, focus } = scopeFraming(scope);
 
   // Count suggestions + clarifications generated within the window
   // ending on `date`. For weekly/monthly we want trailing counts.
@@ -400,7 +445,11 @@ export async function generateDailySummary(
 
   const prompt = `You are an operations intelligence assistant for Frontline Healthcare Staffing.
 
-Write a concise ${periodLongLabel} operations summary ${periodWindowDesc}.
+Write a concise ${periodLongLabel} operations summary ${periodWindowDesc}, targeted at a ${audience}.
+
+SCOPE: ${scope}
+FOCUS FOR THIS SCOPE:
+${focus}
 
 METRICS SNAPSHOT (period = ${period}, window = ${windowDays} days):
 ${JSON.stringify(metrics, null, 2)}
@@ -411,9 +460,9 @@ ACTIVITY ${label.toUpperCase()}:
 
 INSTRUCTIONS:
 - Write a 2–4 sentence headline summary suitable for a dashboard banner. Reference the period explicitly (e.g. "${label}" or "the past ${windowDays} days").
-- Then write a 3–5 sentence narrative expanding on risks, highlights, and recommended focus areas for this period.
+- Then write a 3–5 sentence narrative targeted at the ${audience}, emphasizing the SCOPE FOCUS above. Skip or downplay data that doesn't fit this audience.
 - For week/month summaries, identify trends and compare against the period-over-period shape when metrics imply it.
-- Identify up to 3 risk alerts (brief bullet points).
+- Identify up to 3 risk alerts (brief bullet points), prioritized by what matters to this audience.
 - Return ONLY valid JSON — no prose outside the object, no markdown fences.
 
 REQUIRED FORMAT:
@@ -450,10 +499,10 @@ REQUIRED FORMAT:
   try {
     await pool.query(
       `INSERT INTO daily_summaries
-         (summary_date, period, headline, narrative, metrics, risk_alerts,
+         (summary_date, period, scope, headline, narrative, metrics, risk_alerts,
           suggestions_generated, questions_generated, status, generated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'generated', NOW())
-       ON CONFLICT (summary_date, period) DO UPDATE SET
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'generated', NOW())
+       ON CONFLICT (summary_date, period, scope) DO UPDATE SET
          headline             = EXCLUDED.headline,
          narrative            = EXCLUDED.narrative,
          metrics              = EXCLUDED.metrics,
@@ -465,6 +514,7 @@ REQUIRED FORMAT:
       [
         date,
         period,
+        scope,
         headline,
         narrative,
         JSON.stringify(metrics),
@@ -473,7 +523,7 @@ REQUIRED FORMAT:
         questionsGenerated,
       ]
     );
-    console.log(`[intelligenceEngine] generateDailySummary: upserted ${period} summary for ${date}`);
+    console.log(`[intelligenceEngine] generateDailySummary: upserted ${period}/${scope} summary for ${date}`);
   } catch (dbErr) {
     console.error('[intelligenceEngine] Failed to upsert daily summary:', dbErr);
     throw dbErr;

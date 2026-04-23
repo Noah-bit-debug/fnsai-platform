@@ -20,11 +20,24 @@ interface RiskAlert {
 }
 
 type SummaryPeriod = 'day' | 'week' | 'month';
+type SummaryScope  = 'all' | 'recruiting' | 'hr' | 'credentialing' | 'bd' | 'ceo';
+
+/** Label + emoji + color for each scope tab. 'all' is the neutral
+ *  organization-wide view; the others are role-targeted lenses. */
+const SCOPE_META: Record<SummaryScope, { label: string; icon: string; color: string }> = {
+  all:           { label: 'All',            icon: '🧭', color: '#475569' },
+  recruiting:    { label: 'Recruiting',     icon: '🎯', color: '#1565c0' },
+  hr:            { label: 'HR',             icon: '🧑‍💼', color: '#2e7d32' },
+  credentialing: { label: 'Credentialing',  icon: '📋', color: '#6a1b9a' },
+  bd:            { label: 'Business Dev',   icon: '💼', color: '#e65100' },
+  ceo:           { label: 'CEO',            icon: '👔', color: '#991b1b' },
+};
 
 interface DailySummaryRecord {
   id: string;
   summary_date: string;
   period: SummaryPeriod;
+  scope: SummaryScope;
   headline: string;
   narrative: string;
   status: 'generated' | 'reviewed' | 'dismissed';
@@ -147,6 +160,9 @@ export default function DailySummary() {
   // is stored as its own row keyed by (summary_date, period). Defaults
   // to 'day' on first load to match prior behavior.
   const [period, setPeriod]               = useState<SummaryPeriod>('day');
+  // Scope lens — 'all' = organization-wide (default), others = role-
+  // targeted views. Each (date, period, scope) is its own stored row.
+  const [scope, setScope]                 = useState<SummaryScope>('all');
   const [summary, setSummary]             = useState<DailySummaryRecord | null>(null);
   const [recentList, setRecentList]       = useState<RecentSummary[]>([]);
   const [loading, setLoading]             = useState(true);
@@ -154,31 +170,29 @@ export default function DailySummary() {
   const [marking, setMarking]             = useState(false);
   const [error, setError]                 = useState<string | null>(null);
 
-  const fetchSummary = async (date: string, p: SummaryPeriod) => {
+  const fetchSummary = async (date: string, p: SummaryPeriod, s: SummaryScope) => {
     setLoading(true);
     setError(null);
     setSummary(null);
     try {
-      // Backend: GET /daily-summary/:date?period=X returns the record
-      // directly (not wrapped in a `summary` field).
-      const res = await api.get(`/daily-summary/${date}`, { params: { period: p } });
+      const res = await api.get(`/daily-summary/${date}`, { params: { period: p, scope: s } });
       setSummary(res.data ?? null);
     } catch (e: any) {
       if (e?.response?.status !== 404) {
         setError(e?.response?.data?.error ?? 'Failed to load summary.');
       }
-      // 404 is the expected "not generated yet" case — leave summary null
-      // so the empty state renders with a "Generate" button.
+      // 404 is the expected "not generated yet" case — leave summary null.
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchRecent = async (p?: SummaryPeriod) => {
+  const fetchRecent = async (p?: SummaryPeriod, s?: SummaryScope) => {
     try {
-      // Recent list — optionally filtered by period. When undefined we
-      // show all periods mixed for cross-reference.
-      const res = await api.get('/daily-summary', { params: p ? { period: p } : {} });
+      const params: Record<string, string> = {};
+      if (p) params.period = p;
+      if (s) params.scope = s;
+      const res = await api.get('/daily-summary', { params });
       setRecentList(res.data?.summaries ?? []);
     } catch {
       // non-critical
@@ -186,9 +200,9 @@ export default function DailySummary() {
   };
 
   useEffect(() => {
-    fetchSummary(selectedDate, period);
+    fetchSummary(selectedDate, period, scope);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, period]);
+  }, [selectedDate, period, scope]);
 
   useEffect(() => {
     fetchRecent();
@@ -198,9 +212,7 @@ export default function DailySummary() {
     setGenerating(true);
     setError(null);
     try {
-      // POST body carries { date, period } so the backend upserts the
-      // right (date, period) row.
-      const res = await api.post('/daily-summary/generate', { date: selectedDate, period });
+      const res = await api.post('/daily-summary/generate', { date: selectedDate, period, scope });
       setSummary(res.data ?? null);
       fetchRecent();
     } catch (e: any) {
@@ -236,9 +248,15 @@ export default function DailySummary() {
           <div>
             <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a2b3c', marginBottom: 4 }}>
               📅 {period === 'day' ? 'Daily' : period === 'week' ? 'Weekly' : 'Monthly'} Summary
+              {scope !== 'all' && (
+                <span style={{ fontSize: 15, fontWeight: 600, color: SCOPE_META[scope].color, marginLeft: 12, padding: '3px 10px', background: SCOPE_META[scope].color + '18', borderRadius: 999, verticalAlign: 'middle' }}>
+                  {SCOPE_META[scope].icon} {SCOPE_META[scope].label}
+                </span>
+              )}
             </h1>
             <p style={{ fontSize: 14, color: '#64748b' }}>
               AI-generated intelligence digest {period === 'day' ? 'for the selected day' : period === 'week' ? 'for the trailing 7 days' : 'for the trailing 30 days'}
+              {scope !== 'all' && ` · targeted at ${SCOPE_META[scope].label.toLowerCase()}`}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -284,6 +302,40 @@ export default function DailySummary() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Scope tabs — role-targeted lenses on the same underlying
+          metrics. Clicking a scope refetches/regenerates with Claude
+          re-framed for that audience. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', padding: '0 4px' }}>
+        {(Object.keys(SCOPE_META) as SummaryScope[]).map((s) => {
+          const meta = SCOPE_META[s];
+          const active = scope === s;
+          return (
+            <button
+              key={s}
+              onClick={() => setScope(s)}
+              style={{
+                padding: '7px 14px',
+                background: active ? meta.color : '#fff',
+                color: active ? '#fff' : meta.color,
+                border: `1.5px solid ${meta.color}${active ? '' : '40'}`,
+                borderRadius: 999,
+                fontSize: 12.5,
+                fontWeight: active ? 700 : 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                transition: 'all 0.15s',
+              }}
+              title={`${meta.label} view — Claude will emphasize this team's concerns`}
+            >
+              <span>{meta.icon}</span>
+              {meta.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Two-column layout */}
