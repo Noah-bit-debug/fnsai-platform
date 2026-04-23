@@ -71,12 +71,26 @@ router.post('/admin-tokens', requireAuth, async (req: Request, res: Response) =>
   const d = parse.data;
   const token = generateToken();
   const userId = getAuth(req)?.userId ?? 'unknown';
+  // Phase 6.5 QA diagnostic (bug 6.5-c) — log exactly what was received
+  // and what's being stored so we can tell if an expires_at value is
+  // being silently dropped somewhere.
+  console.log('[client-portal] creating token:', {
+    facility_id: d.facility_id ?? null,
+    client_id: d.client_id ?? null,
+    display_label: d.display_label ?? null,
+    expires_at_raw: d.expires_at ?? null,
+    expires_at_parsed: d.expires_at ? new Date(d.expires_at).toISOString() : null,
+  });
   try {
     const result = await query(
       `INSERT INTO client_view_tokens (token, facility_id, client_id, display_label, expires_at, created_by)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [token, d.facility_id ?? null, d.client_id ?? null, d.display_label ?? null, d.expires_at ?? null, userId]
     );
+    console.log('[client-portal] token stored:', {
+      id: result.rows[0].id,
+      expires_at: result.rows[0].expires_at,
+    });
     await logAudit(null, userId, 'client_portal.token_create', result.rows[0].id as string, { facility_id: d.facility_id, client_id: d.client_id }, req.ip);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -120,14 +134,46 @@ router.get('/view/:token', async (req: Request, res: Response) => {
       [token]
     );
     if (tRes.rows.length === 0) { res.status(404).json({ error: 'Invalid or unknown link' }); return; }
-    const tok = tRes.rows[0] as {
-      id: string; facility_id: string | null; client_id: string | null; display_label: string | null;
-      revoked: boolean; expires_at: string | null; facility_name: string | null; client_name: string | null;
+    // Phase 6.5 QA fix (bug 6.5-c) — expires_at comes off the pg driver
+    // as a Date object for TIMESTAMPTZ columns, not a string. Previous
+    // type annotation claimed `string` and the Date-on-Date roundtrip
+    // was fine BUT the annotation hid whether the column was actually
+    // populated. Now we explicitly handle both Date and string forms
+    // and log the comparison so any future discrepancy is visible.
+    const tokRaw = tRes.rows[0] as Record<string, unknown>;
+    const tok = {
+      id: String(tokRaw.id),
+      facility_id: (tokRaw.facility_id as string | null) ?? null,
+      client_id: (tokRaw.client_id as string | null) ?? null,
+      display_label: (tokRaw.display_label as string | null) ?? null,
+      revoked: Boolean(tokRaw.revoked),
+      expires_at: tokRaw.expires_at as Date | string | null,
+      facility_name: (tokRaw.facility_name as string | null) ?? null,
+      client_name: (tokRaw.client_name as string | null) ?? null,
     };
     if (tok.revoked) { res.status(410).json({ error: 'This link has been revoked by the admin.' }); return; }
-    if (tok.expires_at && new Date(tok.expires_at).getTime() < Date.now()) {
-      res.status(410).json({ error: 'This link has expired.' });
-      return;
+
+    // Expiry check. Normalize to epoch ms regardless of pg's return type.
+    if (tok.expires_at) {
+      const expiryMs = tok.expires_at instanceof Date
+        ? tok.expires_at.getTime()
+        : new Date(tok.expires_at).getTime();
+      const nowMs = Date.now();
+      console.log('[client-portal] expiry check for token', token.slice(0, 8) + '…:', {
+        raw: tok.expires_at,
+        expiryMs, nowMs,
+        diff_hours: ((expiryMs - nowMs) / 3600000).toFixed(2),
+        expired: expiryMs < nowMs,
+      });
+      if (!Number.isFinite(expiryMs)) {
+        // Corrupt expires_at — fail closed, block access.
+        res.status(500).json({ error: 'Link has an invalid expiry. Please ask admin to regenerate.' });
+        return;
+      }
+      if (expiryMs < nowMs) {
+        res.status(410).json({ error: 'This link has expired.' });
+        return;
+      }
     }
 
     // Track access
@@ -148,10 +194,23 @@ router.get('/view/:token', async (req: Request, res: Response) => {
       );
       facilityIds = fRes.rows.map((r) => r.id as string);
     }
+    // Phase 6.5 QA fix (bug 6.5-b) — use the client/facility's actual
+    // name for the public H1. The admin-entered display_label is an
+    // internal tag for identifying the token ("QA Test Link", "Xyrene
+    // Marketing Link") and shouldn't leak to the client-facing page.
+    // Fall back to display_label only if nothing else is set.
+    const publicLabel =
+      tok.client_name ?? tok.facility_name ?? tok.display_label ?? 'Client Portal';
+
     if (facilityIds.length === 0) {
+      // Phase 6.5 QA fix (bug 6.5-a) — this branch was missing
+      // generated_at, which made the frontend render "Generated Invalid
+      // Date". Include it (and the admin label + scope too for parity).
       res.json({
-        label: tok.display_label ?? tok.facility_name ?? tok.client_name ?? 'Client Portal',
+        label: publicLabel,
+        admin_label: tok.display_label ?? null,
         scope: tok.facility_id ? 'facility' : 'client',
+        generated_at: new Date().toISOString(),
         facilities: [], active_staff: [], upcoming_submissions: [], open_jobs: [],
       });
       return;
@@ -210,7 +269,9 @@ router.get('/view/:token', async (req: Request, res: Response) => {
     );
 
     res.json({
-      label: tok.display_label ?? tok.client_name ?? tok.facility_name ?? 'Client Portal',
+      // Use the same public-label logic as the empty branch above.
+      label: publicLabel,
+      admin_label: tok.display_label ?? null,
       scope: tok.facility_id ? 'facility' : 'client',
       generated_at: new Date().toISOString(),
       facilities: facRes.rows,

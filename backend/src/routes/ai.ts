@@ -11,6 +11,21 @@ import { query } from '../db/client';
 
 const router = Router();
 
+// Phase 6.6 QA diagnostic — unauthenticated GET /api/v1/ai/_diag
+// so we can verify this router is actually live on the deployed
+// backend. If a client reports 404 on /ai/suggest-actions, have them
+// hit _diag first. If _diag works but suggest-actions 404s, the bug
+// is specifically in the suggest-actions handler. If _diag also
+// 404s, the whole aiRouter isn't wired up on the running process
+// (stale deploy, crash on startup, etc.).
+router.get('/_diag', (_req, res) => {
+  res.json({
+    ok: true,
+    routes: ['chat', 'chat-with-file', 'analyze-document', 'categorize-email', 'resolve-entity', 'suggest-actions'],
+    built_at: new Date().toISOString(),
+  });
+});
+
 // Phase 5.3d — in-memory file upload for AI chat. We don't persist
 // these; they only live in the chat context. 20 MB cap is plenty for
 // the image/PDF attachments this is meant for.

@@ -57,6 +57,10 @@ export default function ClientPortalManager({ facilityId, clientId, scopeLabel }
       else if (clientId) body.client_id = clientId;
       if (newLabel.trim()) body.display_label = newLabel.trim();
       if (newExpires) body.expires_at = new Date(newExpires).toISOString();
+      // Phase 6.5 QA diagnostic — log the outgoing payload so we can
+      // tell if expires_at is being dropped somewhere between here and
+      // the backend. Pair with the backend's [client-portal] logs.
+      console.log('[client-portal] creating token with body:', body, 'raw datetime-local:', newExpires);
       await clientPortalApi.createToken(body);
       setShowNewForm(false); setNewLabel(''); setNewExpires('');
       await load();
