@@ -52,7 +52,21 @@ export default function CourseEditor() {
     if (!form.title?.trim()) { toast.error('Title is required'); return; }
     setSaving(true);
     try {
-      const payload = { ...form, status: nextStatus ?? form.status ?? 'draft' };
+      // Strip empty strings to undefined so optional zod validators don't
+      // reject "". Backend also normalizes these, but doing it here keeps
+      // payloads clean and plays nice with strict validators.
+      const clean = (v: string | null | undefined) => v?.trim() || undefined;
+      const payload: Partial<CompCourse> = {
+        ...form,
+        description: clean(form.description) ?? null,
+        content_markdown: clean(form.content_markdown) ?? null,
+        video_url: clean(form.video_url) ?? null,
+        quiz_exam_id: form.quiz_exam_id || null,
+        cat1_id: form.cat1_id || null,
+        cat2_id: form.cat2_id || null,
+        cat3_id: form.cat3_id || null,
+        status: nextStatus ?? form.status ?? 'draft',
+      };
       if (isNew) {
         const res = await compCoursesApi.create(payload);
         toast.success(`Course created${nextStatus === 'published' ? ' & published' : ''}`);

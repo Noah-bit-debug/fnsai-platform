@@ -21,7 +21,9 @@ const courseSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(5000).optional().nullable(),
   content_markdown: z.string().max(200000).optional().nullable(),
-  video_url: z.string().url().max(1000).optional().nullable(),
+  // Accept '' from forms where the user cleared the field. Normalize empty
+  // to null below so the DB doesn't store an empty string.
+  video_url: z.union([z.string().url().max(1000), z.literal('')]).optional().nullable(),
   estimated_minutes: z.number().int().min(0).max(600).optional().nullable(),
   quiz_exam_id: z.string().uuid().optional().nullable(),
   pass_threshold: z.number().min(0).max(100).optional().nullable(),
@@ -67,7 +69,11 @@ router.get('/', requireAuth(), async (req: Request, res: Response) => {
 router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      `SELECT c.*, e.title AS quiz_title, e.pass_threshold AS quiz_pass_threshold
+      // comp_exams uses `passing_score` (INT 0-100), not `pass_threshold`.
+      // Expose under the alias quiz_pass_threshold so the frontend type
+      // stays consistent with how the course-level pass_threshold column
+      // is named.
+      `SELECT c.*, e.title AS quiz_title, e.passing_score AS quiz_pass_threshold
        FROM comp_courses c
        LEFT JOIN comp_exams e ON c.quiz_exam_id = e.id
        WHERE c.id = $1`,
@@ -96,10 +102,16 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
-        d.title, d.description ?? null, d.content_markdown ?? null, d.video_url ?? null,
-        d.estimated_minutes ?? null, d.quiz_exam_id ?? null, d.pass_threshold ?? null,
+        d.title,
+        // Normalize empty strings to null — form fields submit '' when cleared
+        d.description?.trim() || null,
+        d.content_markdown?.trim() || null,
+        d.video_url?.trim() || null,
+        d.estimated_minutes ?? null,
+        d.quiz_exam_id || null,  // '' → null via || fallthrough
+        d.pass_threshold ?? null,
         d.require_attestation ?? true, d.status ?? 'draft',
-        d.cat1_id ?? null, d.cat2_id ?? null, d.cat3_id ?? null,
+        d.cat1_id || null, d.cat2_id || null, d.cat3_id || null,
         d.applicable_roles ?? [], auth?.userId ?? null,
       ]
     );
@@ -114,7 +126,21 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
 router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
   const parsed = courseSchema.partial().safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
-  const entries = Object.entries(parsed.data).filter(([, v]) => v !== undefined);
+  // Normalize empty strings to null for nullable text columns so PUT with
+  // a cleared field doesn't store '' (and doesn't get rejected by URL
+  // validators that forbid empty strings).
+  const NORMALIZE_EMPTY: ReadonlySet<string> = new Set([
+    'description', 'content_markdown', 'video_url',
+    'quiz_exam_id', 'cat1_id', 'cat2_id', 'cat3_id',
+  ]);
+  const entries = Object.entries(parsed.data)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => {
+      if (NORMALIZE_EMPTY.has(k) && typeof v === 'string' && v.trim() === '') {
+        return [k, null] as const;
+      }
+      return [k, v] as const;
+    });
   if (entries.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
   const setClause = entries.map(([k], i) => `${k} = $${i + 2}`).join(', ');
   const values: unknown[] = [req.params.id, ...entries.map(([, v]) => v)];
