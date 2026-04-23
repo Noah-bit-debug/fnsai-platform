@@ -194,10 +194,20 @@ export default function ESignPrepare() {
           })));
         } catch { /* no fields yet */ }
 
-        // Load PDF
-        if ((d as any).file_path || (res.data as any)?.document?.file_path) {
+        // Load PDF — but only if the doc has a file attached. If not,
+        // show a clear "no file" state instead of silently rendering a
+        // blank canvas. Documents created from templates (not uploaded)
+        // have file_path = null and this path is reached.
+        const hasFile = !!((d as any).file_path || (res.data as any)?.document?.file_path);
+        console.log('[esign] document loaded', { id, hasFile, file_path: (d as any).file_path });
+        if (hasFile) {
           await loadPdf(id);
         } else {
+          setPdfError(
+            'This document has no PDF file attached. It was likely created from a template ' +
+            'without uploading a source PDF. To place fields on a visual canvas, create a ' +
+            'new document and upload a PDF file first.'
+          );
           setNumPages(1);
         }
       } catch {
