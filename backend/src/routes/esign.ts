@@ -11,9 +11,20 @@ import { SYSTEM_TEMPLATES, generateSignedPDF } from '../services/esignService';
 const router = Router();
 
 // ─── Multer file upload config ────────────────────────────────────────────────
-const uploadDir = path.join(process.cwd(), 'uploads', 'esign');
-const signedDir = path.join(process.cwd(), 'uploads', 'esign', 'signed');
+// Uploads go to ESIGN_UPLOAD_DIR if set (pointing at a Railway volume mount
+// or similar persistent storage) — otherwise fall back to cwd/uploads which
+// is ephemeral on Railway and wipes on every deploy.
+// Set ESIGN_UPLOAD_DIR=/app/persistent/esign on Railway after creating a
+// volume mounted at /app/persistent to keep uploaded PDFs between deploys.
+const uploadRootOverride = process.env.ESIGN_UPLOAD_DIR;
+const uploadDir = uploadRootOverride
+  ? path.join(uploadRootOverride, 'originals')
+  : path.join(process.cwd(), 'uploads', 'esign');
+const signedDir = uploadRootOverride
+  ? path.join(uploadRootOverride, 'signed')
+  : path.join(process.cwd(), 'uploads', 'esign', 'signed');
 [uploadDir, signedDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+console.log(`[esign] Upload dir: ${uploadDir}${uploadRootOverride ? ' (persistent)' : ' (EPHEMERAL — files wipe on deploy. Set ESIGN_UPLOAD_DIR env var to use persistent storage.)'}`);
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
@@ -851,8 +862,22 @@ router.get('/documents/:id/file', requireAuth(), async (req: Request, res: Respo
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     if (!doc.file_path) return res.status(404).json({ error: 'No file uploaded for this document' });
 
-    const absPath = path.join(process.cwd(), doc.file_path.replace(/^\//, ''));
-    if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'File not found on disk' });
+    // Try multiple candidate paths so moving from ephemeral cwd/uploads
+    // to a persistent ESIGN_UPLOAD_DIR doesn't orphan every existing doc.
+    // Also accepts the stored path directly if it's already absolute.
+    const filename = path.basename(doc.file_path);
+    const candidates = [
+      path.isAbsolute(doc.file_path) ? doc.file_path : null,
+      path.join(process.cwd(), doc.file_path.replace(/^\//, '')),
+      path.join(uploadDir, filename),
+    ].filter((p): p is string => !!p);
+
+    const absPath = candidates.find((p) => fs.existsSync(p));
+    if (!absPath) {
+      return res.status(404).json({
+        error: `File not found on disk. Original upload may have been wiped by an ephemeral filesystem reset. Re-upload the PDF via + New Document. (tried: ${candidates.join(', ')})`,
+      });
+    }
 
     const extMimeMap: Record<string, string> = {
       '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

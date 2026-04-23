@@ -5,6 +5,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { esignApi, ESignDocument } from '../../lib/api';
+// Phase 3.4 — bundle the pdfjs worker statically so Vite processes the
+// ?url suffix at build time. The previous dynamic import with ?url
+// didn't always resolve at runtime, leaving worker undefined.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — Vite handles the ?url suffix
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -207,26 +213,41 @@ export default function ESignPrepare() {
 
   const loadPdf = async (docId: string) => {
     setPdfLoading(true);
+    setPdfError(null);
     try {
       // Fetch raw PDF from the backend file endpoint
       const token = await getClerkToken();
       const resp = await fetch(`/api/v1/esign/documents/${docId}/file`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (!resp.ok) { setNumPages(1); return; }
+
+      // Phase 3.4 — surface file-missing and other fetch errors instead of
+      // silently showing a placeholder. Most common: 404 "No file uploaded"
+      // when a doc was created as a stub but never had a PDF attached.
+      if (!resp.ok) {
+        let msg = `${resp.status} ${resp.statusText}`;
+        try {
+          const body = await resp.json();
+          if (body?.error) msg = body.error;
+        } catch { /* non-json 404 or empty body */ }
+        setPdfError(msg);
+        setNumPages(1);
+        return;
+      }
+
       const arrayBuf = await resp.arrayBuffer();
+      if (arrayBuf.byteLength === 0) {
+        setPdfError('The file endpoint returned an empty response.');
+        setNumPages(1);
+        return;
+      }
+
       const bytes = new Uint8Array(arrayBuf);
 
       const pdfjsLib = await import('pdfjs-dist');
-      // Phase 3.4 fix: previous code pulled the worker from cdnjs using
-      // pdfjsLib.version, but cdnjs doesn't always have every
-      // pdfjs-dist version (and we're on 5.x which isn't mirrored reliably).
-      // When the worker 404'd, getDocument() rejected silently and the
-      // user saw blank pages while trying to place fields.
-      // Using Vite's ?url suffix ships the worker with our own bundle
-      // so it's always available and version-matched.
-      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+      // Use the statically-bundled worker URL (imported at top). Previous
+      // dynamic import('...?url') didn't always resolve at runtime in Vite.
+      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
       const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
       setNumPages(pdf.numPages);
@@ -1011,6 +1032,42 @@ export default function ESignPrepare() {
 
         {pdfLoading && (
           <div style={{ color: '#999', fontSize: 13 }}>Rendering PDF pages…</div>
+        )}
+
+        {/* Phase 3.4 — prominent error banner if the PDF failed to load at
+            all. Rendered once at the top instead of only on page 0 so the
+            user sees it immediately. Most common cause on Railway: the
+            document's file_path points at a file that was wiped by a
+            deploy (ephemeral filesystem). Fix: upload a fresh PDF. */}
+        {pdfError && !pdfLoading && (
+          <div style={{
+            background: '#fef2f2', border: '1px solid #fecaca',
+            borderRadius: 8, padding: 14, marginBottom: 8,
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}>
+            <span style={{ fontSize: 24 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#991b1b', marginBottom: 4 }}>
+                PDF not available
+              </div>
+              <div style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 8 }}>{pdfError}</div>
+              <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.5 }}>
+                If this is an older draft, the file may have been wiped by a Railway deploy
+                (the <code style={{ background: '#fee', padding: '1px 4px', borderRadius: 3 }}>uploads/</code> directory
+                is ephemeral). Create a new document and upload the PDF again.
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => void loadPdf(id!)}
+                  style={{ padding: '6px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Retry
+                </button>
+                <button onClick={() => navigate('/esign/documents/new')}
+                  style={{ padding: '6px 14px', background: '#fff', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  + New Document
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Page canvases */}
