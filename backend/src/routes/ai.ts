@@ -311,4 +311,57 @@ router.get('/resolve-entity', requireAuth, async (req: Request, res: Response) =
   }
 });
 
+// POST /ai/suggest-actions — Phase 6.6
+// Context-aware action suggestions for a workflow page.
+// Request body: { subject: string, context: object }
+// Response: { suggestions: string } where the string uses the same
+// [[link:...]] / [[action:...]] tag grammar as chat responses.
+// The frontend uses the shared TaggedText renderer to display them.
+router.post('/suggest-actions', requireAuth, async (req: Request, res: Response) => {
+  if (aiUnavailable(res)) return;
+
+  const schema = z.object({
+    subject: z.string().min(1).max(200),
+    // Arbitrary JSON context — whatever the caller thinks is relevant.
+    // Serialized to Claude as-is.
+    context: z.record(z.string(), z.unknown()),
+  });
+  const parse = schema.safeParse(req.body);
+  if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
+  const { subject, context } = parse.data;
+
+  const sys = `You are FNS AI suggesting 3-6 concrete next actions for a healthcare staffing ops user looking at a workflow page. Return ONLY a short markdown list (3-6 items) of suggested actions. Each item should be 1-2 sentences.
+
+Use the inline tag grammar defined in the main SYSTEM_PROMPT wherever relevant:
+  [[link:<type>:<value>]]              — inline entity link
+  [[action:create_task|<goal>]]        — create a task button
+  [[action:send_esign|<recipient>]]    — send eSign button
+  [[action:draft_email|<prompt>]]      — draft email button
+
+Rules:
+- Prioritize time-sensitive or unblocking actions first.
+- Use [[action:...]] tags liberally when the user can act directly.
+- Use [[link:...]] tags for any entity the user will need to click through to.
+- Do not fabricate names that aren't in the context.
+- No preamble, no closing — just the bulleted list.`;
+
+  const userMsg = `Subject: ${subject}\n\nContext:\n${JSON.stringify(context, null, 2)}\n\nSuggest the next 3-6 actions the user should take.`;
+
+  try {
+    const response = await anthropicClient.messages.create({
+      model: MODEL_FOR.brainChat,
+      max_tokens: 1024,
+      system: `${SYSTEM_PROMPT}\n\n${sys}`,
+      messages: [{ role: 'user', content: userMsg }],
+    });
+    const block = response.content[0];
+    const text = block.type === 'text' ? block.text : '';
+    res.json({ suggestions: text });
+  } catch (err: any) {
+    console.error('suggest-actions error:', err);
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.' }); return; }
+    res.status(500).json({ error: `AI service error: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
 export default router;

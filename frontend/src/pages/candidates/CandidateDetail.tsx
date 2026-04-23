@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { openTextingPanel } from '../../components/TextingPanel';
 import NursysLookup from '../../components/NursysLookup';
 import SendForESignButton from '../../components/ESign/SendForESignButton';
+import AIActionPanel from '../../components/AI/AIActionPanel';
 import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
@@ -688,8 +689,30 @@ export default function CandidateDetail() {
         </div>
       </div>
 
+      {/* Phase 6.6 — AI action suggestions for this candidate. The panel
+          is collapsed by default; clicking ✦ Suggest actions sends the
+          candidate context to the AI and renders [[link:...]] /
+          [[action:...]] buttons the user can click to move work
+          forward (create task, draft email, eSign, etc.). */}
+      <AIActionPanel
+        subject={`Candidate ${candidate.first_name} ${candidate.last_name}`}
+        context={{
+          candidate: {
+            id: candidate.id,
+            name: `${candidate.first_name} ${candidate.last_name}`,
+            role: candidate.role,
+            stage: candidate.stage,
+            email: candidate.email,
+            phone: candidate.phone,
+            has_onboarding_forms: Array.isArray(candidate.onboarding_forms) && candidate.onboarding_forms.length > 0,
+          },
+          document_count: documents.length,
+          document_statuses: documents.reduce((acc, d) => { const k = d.status ?? 'unknown'; acc[k] = (acc[k] ?? 0) + 1; return acc; }, {} as Record<string, number>),
+        }}
+      />
+
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', marginTop: 16 }}>
         {(['profile', 'ats', 'pipeline', 'documents', 'onboarding', 'compliance'] as const).map((tab) => (
           <button key={tab} style={tabBtn(tab)} onClick={() => handleTabChange(tab)}>
             {tab === 'ats' ? 'ATS' : tab.charAt(0).toUpperCase() + tab.slice(1)}

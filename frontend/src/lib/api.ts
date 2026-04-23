@@ -188,6 +188,12 @@ export const aiApi = {
     api.get<{ type: string; matches: Array<{ id: string; [k: string]: unknown }> }>(
       '/ai/resolve-entity', { params: { type, q } }
     ),
+  // Phase 6.6 — context-aware action suggestions for a workflow page.
+  // Pass a short subject + structured context; response is a bulleted
+  // list using the same [[link:...]] / [[action:...]] tag grammar that
+  // the TaggedText component renders.
+  suggestActions: (data: { subject: string; context: Record<string, unknown> }) =>
+    api.post<{ suggestions: string }>('/ai/suggest-actions', data),
   analyzeDocument: (documentText: string, documentType: string, staffId?: string) =>
     api.post('/ai/analyze-document', { documentText, documentType, staffId }),
   categorizeEmail: (subject: string, body: string, from: string) =>

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import { staffApi, placementsApi, credentialsApi, onboardingApi, candidatesApi } from '../lib/api';
+import AIActionPanel from '../components/AI/AIActionPanel';
 
 function relativeTimeAgo(ms: number): string {
   if (!ms) return 'never';
@@ -150,6 +151,22 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Phase 6.6 — Context-aware AI suggestions for the dashboard.
+          User clicks the button to see what Claude thinks they should
+          prioritize today, based on live counts of expiring credentials,
+          pending placements, onboarding backlog, etc. */}
+      <AIActionPanel
+        subject="Today's priorities for the FNS operator"
+        context={{
+          active_employees: activeEmployees,
+          pending_placements: pendingPlacements,
+          active_placements: activePlacements,
+          in_onboarding: onboardingCount,
+          credentials_expiring_30d: expiringCreds,
+          credentials_expired: expiredCreds,
+        }}
+      />
 
       {/* Critical alert banner */}
       {criticalAlert && (
