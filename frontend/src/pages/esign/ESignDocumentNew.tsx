@@ -114,13 +114,38 @@ export default function ESignDocumentNew() {
     try {
       const validSigners = signers.filter(s => s.name).map((s, i) => ({ name: s.name, email: s.email || undefined, role: s.role.toLowerCase().replace(/\s.*/, ''), order_index: i, auth_method: s.auth_method }));
 
-      let resp: any;
+      // Two flows. CRITICAL: when a file was uploaded in step 1 the
+      // upload endpoint already created a draft document WITH file_path.
+      // Previously this branch called createDocument() which created a
+      // *second* document (no file_path) and then sendDocument() created
+      // a *third*. The user was navigated to the last one, which had no
+      // PDF attached — leaving the original uploaded file orphaned and
+      // causing the "PDF not available" banner in /prepare. Fix: attach
+      // signers to the existing uploaded docId so the file_path is
+      // preserved, then route to the field-placement editor.
+      let targetDocId: string;
+      let returnedSigners: any[] = [];
+      let uploadedWithFile = false;
       if (docId) {
-        // Already uploaded — attach signers + send
-        await esignApi.createDocument({ title, field_values: {}, signers: validSigners, signing_order: signingOrder, message, file_path: undefined, expires_days: expiresDays });
-        resp = await esignApi.sendDocument({ template_id: '', title, field_values: {}, signers: validSigners, signing_order: signingOrder, expires_days: expiresDays });
+        uploadedWithFile = true;
+        // Update metadata chosen in step 1 (title/message/order) on the
+        // uploaded doc, then add each signer. Keep the doc in 'draft'
+        // so the user can place fields on the PDF before sending.
+        await esignApi.updateDocument(docId, {
+          title,
+          message,
+          signing_order: signingOrder,
+        });
+        for (const s of validSigners) {
+          const r = await esignApi.addSigner(docId, s);
+          returnedSigners.push((r as any).data?.signer ?? r);
+        }
+        targetDocId = docId;
       } else {
-        resp = await esignApi.sendDocument({
+        // Template flow — POST /documents creates the draft with signers
+        // attached in one shot. Preserve pre-existing behavior: user lands
+        // on the detail page where they can send it.
+        const resp = await esignApi.sendDocument({
           template_id: selectedTemplate!.id,
           title,
           field_values: fieldValues,
@@ -128,9 +153,15 @@ export default function ESignDocumentNew() {
           signing_order: signingOrder,
           expires_days: expiresDays,
         });
+        targetDocId = resp.data.document.id;
+        returnedSigners = resp.data.signers ?? [];
       }
-      // Navigate to detail with signing links
-      nav(`/esign/documents/${resp.data.document.id}`, { state: { newSigners: resp.data.signers } });
+      // For PDF uploads, the natural next step is to place fields — route
+      // there. For template docs, route to the detail page as before.
+      const dest = uploadedWithFile
+        ? `/esign/documents/${targetDocId}/prepare`
+        : `/esign/documents/${targetDocId}`;
+      nav(dest, { state: { newSigners: returnedSigners } });
     } catch { setError('Failed to send. Please try again.'); }
     finally { setSending(false); }
   };
@@ -334,7 +365,9 @@ export default function ESignDocumentNew() {
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button onClick={() => setStep('upload')} style={{ padding: '12px 22px', border: '1px solid #ddd', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#555' }}>← Back</button>
             <button onClick={handleSend} disabled={sending} style={{ padding: '12px 28px', background: '#1b5e20', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>
-              {sending ? 'Sending...' : '✉ Send for Signature'}
+              {sending
+                ? (templateMode === 'upload' ? 'Saving...' : 'Sending...')
+                : (templateMode === 'upload' ? '✎ Continue to Place Fields →' : '✉ Send for Signature')}
             </button>
           </div>
         </div>
