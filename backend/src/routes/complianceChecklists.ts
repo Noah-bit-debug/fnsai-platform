@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
-import { requireAuth, getAuth } from '@clerk/express';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── GET / — list checklists ──────────────────────────────────────────────────
-router.get('/', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ GET / â€” list checklists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT cl.*,
@@ -29,8 +29,8 @@ router.get('/', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-// ─── GET /stats ───────────────────────────────────────────────────────────────
-router.get('/stats', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ GET /stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -54,8 +54,8 @@ router.get('/stats', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-// ─── POST / — create checklist ────────────────────────────────────────────────
-router.post('/', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST / â€” create checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     const {
@@ -81,8 +81,8 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /:id — get checklist with sections and skills ────────────────────────
-router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id â€” get checklist with sections and skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -125,8 +125,8 @@ router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── PUT /:id — update checklist ──────────────────────────────────────────────
-router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id â€” update checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const {
@@ -163,8 +163,8 @@ router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── DELETE /:id — archive checklist ─────────────────────────────────────────
-router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id â€” archive checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
@@ -181,13 +181,13 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── Phase 2.5 — POST /:id/ai-generate ──────────────────────────────────────
+// â”€â”€â”€ Phase 2.5 â€” POST /:id/ai-generate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // AI-assisted skills-checklist generation. Given a role / specialty /
 // topic, Claude builds sections + skills. Output is structured JSON for
-// admin review — does NOT persist. Admin edits the output in the UI and
+// admin review â€” does NOT persist. Admin edits the output in the UI and
 // commits via /bulk-import or the existing /sections + /skills endpoints.
-router.post('/:id/ai-generate', requireAuth(), async (req: Request, res: Response) => {
+router.post('/:id/ai-generate', requireAuth, async (req: Request, res: Response) => {
   const { topic, role, sections_count = 4, skills_per_section = 6 } = req.body as {
     topic?: string;
     role?: string;
@@ -260,12 +260,12 @@ Generate ${sections_count} section(s), each with ~${skills_per_section} skills.`
   }
 });
 
-// ─── Phase 2.5 — POST /:id/bulk-import ──────────────────────────────────────
+// â”€â”€â”€ Phase 2.5 â€” POST /:id/bulk-import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Bulk-insert sections + skills from a parsed Excel/CSV or AI output. Accepts:
 //   { sections: [{ title, skills: [{ skill_name, description }] }] }
-// Transactional — all-or-nothing. Frontend handles Excel parsing (SheetJS).
-router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Response) => {
+// Transactional â€” all-or-nothing. Frontend handles Excel parsing (SheetJS).
+router.post('/:id/bulk-import', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const { sections } = req.body as {
     sections?: Array<{
@@ -335,8 +335,8 @@ router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Respons
   }
 });
 
-// ─── POST /:id/sections ───────────────────────────────────────────────────────
-router.post('/:id/sections', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/sections', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { title, sort_order } = req.body;
@@ -354,8 +354,8 @@ router.post('/:id/sections', requireAuth(), async (req: Request, res: Response) 
   }
 });
 
-// ─── PUT /:id/sections/:sid ───────────────────────────────────────────────────
-router.put('/:id/sections/:sid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id/sections/:sid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id/sections/:sid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sid } = req.params;
     const { title, sort_order } = req.body;
@@ -378,8 +378,8 @@ router.put('/:id/sections/:sid', requireAuth(), async (req: Request, res: Respon
   }
 });
 
-// ─── DELETE /:id/sections/:sid ────────────────────────────────────────────────
-router.delete('/:id/sections/:sid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id/sections/:sid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id/sections/:sid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sid } = req.params;
     await pool.query('DELETE FROM comp_checklist_sections WHERE id = $1', [sid]);
@@ -390,8 +390,8 @@ router.delete('/:id/sections/:sid', requireAuth(), async (req: Request, res: Res
   }
 });
 
-// ─── POST /:id/sections/:sid/skills ──────────────────────────────────────────
-router.post('/:id/sections/:sid/skills', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/sections/:sid/skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/sections/:sid/skills', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sid } = req.params;
     const { skill_name, description, exclude_from_score, sort_order } = req.body;
@@ -410,8 +410,8 @@ router.post('/:id/sections/:sid/skills', requireAuth(), async (req: Request, res
   }
 });
 
-// ─── PUT /:id/sections/:sid/skills/:kid ──────────────────────────────────────
-router.put('/:id/sections/:sid/skills/:kid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id/sections/:sid/skills/:kid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id/sections/:sid/skills/:kid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { kid } = req.params;
     const { skill_name, description, exclude_from_score, sort_order } = req.body;
@@ -436,8 +436,8 @@ router.put('/:id/sections/:sid/skills/:kid', requireAuth(), async (req: Request,
   }
 });
 
-// ─── DELETE /:id/sections/:sid/skills/:kid ────────────────────────────────────
-router.delete('/:id/sections/:sid/skills/:kid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id/sections/:sid/skills/:kid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id/sections/:sid/skills/:kid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { kid } = req.params;
     await pool.query('DELETE FROM comp_checklist_skills WHERE id = $1', [kid]);
@@ -448,8 +448,8 @@ router.delete('/:id/sections/:sid/skills/:kid', requireAuth(), async (req: Reque
   }
 });
 
-// ─── POST /:id/submit — submit checklist ─────────────────────────────────────
-router.post('/:id/submit', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/submit â€” submit checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/submit', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const { userId } = getAuth(req);
@@ -558,8 +558,8 @@ router.post('/:id/submit', requireAuth(), async (req: Request, res: Response) =>
   }
 });
 
-// ─── GET /:id/my-submission — get my latest submission ───────────────────────
-router.get('/:id/my-submission', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id/my-submission â€” get my latest submission â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id/my-submission', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     const { id } = req.params;
@@ -589,8 +589,8 @@ router.get('/:id/my-submission', requireAuth(), async (req: Request, res: Respon
   }
 });
 
-// ─── GET /:id/submissions — all submissions (admin) ───────────────────────────
-router.get('/:id/submissions', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id/submissions â€” all submissions (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id/submissions', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

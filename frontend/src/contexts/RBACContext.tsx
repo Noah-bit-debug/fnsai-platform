@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../lib/auth';
 
 type Role = 'ceo' | 'manager' | 'hr' | 'recruiter' | 'admin' | 'coordinator' | 'viewer' | null;
 
@@ -60,7 +60,7 @@ export function RBACProvider({ children }: { children: ReactNode }) {
   const can = (permission: string): boolean => {
     if (!role) return false;
     const allowed = PERMISSIONS[permission];
-    if (!allowed) return true; // Unknown permission — allow
+    if (!allowed) return true; // Unknown permission â€” allow
     return allowed.includes(role);
   };
 

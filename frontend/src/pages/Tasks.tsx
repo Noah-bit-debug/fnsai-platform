@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../lib/auth';
 import { tasksApi, usersApi, RecruiterTask, OrgUser } from '../lib/api';
 import { extractApiError } from '../lib/apiErrors';
 import { useToast } from '../components/ToastHost';
 
 const TASK_TYPE_EMOJI: Record<string, string> = {
-  call: '📞', meeting: '📅', todo: '📝', follow_up: '🔄',
-  email: '📧', sms: '💬', other: '•',
+  call: 'ðŸ“ž', meeting: 'ðŸ“…', todo: 'ðŸ“', follow_up: 'ðŸ”„',
+  email: 'ðŸ“§', sms: 'ðŸ’¬', other: 'â€¢',
 };
 
 export default function Tasks() {
@@ -24,7 +24,7 @@ export default function Tasks() {
     assigned_to: string;
   }>({ title: '', task_type: 'todo', due_at: '', description: '', assigned_to: '' });
 
-  // Phase 1.5 — assignee picker. Load org users so the user can pick who
+  // Phase 1.5 â€” assignee picker. Load org users so the user can pick who
   // the task goes to (self or anyone else). Defaults to self on form open.
   const [users, setUsers] = useState<OrgUser[]>([]);
   const { user: clerkUser } = useUser();
@@ -99,9 +99,9 @@ export default function Tasks() {
   };
 
   const contextLabel = (t: RecruiterTask): string | null => {
-    if (t.candidate_name) return `👤 ${t.candidate_name}`;
-    if (t.job_title) return `📋 ${t.job_title}`;
-    if (t.client_name) return `🏢 ${t.client_name}`;
+    if (t.candidate_name) return `ðŸ‘¤ ${t.candidate_name}`;
+    if (t.job_title) return `ðŸ“‹ ${t.job_title}`;
+    if (t.client_name) return `ðŸ¢ ${t.client_name}`;
     return null;
   };
 
@@ -120,7 +120,7 @@ export default function Tasks() {
         <div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--t1)' }}>Tasks</h1>
           <div style={{ color: 'var(--t3)', fontSize: 13, marginTop: 4 }}>
-            {loading ? 'Loading…' : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+            {loading ? 'Loadingâ€¦' : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
           </div>
         </div>
         <button onClick={() => setShowCreate(!showCreate)} style={btnPrimary}>
@@ -134,18 +134,18 @@ export default function Tasks() {
           <input
             autoFocus value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            placeholder="Task title…"
+            placeholder="Task titleâ€¦"
             style={{ padding: '10px 12px', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 14, outline: 'none' }}
           />
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <select value={draft.task_type ?? 'todo'} onChange={(e) => setDraft({ ...draft, task_type: e.target.value as RecruiterTask['task_type'] })} style={inputBase}>
-              <option value="todo">📝 To-do</option>
-              <option value="call">📞 Call</option>
-              <option value="meeting">📅 Meeting</option>
-              <option value="follow_up">🔄 Follow-up</option>
-              <option value="email">📧 Email</option>
-              <option value="sms">💬 SMS</option>
-              <option value="other">• Other</option>
+              <option value="todo">ðŸ“ To-do</option>
+              <option value="call">ðŸ“ž Call</option>
+              <option value="meeting">ðŸ“… Meeting</option>
+              <option value="follow_up">ðŸ”„ Follow-up</option>
+              <option value="email">ðŸ“§ Email</option>
+              <option value="sms">ðŸ’¬ SMS</option>
+              <option value="other">â€¢ Other</option>
             </select>
             <input
               type="datetime-local" value={draft.due_at}
@@ -158,7 +158,7 @@ export default function Tasks() {
               style={inputBase}
               title="Assign this task to a teammate. Defaults to yourself."
             >
-              <option value="">— Unassigned —</option>
+              <option value="">â€” Unassigned â€”</option>
               {users.map((u) => {
                 const isMe = clerkUser && u.clerk_user_id === clerkUser.id;
                 // Prefer the real name; if it's null, show a
@@ -169,7 +169,7 @@ export default function Tasks() {
                   ?? (u.email ? (u.email.split('@')[0] || u.email).replace(/[._]/g, ' ') : 'Unknown user');
                 return (
                   <option key={u.id} value={u.id}>
-                    {isMe ? 'Me' : displayName}{isMe ? '' : ` · ${u.role}`}
+                    {isMe ? 'Me' : displayName}{isMe ? '' : ` Â· ${u.role}`}
                   </option>
                 );
               })}
@@ -178,14 +178,14 @@ export default function Tasks() {
           <textarea
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            placeholder="Details (optional)…"
+            placeholder="Details (optional)â€¦"
             rows={3}
             style={{ padding: '8px 12px', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', outline: 'none', resize: 'vertical' }}
           />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={() => setShowCreate(false)} style={btnSecondary}>Cancel</button>
             <button onClick={createTask} disabled={creating || !draft.title.trim()} style={{ ...btnPrimary, opacity: !draft.title.trim() ? 0.5 : 1 }}>
-              {creating ? 'Creating…' : 'Create Task'}
+              {creating ? 'Creatingâ€¦' : 'Create Task'}
             </button>
           </div>
         </div>
@@ -215,7 +215,7 @@ export default function Tasks() {
       {error && <div style={{ padding: 10, background: '#fee2e2', color: '#991b1b', borderRadius: 8, marginBottom: 12 }}>{error}</div>}
 
       {loading ? (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Loading…</div>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Loadingâ€¦</div>
       ) : tasks.length === 0 ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--t3)', background: 'var(--sf)', borderRadius: 'var(--br)', border: '1px dashed var(--bd)' }}>
           No tasks in this filter.
@@ -236,7 +236,7 @@ export default function Tasks() {
                 alignItems: 'center',
               }}
             >
-              <div style={{ fontSize: 20 }}>{TASK_TYPE_EMOJI[t.task_type ?? 'other'] ?? '•'}</div>
+              <div style={{ fontSize: 20 }}>{TASK_TYPE_EMOJI[t.task_type ?? 'other'] ?? 'â€¢'}</div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: t.status === 'done' ? 'var(--t3)' : 'var(--t1)', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>
                   {t.title}
@@ -244,11 +244,11 @@ export default function Tasks() {
                 <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {t.due_at && (
                     <span style={{ color: t.is_overdue ? '#b45309' : 'var(--t3)', fontWeight: t.is_overdue ? 600 : 400 }}>
-                      {t.is_overdue ? '⚠ Overdue · ' : ''}
+                      {t.is_overdue ? 'âš  Overdue Â· ' : ''}
                       Due {new Date(t.due_at).toLocaleString()}
                     </span>
                   )}
-                  {/* Phase 1.5 — inline reassignment. Click the @name to
+                  {/* Phase 1.5 â€” inline reassignment. Click the @name to
                       change assignee without leaving the list. */}
                   <AssigneeInline
                     task={t}
@@ -261,7 +261,7 @@ export default function Tasks() {
                       onClick={(e) => { e.stopPropagation(); nav(contextLink(t)!); }}
                       style={{ color: 'var(--pr)', cursor: 'pointer', textDecoration: 'none' }}
                     >
-                      · {contextLabel(t)}
+                      Â· {contextLabel(t)}
                     </a>
                   )}
                 </div>
@@ -274,8 +274,8 @@ export default function Tasks() {
               </span>
               {t.status === 'open' ? (
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <button onClick={() => completeTask(t.id)} style={smallBtnGreen}>✓ Done</button>
-                  <button onClick={() => cancelTask(t.id)} style={smallBtnRed}>✗</button>
+                  <button onClick={() => completeTask(t.id)} style={smallBtnGreen}>âœ“ Done</button>
+                  <button onClick={() => cancelTask(t.id)} style={smallBtnRed}>âœ—</button>
                 </div>
               ) : (
                 <span />
@@ -326,8 +326,8 @@ const inputBase: React.CSSProperties = {
   fontSize: 13, background: 'var(--sf)', outline: 'none',
 };
 
-// ─── AssigneeInline (Phase 1.5 reassignment) ──────────────────────────────
-// Click @name to reveal a dropdown. Pick a new user → PUT /tasks/:id with
+// â”€â”€â”€ AssigneeInline (Phase 1.5 reassignment) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Click @name to reveal a dropdown. Pick a new user â†’ PUT /tasks/:id with
 // the new assigned_to. Nothing happens if you pick the same user.
 function AssigneeInline({
   task, users, meClerkId, onReassigned,
@@ -347,7 +347,7 @@ function AssigneeInline({
         onClick={(e) => { e.stopPropagation(); setEditing(true); }}
         title="Click to reassign"
         style={{ cursor: 'pointer', color: task.assigned_to_name ? 'var(--t2)' : 'var(--t3)', borderBottom: '1px dashed var(--bd)' }}
-      >· @{label}</span>
+      >Â· @{label}</span>
     );
   }
 
@@ -380,7 +380,7 @@ function AssigneeInline({
           return <option key={u.id} value={u.id}>{isMe ? 'Me' : displayName}</option>;
         })}
       </select>
-      {saving && <span style={{ fontSize: 10, color: 'var(--t3)' }}>saving…</span>}
+      {saving && <span style={{ fontSize: 10, color: 'var(--t3)' }}>savingâ€¦</span>}
     </span>
   );
 }

@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '@clerk/express';
+import { requireAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 
 const router = Router();
 
-// ─── Shared readiness evaluator ───────────────────────────────────────────────
+// â”€â”€â”€ Shared readiness evaluator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function evaluateReadiness(
   clerkUserId: string | null,
   candidateId: string | null,
@@ -57,8 +57,8 @@ async function evaluateReadiness(
   return { is_ready, score, blocking_issues };
 }
 
-// ─── POST /evaluate/staff/:staffId ───────────────────────────────────────────
-router.post('/evaluate/staff/:staffId', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /evaluate/staff/:staffId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/evaluate/staff/:staffId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { staffId } = req.params;
 
@@ -102,8 +102,8 @@ router.post('/evaluate/staff/:staffId', requireAuth(), async (req: Request, res:
   }
 });
 
-// ─── POST /evaluate/candidate/:candidateId ────────────────────────────────────
-router.post('/evaluate/candidate/:candidateId', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /evaluate/candidate/:candidateId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/evaluate/candidate/:candidateId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { candidateId } = req.params;
 
@@ -146,8 +146,8 @@ router.post('/evaluate/candidate/:candidateId', requireAuth(), async (req: Reque
   }
 });
 
-// ─── POST /evaluate-all ───────────────────────────────────────────────────────
-router.post('/evaluate-all', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ POST /evaluate-all â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/evaluate-all', requireAuth, async (_req: Request, res: Response) => {
   try {
     const staffResult = await pool.query(
       `SELECT id, first_name, last_name, clerk_user_id FROM staff WHERE clerk_user_id IS NOT NULL`
@@ -210,8 +210,8 @@ router.post('/evaluate-all', requireAuth(), async (_req: Request, res: Response)
   }
 });
 
-// ─── GET / — list all readiness records ──────────────────────────────────────
-router.get('/', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ GET / â€” list all readiness records â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT r.*,
@@ -241,8 +241,8 @@ router.get('/', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-// ─── GET /staff/:staffId ──────────────────────────────────────────────────────
-router.get('/staff/:staffId', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /staff/:staffId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/staff/:staffId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { staffId } = req.params;
     const result = await pool.query(
@@ -256,8 +256,8 @@ router.get('/staff/:staffId', requireAuth(), async (req: Request, res: Response)
   }
 });
 
-// ─── GET /candidate/:candidateId ─────────────────────────────────────────────
-router.get('/candidate/:candidateId', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /candidate/:candidateId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/candidate/:candidateId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { candidateId } = req.params;
     const result = await pool.query(
@@ -271,8 +271,8 @@ router.get('/candidate/:candidateId', requireAuth(), async (req: Request, res: R
   }
 });
 
-// ─── PATCH /staff/:staffId — manual override ─────────────────────────────────
-router.patch('/staff/:staffId', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PATCH /staff/:staffId â€” manual override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.patch('/staff/:staffId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { staffId } = req.params;
     const { is_ready, notes } = req.body as { is_ready?: boolean; notes?: string };

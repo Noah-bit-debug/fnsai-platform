@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth, getAuth } from '@clerk/express';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 
 const router = Router();

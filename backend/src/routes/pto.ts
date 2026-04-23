@@ -1,15 +1,15 @@
 /**
- * Phase 4.4 — PTO (Paid Time Off)
+ * Phase 4.4 â€” PTO (Paid Time Off)
  *
  * Two endpoints families:
- *   /requests        — CRUD + approve/deny workflow
- *   /balances/:staffId — read / adjust balance for a staff member
+ *   /requests        â€” CRUD + approve/deny workflow
+ *   /balances/:staffId â€” read / adjust balance for a staff member
  *
  * Approval workflow:
- *   PUT /requests/:id/approve  — flips status to approved + decrements
+ *   PUT /requests/:id/approve  â€” flips status to approved + decrements
  *                                the balance of the matching type
- *   PUT /requests/:id/deny     — status to denied, optional reason
- *   PUT /requests/:id/cancel   — any state → cancelled, no balance change
+ *   PUT /requests/:id/deny     â€” status to denied, optional reason
+ *   PUT /requests/:id/cancel   â€” any state â†’ cancelled, no balance change
  *
  * Balances can go negative (unpaid leave on top of exhausted balance).
  * That's a policy call managers can make; we surface but don't prevent.
@@ -18,12 +18,12 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 
 const router = Router();
 const uid = (req: Request): string => getAuth(req)?.userId ?? 'unknown';
 
-// ── Balances ────────────────────────────────────────────────────────────
+// â”€â”€ Balances â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/balances', requireAuth, async (_req: Request, res: Response) => {
   try {
@@ -73,7 +73,7 @@ const balanceAdjustSchema = z.object({
   personal_hours: z.number().optional(),
 });
 
-// PUT /balances/:staffId — upsert absolute balance (admin correction)
+// PUT /balances/:staffId â€” upsert absolute balance (admin correction)
 router.put('/balances/:staffId', requireAuth, async (req: Request, res: Response) => {
   const parse = balanceAdjustSchema.safeParse(req.body);
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
@@ -98,7 +98,7 @@ router.put('/balances/:staffId', requireAuth, async (req: Request, res: Response
   }
 });
 
-// ── Requests ────────────────────────────────────────────────────────────
+// â”€â”€ Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const requestSchema = z.object({
   staff_id: z.string().uuid(),
@@ -173,7 +173,7 @@ router.put('/requests/:id', requireAuth, async (req: Request, res: Response) => 
   }
 });
 
-// PUT /requests/:id/approve — decrements balance of the appropriate type
+// PUT /requests/:id/approve â€” decrements balance of the appropriate type
 router.put('/requests/:id/approve', requireAuth, async (req: Request, res: Response) => {
   const userId = uid(req);
   try {
@@ -190,7 +190,7 @@ router.put('/requests/:id/approve', requireAuth, async (req: Request, res: Respo
       [userId, req.params.id]
     );
 
-    // Deduct from balance (skip for 'unpaid' leave — no paid bucket to touch)
+    // Deduct from balance (skip for 'unpaid' leave â€” no paid bucket to touch)
     if (pr.type !== 'unpaid') {
       const col = `${pr.type}_hours`;
       // Upsert a balance row if missing; subtract hours.

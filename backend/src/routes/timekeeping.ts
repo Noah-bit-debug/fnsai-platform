@@ -2,12 +2,12 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 
 const router = Router();
 
-// Phase 4.4 QA fix — facility_id became optional to match the Incidents
-// pattern (some timesheet submissions are general, not facility-bound —
+// Phase 4.4 QA fix â€” facility_id became optional to match the Incidents
+// pattern (some timesheet submissions are general, not facility-bound â€”
 // e.g. travel nurse orientation hours). DB still NOT NULL on facility_id
 // historically, so we need the migration below to loosen it.
 const timesheetSchema = z.object({

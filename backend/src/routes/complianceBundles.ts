@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth, getAuth, clerkClient } from '@clerk/express';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 
 const router = Router();
 
-// ─── GET / — list bundles with item counts ────────────────────────────────────
-router.get('/', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ GET / â€” list bundles with item counts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT b.*,
@@ -29,8 +29,8 @@ router.get('/', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-// ─── GET /stats ───────────────────────────────────────────────────────────────
-router.get('/stats', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ GET /stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -57,8 +57,8 @@ router.get('/stats', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-// ─── POST / — create bundle ───────────────────────────────────────────────────
-router.post('/', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST / â€” create bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     const {
@@ -85,8 +85,8 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /:id — get bundle with items and rules ───────────────────────────────
-router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id â€” get bundle with items and rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -121,8 +121,8 @@ router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── PUT /:id — update bundle ─────────────────────────────────────────────────
-router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id â€” update bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const {
@@ -160,8 +160,8 @@ router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── DELETE /:id — archive bundle ─────────────────────────────────────────────
-router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id â€” archive bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
@@ -178,8 +178,8 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── POST /:id/items — add item ───────────────────────────────────────────────
-router.post('/:id/items', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/items â€” add item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/items', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { item_type, item_id, item_title, sort_order, required } = req.body;
@@ -197,8 +197,8 @@ router.post('/:id/items', requireAuth(), async (req: Request, res: Response) => 
   }
 });
 
-// ─── PUT /:id/items/:iid — update item sort_order/required ───────────────────
-router.put('/:id/items/:iid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id/items/:iid â€” update item sort_order/required â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id/items/:iid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { iid } = req.params;
     const { sort_order, required } = req.body;
@@ -221,8 +221,8 @@ router.put('/:id/items/:iid', requireAuth(), async (req: Request, res: Response)
   }
 });
 
-// ─── DELETE /:id/items/:iid — remove item ────────────────────────────────────
-router.delete('/:id/items/:iid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id/items/:iid â€” remove item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id/items/:iid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { iid } = req.params;
     await pool.query('DELETE FROM comp_bundle_items WHERE id = $1', [iid]);
@@ -233,8 +233,8 @@ router.delete('/:id/items/:iid', requireAuth(), async (req: Request, res: Respon
   }
 });
 
-// ─── POST /:id/rules — add assignment rule ────────────────────────────────────
-router.post('/:id/rules', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/rules â€” add assignment rule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/rules', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { rule_type, role, specialty, onboarding_stage, priority } = req.body;
@@ -253,8 +253,8 @@ router.post('/:id/rules', requireAuth(), async (req: Request, res: Response) => 
   }
 });
 
-// ─── DELETE /:id/rules/:rid — delete rule ────────────────────────────────────
-router.delete('/:id/rules/:rid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id/rules/:rid â€” delete rule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id/rules/:rid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rid } = req.params;
     await pool.query('DELETE FROM comp_assignment_rules WHERE id = $1', [rid]);
@@ -265,8 +265,8 @@ router.delete('/:id/rules/:rid', requireAuth(), async (req: Request, res: Respon
   }
 });
 
-// ─── POST /:id/assign — manually assign bundle to users ──────────────────────
-router.post('/:id/assign', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/assign â€” manually assign bundle to users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/assign', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -329,8 +329,8 @@ router.post('/:id/assign', requireAuth(), async (req: Request, res: Response) =>
   }
 });
 
-// ─── POST /bulk-assign — assign bundle to many users by role/list ─────────────
-router.post('/bulk-assign', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /bulk-assign â€” assign bundle to many users by role/list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/bulk-assign', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const {
@@ -371,11 +371,14 @@ router.post('/bulk-assign', requireAuth(), async (req: Request, res: Response) =
     if (filter.user_clerk_ids && filter.user_clerk_ids.length > 0) {
       targetClerkIds = filter.user_clerk_ids;
     } else if (filter.role) {
-      // Fetch all Clerk users and filter by role in publicMetadata
-      const clerkUsersResponse = await clerkClient.users.getUserList({ limit: 200 });
-      let filteredUsers = clerkUsersResponse.data.filter(
-        (u) => (u.publicMetadata as Record<string, unknown>)?.role === filter.role
+      // Fetch users from DB filtered by role. `clerk_user_id` stores the
+      // Azure oid post-migration; the column name is legacy.
+      const usersResult = await client.query<{ clerk_user_id: string }>(
+        `SELECT clerk_user_id FROM users
+          WHERE LOWER(role) = LOWER($1) AND clerk_user_id IS NOT NULL`,
+        [filter.role]
       );
+      let filteredIds = usersResult.rows.map((r) => r.clerk_user_id);
 
       if (filter.specialty) {
         // Further filter by specialty via staff table
@@ -385,10 +388,10 @@ router.post('/bulk-assign', requireAuth(), async (req: Request, res: Response) =
           [`%${filter.specialty}%`]
         );
         const specialtyClerkIds = new Set(staffResult.rows.map((r: any) => r.clerk_user_id));
-        filteredUsers = filteredUsers.filter((u) => specialtyClerkIds.has(u.id));
+        filteredIds = filteredIds.filter((id) => specialtyClerkIds.has(id));
       }
 
-      targetClerkIds = filteredUsers.map((u) => u.id);
+      targetClerkIds = filteredIds;
     }
 
     if (targetClerkIds.length === 0) {

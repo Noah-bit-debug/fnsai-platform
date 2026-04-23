@@ -3,7 +3,7 @@ import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { MODEL_FOR } from '../services/aiModels';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -23,7 +23,7 @@ const reminderSchema = z.object({
   scheduled_at: z.string().optional().nullable(),
 });
 
-// GET / — list reminders
+// GET / â€” list reminders
 router.get('/', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   const { status, candidate_id, type } = req.query;
   const conditions: string[] = [];
@@ -54,7 +54,7 @@ router.get('/', requireAuth, requirePermission('reminders_manage'), async (req: 
   }
 });
 
-// POST / — create reminder
+// POST / â€” create reminder
 router.post('/', requireAuth, requirePermission('reminders_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const parse = reminderSchema.safeParse(req.body);
   if (!parse.success) {
@@ -84,7 +84,7 @@ router.post('/', requireAuth, requirePermission('reminders_manage'), async (req:
   }
 });
 
-// PUT /:id — update reminder
+// PUT /:id â€” update reminder
 router.put('/:id', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status, scheduled_at, message } = req.body;
@@ -108,7 +108,7 @@ router.put('/:id', requireAuth, requirePermission('reminders_manage'), async (re
   }
 });
 
-// DELETE /:id — cancel
+// DELETE /:id â€” cancel
 router.delete('/:id', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -121,7 +121,7 @@ router.delete('/:id', requireAuth, requirePermission('reminders_manage'), async 
   }
 });
 
-// POST /:id/send — send reminder immediately
+// POST /:id/send â€” send reminder immediately
 router.post('/:id/send', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -146,7 +146,7 @@ router.post('/:id/send', requireAuth, requirePermission('reminders_manage'), asy
   }
 });
 
-// POST /auto-generate — auto create reminders for overdue items
+// POST /auto-generate â€” auto create reminders for overdue items
 router.post('/auto-generate', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   const auth = getAuth(req);
   let generated = 0;
@@ -240,7 +240,7 @@ router.post('/auto-generate', requireAuth, requirePermission('reminders_manage')
   }
 });
 
-// POST /ai-draft — Phase 1.6B+C. Takes a candidate_id (or freeform context)
+// POST /ai-draft â€” Phase 1.6B+C. Takes a candidate_id (or freeform context)
 // and returns a drafted subject + message. When a candidate is picked, we
 // look up what they're missing (docs, stage age, stalled submission) and
 // the AI tailors the message to that. User can then edit before saving.
@@ -263,7 +263,7 @@ router.post('/ai-draft', requireAuth, requirePermission('reminders_manage'), asy
     return;
   }
 
-  // Gather candidate context (if provided) — no PII sent to Claude beyond
+  // Gather candidate context (if provided) â€” no PII sent to Claude beyond
   // name + professional info, same posture as the AI Brain. Email/phone
   // stay on our server.
   const contextBlocks: string[] = [];
@@ -293,31 +293,31 @@ router.post('/ai-draft', requireAuth, requirePermission('reminders_manage'), asy
       if (candRes.rows[0]) {
         const c = candRes.rows[0];
         contextBlocks.push(
-          `CANDIDATE: ${c.first_name} ${c.last_name} — ${c.role ?? 'role?'} · stage: ${c.stage ?? '?'}` +
-          (c.years_experience ? ` · ${c.years_experience}yr` : '') +
-          (c.city || c.state ? ` · ${[c.city, c.state].filter(Boolean).join(', ')}` : '')
+          `CANDIDATE: ${c.first_name} ${c.last_name} â€” ${c.role ?? 'role?'} Â· stage: ${c.stage ?? '?'}` +
+          (c.years_experience ? ` Â· ${c.years_experience}yr` : '') +
+          (c.city || c.state ? ` Â· ${[c.city, c.state].filter(Boolean).join(', ')}` : '')
         );
         const daysStale = Math.floor((Date.now() - new Date(c.updated_at as string).getTime()) / (24 * 60 * 60 * 1000));
         if (daysStale > 3) {
-          contextBlocks.push(`NOTE: Record hasn't been updated in ${daysStale} days — may need a nudge.`);
+          contextBlocks.push(`NOTE: Record hasn't been updated in ${daysStale} days â€” may need a nudge.`);
         }
       }
       if (docsRes.rows.length > 0) {
         contextBlocks.push(
           `OUTSTANDING CREDENTIALS:\n` +
-          docsRes.rows.map((d: any) => `- ${d.label} (${d.document_type}): ${d.status}${d.expiry_date ? ` — expires ${new Date(d.expiry_date).toISOString().slice(0, 10)}` : ''}`).join('\n')
+          docsRes.rows.map((d: any) => `- ${d.label} (${d.document_type}): ${d.status}${d.expiry_date ? ` â€” expires ${new Date(d.expiry_date).toISOString().slice(0, 10)}` : ''}`).join('\n')
         );
       }
       if (subsRes.rows.length > 0) {
         contextBlocks.push(
           `RECENT SUBMISSIONS:\n` +
-          subsRes.rows.map((s: any) => `- ${s.job_title ?? 'Unknown job'} @ ${s.stage_key ?? '?'}${s.interview_scheduled_at ? ` · interview ${new Date(s.interview_scheduled_at).toISOString().slice(0, 16).replace('T', ' ')}` : ''}`).join('\n')
+          subsRes.rows.map((s: any) => `- ${s.job_title ?? 'Unknown job'} @ ${s.stage_key ?? '?'}${s.interview_scheduled_at ? ` Â· interview ${new Date(s.interview_scheduled_at).toISOString().slice(0, 16).replace('T', ' ')}` : ''}`).join('\n')
         );
       }
     } catch { /* best effort */ }
   }
 
-  const systemPrompt = `You are drafting a reminder message for a healthcare staffing recruiter to send to a candidate. Be warm, concise, and actionable. Output ONLY JSON with this exact shape — no markdown, no prose:
+  const systemPrompt = `You are drafting a reminder message for a healthcare staffing recruiter to send to a candidate. Be warm, concise, and actionable. Output ONLY JSON with this exact shape â€” no markdown, no prose:
 
 {
   "subject": "short subject line suitable for ${type === 'sms' ? 'SMS (omit for SMS but send empty string)' : 'email'}",
@@ -329,8 +329,8 @@ Rules:
 - If this is email, include a greeting and a friendly sign-off (from "the FNS AI team")
 - Never invent credentials, licenses, or facts that aren't in the context
 - If outstanding credentials are listed, mention the specific items that need attention
-- Never include placeholders like [First Name] — use the actual name from context
-- Never claim to "have attached" files — the reminder is standalone text`;
+- Never include placeholders like [First Name] â€” use the actual name from context
+- Never claim to "have attached" files â€” the reminder is standalone text`;
 
   const userMsg = [
     contextBlocks.length > 0 ? contextBlocks.join('\n\n') : 'No specific candidate context provided.',

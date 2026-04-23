@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { sendApprovalRequest } from '../services/clerkchat';
 
 const router = Router();
@@ -208,7 +208,7 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
     }
 
     const fullName = [placement.first_name, placement.last_name].filter(Boolean).join(' ') || 'Staff member';
-    const docTitle = `Placement Contract — ${fullName} · ${placement.facility_name ?? 'Facility'}`;
+    const docTitle = `Placement Contract â€” ${fullName} Â· ${placement.facility_name ?? 'Facility'}`;
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);

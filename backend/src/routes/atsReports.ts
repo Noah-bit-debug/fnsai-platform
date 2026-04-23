@@ -1,18 +1,18 @@
 import { Router, Request, Response } from 'express';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { query } from '../db/client';
 
 const router = Router();
 
 /**
- * GET /overview — single call that returns all ATS dashboard widgets in one
+ * GET /overview â€” single call that returns all ATS dashboard widgets in one
  * response. Expensive queries are computed in parallel. Shape:
  *   { funnel, recruiter_leaderboard, jobs_at_risk, submission_to_placement,
  *     active_jobs_summary, tasks }
  */
 router.get('/overview', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
-  // Optional recruiter filter — scopes funnel, conversion, jobs-at-risk, active-jobs, tasks
+  // Optional recruiter filter â€” scopes funnel, conversion, jobs-at-risk, active-jobs, tasks
   // to records owned by this recruiter (submissions.recruiter_id, jobs.primary_recruiter_id,
   // recruiter_tasks.assigned_to). Leaderboard ignores this filter so top recruiters are always visible.
   // Uses bound `$1::uuid` with an IS-NULL short-circuit so each query can take an optional filter.
@@ -37,7 +37,7 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
       activeJobsRes,
       tasksRes,
     ] = await Promise.all([
-      // 1. Pipeline funnel — submissions by stage
+      // 1. Pipeline funnel â€” submissions by stage
       query(
         `SELECT ps.key, ps.label, ps.color, ps.sort_order, ps.is_terminal,
                 COUNT(s.id)::INT AS count
@@ -49,7 +49,7 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
          ORDER BY ps.sort_order ASC`,
         [rid]
       ),
-      // 2. Recruiter leaderboard — top 10 by submission count last 30 days
+      // 2. Recruiter leaderboard â€” top 10 by submission count last 30 days
       query(
         `SELECT u.id, u.name, u.email,
                 COUNT(DISTINCT s.id) FILTER (WHERE s.created_at >= NOW() - INTERVAL '30 days')::INT AS submissions_30d,
@@ -64,7 +64,7 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
          ORDER BY submissions_30d DESC, placements DESC
          LIMIT 10`
       ),
-      // 3. Jobs at risk — open jobs older than 14d with < 3 submissions
+      // 3. Jobs at risk â€” open jobs older than 14d with < 3 submissions
       query(
         `SELECT j.id, j.job_code, j.title, j.profession, j.specialty, j.priority,
                 j.city, j.state,
@@ -82,7 +82,7 @@ router.get('/overview', requireAuth, requirePermission('candidates_view'), async
          LIMIT 20`,
         [rid]
       ),
-      // 4. Submission → placement conversion
+      // 4. Submission â†’ placement conversion
       query(
         `SELECT
            COUNT(*)::INT AS total,

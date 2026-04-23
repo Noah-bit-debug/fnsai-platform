@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 
 const router = Router();
 

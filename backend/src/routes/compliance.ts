@@ -3,7 +3,7 @@ import multer from 'multer';
 import Anthropic from '@anthropic-ai/sdk';
 import mammoth from 'mammoth';
 import { requireAuth, requirePermission } from '../middleware/auth';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { query } from '../db/client';
 import { MODEL_FOR } from '../services/aiModels';
 
@@ -211,14 +211,14 @@ router.post('/policies', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// ─── Phase 2.1 + 2.7 — Unified "My compliance" rollup ────────────────────────
+// â”€â”€â”€ Phase 2.1 + 2.7 â€” Unified "My compliance" rollup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Returns a single snapshot of everything assigned to the calling user:
 // policies, documents, exams, checklists, courses, + any currently
 // overdue credentials. This powers both the My Compliance page (2.1)
 // and the per-user section on Reports / user profile (2.7).
 //
-// Previously MyCompliance only queried comp_competency_records — which
+// Previously MyCompliance only queried comp_competency_records â€” which
 // misses course completions (comp_course_completions is a separate
 // table). This endpoint stitches them together.
 router.get('/my-all', requireAuth, async (req: Request, res: Response) => {
@@ -243,7 +243,7 @@ router.get('/my-all', requireAuth, async (req: Request, res: Response) => {
       throw err;
     });
 
-    // Course completions (from phase2_courses.sql — separate table)
+    // Course completions (from phase2_courses.sql â€” separate table)
     const courses = await query(
       `SELECT cc.id AS completion_id, cc.course_id, cc.started_at, cc.completed_at,
               cc.duration_seconds, cc.attestation_signed, cc.quiz_score, cc.passed,
@@ -259,7 +259,7 @@ router.get('/my-all', requireAuth, async (req: Request, res: Response) => {
       throw err;
     });
 
-    // Summary counts — drives the header pills on My Compliance
+    // Summary counts â€” drives the header pills on My Compliance
     const summary = {
       total: competency.rows.length + courses.rows.length,
       completed: 0,
@@ -297,16 +297,16 @@ router.get('/my-all', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// ─── Phase 2.3 — Policy AI workflow ──────────────────────────────────────────
+// â”€â”€â”€ Phase 2.3 â€” Policy AI workflow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Two helper endpoints that let admins upload or describe a policy and have
 // Claude produce structured content they can review + edit before hitting
-// Create. Neither endpoint creates a policy directly — they return the
+// Create. Neither endpoint creates a policy directly â€” they return the
 // parsed fields, and the user clicks Save / Publish on the existing
 // POST /policies to commit.
 //
-// POST /policies/ai-parse    — upload PDF/DOCX/TXT → extract title + body
-// POST /policies/ai-rewrite  — given existing content, AI refines it
+// POST /policies/ai-parse    â€” upload PDF/DOCX/TXT â†’ extract title + body
+// POST /policies/ai-rewrite  â€” given existing content, AI refines it
 //                              (e.g. "make this more formal", "add a
 //                               section on disciplinary action")
 
@@ -331,11 +331,11 @@ Rules:
 - Keep section numbering if the original uses it.
 - If content is unclear or ambiguous, lean toward what the original actually says, not what it should say.
 - applicable_roles: infer from the document. Default to [] if truly universal.
-- suggested_expiration_days: use reasonable defaults — annual (365) for most, or whatever the document states.
+- suggested_expiration_days: use reasonable defaults â€” annual (365) for most, or whatever the document states.
 - require_signature: true for policies that need formal acknowledgement, false for informational SOPs.
 - category_guess: pick the single closest match.`;
 
-// POST /policies/ai-parse — upload a file, get structured policy JSON back.
+// POST /policies/ai-parse â€” upload a file, get structured policy JSON back.
 // Admin reviews + edits the output, then POSTs to /policies to persist.
 router.post('/policies/ai-parse', requireAuth, requirePermission('admin_manage'),
   upload.single('file'), async (req: Request, res: Response) => {
@@ -360,7 +360,7 @@ router.post('/policies/ai-parse', requireAuth, requirePermission('admin_manage')
       } else if (mime.includes('wordprocessingml') || name.endsWith('.docx')) {
         const extracted = await mammoth.extractRawText({ buffer: req.file.buffer });
         const text = (extracted.value ?? '').trim();
-        if (!text) { res.status(422).json({ error: 'DOCX extracted no text — file may be image-only.' }); return; }
+        if (!text) { res.status(422).json({ error: 'DOCX extracted no text â€” file may be image-only.' }); return; }
         content = [{ type: 'text', text: `Parse this policy document per the system prompt instructions.\n\nPolicy content:\n${text}` }];
       } else if (mime.startsWith('text/') || name.endsWith('.txt') || name.endsWith('.md')) {
         const text = req.file.buffer.toString('utf-8').trim();
@@ -412,7 +412,7 @@ router.post('/policies/ai-parse', requireAuth, requirePermission('admin_manage')
   }
 );
 
-// POST /policies/ai-rewrite — admin supplies existing title+content plus an
+// POST /policies/ai-rewrite â€” admin supplies existing title+content plus an
 // instruction ("make more formal", "add section on discipline"). AI returns
 // the revised content. Does not save; admin reviews + edits + hits Save.
 router.post('/policies/ai-rewrite', requireAuth, requirePermission('admin_manage'), async (req: Request, res: Response) => {
@@ -434,7 +434,7 @@ ${content}
 
 USER INSTRUCTION: ${instruction}
 
-Return ONLY the revised content as clean markdown — no JSON, no commentary, no code fences. Preserve the policy's core meaning while applying the instruction.`;
+Return ONLY the revised content as clean markdown â€” no JSON, no commentary, no code fences. Preserve the policy's core meaning while applying the instruction.`;
 
     const response = await anthropic.messages.create({
       model: MODEL_FOR.templateDrafting,
@@ -493,7 +493,7 @@ router.put('/policies/:id', requireAuth, async (req: Request, res: Response) => 
   }
 });
 
-// DELETE /policies/:id  (soft delete — archive)
+// DELETE /policies/:id  (soft delete â€” archive)
 router.delete('/policies/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await query(

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
 import { generateJobAd, generateJobSummary, type JobForAI } from '../services/ai';
@@ -8,7 +8,7 @@ import { generateBooleanSearch } from '../services/boolean';
 
 const router = Router();
 
-// ─── Schemas ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Defined as a plain object first so we can derive a partial (.partial())
 // for PUT without losing types. Refinement (pay_rate_min <= pay_rate_max)
 // is applied by wrapping into jobSchema below, while jobUpdateSchema uses
@@ -41,7 +41,7 @@ const jobObject = z.object({
   recruitment_manager_id: z.string().uuid().optional().nullable(),
   bill_rate: z.number().optional().nullable(),
   pay_rate: z.number().optional().nullable(),
-  // Phase 1.2A — pay range. min/max are optional; if only one single-point
+  // Phase 1.2A â€” pay range. min/max are optional; if only one single-point
   // value is known, pay_rate is the shorthand and min/max can be omitted.
   // Frontend validates min <= max before submitting; backend re-checks
   // in the refine below.
@@ -80,7 +80,7 @@ const requirementSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
 });
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function generateJobCode(): string {
   const now = new Date();
   const y = now.getFullYear();
@@ -88,7 +88,7 @@ function generateJobCode(): string {
   return `J-${y}-${rand}`;
 }
 
-// ─── GET / — list jobs ─────────────────────────────────────────────────────
+// â”€â”€â”€ GET / â€” list jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   const { status, client_id, facility_id, profession, specialty, priority, recruiter_id, search } = req.query;
   const conditions: string[] = [];
@@ -138,7 +138,7 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
   }
 });
 
-// ─── GET /:id — full job record with requirements ──────────────────────────
+// â”€â”€â”€ GET /:id â€” full job record with requirements â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
     const [jobRes, reqRes] = await Promise.all([
@@ -175,7 +175,7 @@ router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req
   }
 });
 
-// ─── POST / — create ───────────────────────────────────────────────────────
+// â”€â”€â”€ POST / â€” create â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post('/', requireAuth, requirePermission('candidates_create'), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = jobSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -209,7 +209,7 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
   }
 });
 
-// ─── PUT /:id — update ────────────────────────────────────────────────────
+// â”€â”€â”€ PUT /:id â€” update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = jobUpdateSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -234,7 +234,7 @@ router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req
   }
 });
 
-// ─── DELETE /:id ───────────────────────────────────────────────────────────
+// â”€â”€â”€ DELETE /:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.delete('/:id', requireAuth, requirePermission('candidates_delete'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await query(`DELETE FROM jobs WHERE id = $1 RETURNING id`, [req.params.id]);
@@ -247,7 +247,7 @@ router.delete('/:id', requireAuth, requirePermission('candidates_delete'), async
   }
 });
 
-// ─── POST /:id/requirements — add a requirement row ───────────────────────
+// â”€â”€â”€ POST /:id/requirements â€” add a requirement row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post('/:id/requirements', requireAuth, requirePermission('candidates_edit'), async (req: Request, res: Response) => {
   const parsed = requirementSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -266,7 +266,7 @@ router.post('/:id/requirements', requireAuth, requirePermission('candidates_edit
   }
 });
 
-// ─── DELETE /:id/requirements/:reqId ──────────────────────────────────────
+// â”€â”€â”€ DELETE /:id/requirements/:reqId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.delete('/:id/requirements/:reqId', requireAuth, requirePermission('candidates_edit'), async (req: Request, res: Response) => {
   try {
     const result = await query(
@@ -281,7 +281,7 @@ router.delete('/:id/requirements/:reqId', requireAuth, requirePermission('candid
   }
 });
 
-// ─── Inline AI actions ────────────────────────────────────────────────────
+// â”€â”€â”€ Inline AI actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadJobForAI(jobId: string): Promise<JobForAI | null> {
   const result = await query(
     `SELECT j.*, c.name AS client_name, f.name AS facility_name
@@ -377,7 +377,7 @@ router.post('/:id/ai/summary', requireAuth, requirePermission('candidates_view')
   }
 });
 
-// ─── GET /:id/matching-candidates — basic ranked list ─────────────────────
+// â”€â”€â”€ GET /:id/matching-candidates â€” basic ranked list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/:id/matching-candidates', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
     const jobRes = await query(
@@ -390,7 +390,7 @@ router.get('/:id/matching-candidates', requireAuth, requirePermission('candidate
     // Simple scoring at the DB level: profession match + specialty intersection + location match.
     // Phase 3 will introduce richer scoring via candidateScoring service.
     //
-    // Per Phase 1.2B — exclude candidates already submitted to this job.
+    // Per Phase 1.2B â€” exclude candidates already submitted to this job.
     // A submission exists => this candidate has already been pitched.
     // Keeping them in the matching list causes recruiters to pitch the
     // same person twice; filter them out and return them separately.

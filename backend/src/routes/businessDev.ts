@@ -1,15 +1,15 @@
 /**
- * Phase 4 — Business Development routes
+ * Phase 4 â€” Business Development routes
  *
  * Covers two pieces of the Phase 4 scope:
  *
- *   4.2  Bids — the new module the notes explicitly call out
+ *   4.2  Bids â€” the new module the notes explicitly call out
  *               ("bid checklist, required steps tracking, AI help with
  *               bid creation, more tools useful for CEO-level work").
- *   4.3  Leads / Contacts / Follow-ups — wiring the three existing
+ *   4.3  Leads / Contacts / Follow-ups â€” wiring the three existing
  *               BusinessDev tabs off localStorage onto the backend so
  *               the data actually persists across sessions and users.
- *               The frontend shape is preserved 1:1 — nothing in the
+ *               The frontend shape is preserved 1:1 â€” nothing in the
  *               UI's mental model changes.
  *
  * Mounted at /api/v1/bd/* by backend/src/index.ts.
@@ -24,13 +24,13 @@ import { v4 as uuidv4 } from 'uuid';
 import mammoth from 'mammoth';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── Shared file upload (contracts + RFPs) ──────────────────────────────
+// â”€â”€â”€ Shared file upload (contracts + RFPs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Uses the same persistent-dir override pattern as esign. Set
 // BD_UPLOAD_DIR to a volume mount on Railway to survive deploys.
 const bdUploadRoot = process.env.BD_UPLOAD_DIR
@@ -64,7 +64,7 @@ const rfpUpload = multer({
 
 /** Extract text from an uploaded file. PDFs use pdf-parse via dynamic
  *  import so the heavy dep only loads when needed. DOCX uses mammoth.
- *  Returns first 30k chars — Claude's context is plenty but we trim to
+ *  Returns first 30k chars â€” Claude's context is plenty but we trim to
  *  keep the DB row sane and the AI prompt fast. */
 async function extractText(filePath: string, mimetype: string): Promise<string> {
   try {
@@ -91,12 +91,12 @@ async function extractText(filePath: string, mimetype: string): Promise<string> 
 
 const uidFromReq = (req: Request): string => getAuth(req)?.userId ?? 'unknown';
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.2  BIDS  —  /bids
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.2  BIDS  â€”  /bids
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 // Default 8-step checklist seeded into every new bid. Admins can edit /
-// remove / add items per-bid via the checklist endpoints — this is just
+// remove / add items per-bid via the checklist endpoints â€” this is just
 // the starting template.
 const DEFAULT_BID_CHECKLIST: { label: string; required: boolean }[] = [
   { label: 'Review RFP / requirements document',       required: true },
@@ -118,7 +118,7 @@ const bidCreateSchema = z.object({
   estimated_value: z.number().nonnegative().optional().nullable(),
   assigned_to: z.string().max(255).optional().nullable(),
   notes: z.string().max(10000).optional().nullable(),
-  // Optional — if provided, seed THIS checklist instead of the default.
+  // Optional â€” if provided, seed THIS checklist instead of the default.
   // Used by the AI-assist flow where the AI returns a tailored checklist.
   checklist: z.array(z.object({
     label: z.string().min(1).max(300),
@@ -128,7 +128,7 @@ const bidCreateSchema = z.object({
 
 const bidUpdateSchema = bidCreateSchema.partial().omit({ checklist: true });
 
-// GET /bids — list, filter by status / assigned_to
+// GET /bids â€” list, filter by status / assigned_to
 router.get('/bids', requireAuth, async (req: Request, res: Response) => {
   const { status, assigned_to } = req.query;
   const conditions: string[] = [];
@@ -167,7 +167,7 @@ router.get('/bids', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /bids/:id — detail including checklist
+// GET /bids/:id â€” detail including checklist
 router.get('/bids/:id', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -190,7 +190,7 @@ router.get('/bids/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /bids — create + seed checklist in one transaction
+// POST /bids â€” create + seed checklist in one transaction
 router.post('/bids', requireAuth, async (req: Request, res: Response) => {
   const parse = bidCreateSchema.safeParse(req.body);
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
@@ -237,7 +237,7 @@ router.post('/bids', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /bids/:id — update metadata
+// PUT /bids/:id â€” update metadata
 router.put('/bids/:id', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const parse = bidUpdateSchema.safeParse(req.body);
@@ -263,7 +263,7 @@ router.put('/bids/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /bids/:id — hard-delete (cascades to checklist)
+// DELETE /bids/:id â€” hard-delete (cascades to checklist)
 router.delete('/bids/:id', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -277,7 +277,7 @@ router.delete('/bids/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// ── Checklist items ──────────────────────────────────────────────────────
+// â”€â”€ Checklist items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const checklistItemSchema = z.object({
   label: z.string().min(1).max(300),
@@ -291,7 +291,7 @@ const checklistUpdateSchema = z.object({
   order_index: z.number().int().min(0).max(9999).optional(),
 });
 
-// POST /bids/:id/checklist — add a custom step
+// POST /bids/:id/checklist â€” add a custom step
 router.post('/bids/:id/checklist', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const parse = checklistItemSchema.safeParse(req.body);
@@ -315,7 +315,7 @@ router.post('/bids/:id/checklist', requireAuth, async (req: Request, res: Respon
   }
 });
 
-// PUT /bids/:id/checklist/:itemId — update (toggle completed, rename, etc.)
+// PUT /bids/:id/checklist/:itemId â€” update (toggle completed, rename, etc.)
 router.put('/bids/:id/checklist/:itemId', requireAuth, async (req: Request, res: Response) => {
   const { id, itemId } = req.params;
   const parse = checklistUpdateSchema.safeParse(req.body);
@@ -380,7 +380,7 @@ router.delete('/bids/:id/checklist/:itemId', requireAuth, async (req: Request, r
   }
 });
 
-// ── AI-assisted bid creation ─────────────────────────────────────────────
+// â”€â”€ AI-assisted bid creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const aiDraftBidSchema = z.object({
   // Free-form description of the opportunity, RFP text, or client context.
@@ -409,7 +409,7 @@ Rules:
 - Mark steps as required=true for core bid work, false for nice-to-have or conditional work.
 - Keep checklist items under 100 chars each.
 - Do not fabricate numbers or names that aren't in the context.
-- If the context is too thin to write a real title, return "New bid — needs detail" and a minimal checklist.`;
+- If the context is too thin to write a real title, return "New bid â€” needs detail" and a minimal checklist.`;
 
   const userMsg = `${client_name ? `Client: ${client_name}\n\n` : ''}Opportunity context:\n${context}`;
 
@@ -449,8 +449,8 @@ Rules:
   }
 });
 
-// GET /bids-stats — lightweight CEO-level dashboard numbers. The Phase 4
-// notes mention "more tools useful for CEO-level work" — we expose this
+// GET /bids-stats â€” lightweight CEO-level dashboard numbers. The Phase 4
+// notes mention "more tools useful for CEO-level work" â€” we expose this
 // as a small stats endpoint so the Bids tab can show a header row with
 // open count, open pipeline value, win rate, and due-this-week.
 router.get('/bids-stats', requireAuth, async (_req: Request, res: Response) => {
@@ -487,9 +487,9 @@ router.get('/bids-stats', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.3  LEADS  —  /leads
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.3  LEADS  â€”  /leads
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const LEAD_STATUSES = ['prospect','qualified','proposal','negotiating','closed','lost'] as const;
 const LEAD_SOURCES = ['cold_call','referral','website','linkedin','event'] as const;
@@ -568,9 +568,9 @@ router.delete('/leads/:id', requireAuth, async (req: Request, res: Response) => 
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.3  CONTACTS  —  /contacts
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.3  CONTACTS  â€”  /contacts
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const contactSchema = z.object({
   name: z.string().min(1).max(200),
@@ -644,9 +644,9 @@ router.delete('/contacts/:id', requireAuth, async (req: Request, res: Response) 
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.3  FOLLOW-UPS  —  /followups
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.3  FOLLOW-UPS  â€”  /followups
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const FOLLOWUP_TYPES = ['call','email','meeting'] as const;
 const FOLLOWUP_PRIORITIES = ['high','medium','low'] as const;
@@ -723,9 +723,9 @@ router.delete('/followups/:id', requireAuth, async (req: Request, res: Response)
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.4  CONTRACTS  —  /contracts
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.4  CONTRACTS  â€”  /contracts
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //
 // A contract record owns N version rows. The top-level row holds the
 // "current state" (status, expiration, summary). Each version is the
@@ -849,7 +849,7 @@ router.delete('/contracts/:id', requireAuth, async (req: Request, res: Response)
   }
 });
 
-// POST /contracts/:id/versions — upload a new version file. Auto-bumps
+// POST /contracts/:id/versions â€” upload a new version file. Auto-bumps
 // current_version, stores the file, optionally extracts+summarizes.
 router.post('/contracts/:id/versions', requireAuth, contractUpload.single('file'), async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -895,7 +895,7 @@ router.post('/contracts/:id/versions', requireAuth, contractUpload.single('file'
   }
 });
 
-// GET /contracts/:id/versions/:vid/file — stream the version file back
+// GET /contracts/:id/versions/:vid/file â€” stream the version file back
 router.get('/contracts/:id/versions/:vid/file', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await query(
@@ -913,7 +913,7 @@ router.get('/contracts/:id/versions/:vid/file', requireAuth, async (req: Request
   }
 });
 
-// GET /contracts-alerts — expiring + expired quick list for a dashboard.
+// GET /contracts-alerts â€” expiring + expired quick list for a dashboard.
 router.get('/contracts-alerts', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await query(`
@@ -937,11 +937,11 @@ router.get('/contracts-alerts', requireAuth, async (_req: Request, res: Response
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.4  RFPs  —  /rfps
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.4  RFPs  â€”  /rfps
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //
-// Inbox-style. Upload an RFP document → extract text → AI summary →
+// Inbox-style. Upload an RFP document â†’ extract text â†’ AI summary â†’
 // optionally draft a bid from it (reuses POST /bids/ai-draft under the
 // hood but also backlinks the new bid to the RFP).
 
@@ -983,7 +983,7 @@ router.get('/rfps/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /rfps — upload RFP file, extract text, AI summarize (all in one flow)
+// POST /rfps â€” upload RFP file, extract text, AI summarize (all in one flow)
 router.post('/rfps', requireAuth, rfpUpload.single('file'), async (req: Request, res: Response) => {
   const userId = uidFromReq(req);
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
@@ -995,7 +995,7 @@ router.post('/rfps', requireAuth, rfpUpload.single('file'), async (req: Request,
     // Extract text synchronously so the response includes parsed_summary.
     const parsedText = await extractText(req.file.path, req.file.mimetype);
 
-    // AI summary — best-effort, non-fatal.
+    // AI summary â€” best-effort, non-fatal.
     let parsedSummary = '';
     if (parsedText && parsedText.length > 100) {
       try {
@@ -1055,7 +1055,7 @@ router.delete('/rfps/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /rfps/:id/draft-bid — drafts a bid from an RFP using its parsed
+// POST /rfps/:id/draft-bid â€” drafts a bid from an RFP using its parsed
 // text as AI context, creates the bid, and backlinks the RFP.
 router.post('/rfps/:id/draft-bid', requireAuth, async (req: Request, res: Response) => {
   const userId = uidFromReq(req);
@@ -1070,7 +1070,7 @@ router.post('/rfps/:id/draft-bid', requireAuth, async (req: Request, res: Respon
     const aiResp = await anthropic.messages.create({
       model: MODEL_FOR.bidDraft,
       max_tokens: 2048,
-      system: `You help a healthcare staffing BD team draft bids. Given an RFP's context, return a short bid title, a tailored checklist (5-10 items), and concise notes. Return ONLY this JSON — no markdown fences: { "title":"…","notes":"…","checklist":[{"label":"…","required":true|false}] }. Checklist items should be actionable. Do not fabricate numbers or names.`,
+      system: `You help a healthcare staffing BD team draft bids. Given an RFP's context, return a short bid title, a tailored checklist (5-10 items), and concise notes. Return ONLY this JSON â€” no markdown fences: { "title":"â€¦","notes":"â€¦","checklist":[{"label":"â€¦","required":true|false}] }. Checklist items should be actionable. Do not fabricate numbers or names.`,
       messages: [{ role: 'user', content: (rfp.client_name ? `Client: ${rfp.client_name}\n\n` : '') + context.slice(0, 20000) }],
     });
     const raw = (aiResp.content[0] as { type: string; text: string }).text;
@@ -1107,16 +1107,16 @@ router.post('/rfps/:id/draft-bid', requireAuth, async (req: Request, res: Respon
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  4.4  REVENUE FORECAST  —  /forecast
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  4.4  REVENUE FORECAST  â€”  /forecast
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //
 // Simple weighted pipeline math. Each open bid contributes
-//   expected = estimated_value × win_probability
+//   expected = estimated_value Ã— win_probability
 // where win_probability depends on status:
-//   draft       → 10%
-//   in_progress → 30%
-//   submitted   → 55%
+//   draft       â†’ 10%
+//   in_progress â†’ 30%
+//   submitted   â†’ 55%
 // Historical win rate adjusts the baseline if we have data.
 // Projections are grouped by due_date month.
 
@@ -1143,7 +1143,7 @@ router.get('/forecast', requireAuth, async (_req: Request, res: Response) => {
 
     // NOTE: TO_CHAR forces due_date to a string ('YYYY-MM') in SQL so we
     // don't have to worry about the pg driver returning DATE as a Date
-    // object (which would make `.slice(0, 7)` a runtime error — the
+    // object (which would make `.slice(0, 7)` a runtime error â€” the
     // forecast endpoint used to 500 on any non-null due_date because of
     // this).
     const bidsRes = await query(`

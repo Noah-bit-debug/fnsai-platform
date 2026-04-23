@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
-import { requireAuth, getAuth } from '@clerk/express';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── GET / — list exams ──────────────────────────────────────────────────────
-router.get('/', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET / â€” list exams â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { status, cat1_id } = req.query;
     const params: unknown[] = [];
@@ -45,8 +45,8 @@ router.get('/', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /stats ───────────────────────────────────────────────────────────────
-router.get('/stats', requireAuth(), async (_req: Request, res: Response) => {
+// â”€â”€â”€ GET /stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -76,8 +76,8 @@ router.get('/stats', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-// ─── POST / — create exam ─────────────────────────────────────────────────────
-router.post('/', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST / â€” create exam â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     const {
@@ -109,8 +109,8 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /:id — get exam with questions and answers ───────────────────────────
-router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id â€” get exam with questions and answers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -152,8 +152,8 @@ router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── PUT /:id — update exam ───────────────────────────────────────────────────
-router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id â€” update exam â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const {
@@ -203,8 +203,8 @@ router.put('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── DELETE /:id — archive exam ───────────────────────────────────────────────
-router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id â€” archive exam â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
@@ -221,14 +221,14 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── Phase 2.4 — POST /:id/ai-generate ──────────────────────────────────────
+// â”€â”€â”€ Phase 2.4 â€” POST /:id/ai-generate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // AI-assisted exam question generation. Admin supplies a topic + count +
 // difficulty; Claude returns structured questions with answers the admin
-// can review and edit before saving. Does NOT persist — user reviews the
+// can review and edit before saving. Does NOT persist â€” user reviews the
 // output in the UI and hits save (which calls the existing /questions and
 // /questions/:qid/answers endpoints).
-router.post('/:id/ai-generate', requireAuth(), async (req: Request, res: Response) => {
+router.post('/:id/ai-generate', requireAuth, async (req: Request, res: Response) => {
   const { topic, count = 10, difficulty = 'medium', question_types = ['multiple_choice', 'true_false'] } =
     req.body as {
       topic?: string;
@@ -266,7 +266,7 @@ Rules:
 - Questions should actually test comprehension, not just recall of the topic name.
 - Avoid trick questions. Be fair.
 - Write in plain professional English.
-- Do NOT include answer-letter prefixes like "A)" or "1." — the UI renders those.
+- Do NOT include answer-letter prefixes like "A)" or "1." â€” the UI renders those.
 - Do NOT wrap in markdown code fences.`;
 
   const userMsg = `Generate ${count} exam questions about: ${topic}
@@ -308,14 +308,14 @@ Allowed question types: ${question_types.join(', ')}`;
   }
 });
 
-// ─── Phase 2.4 — POST /:id/bulk-import ──────────────────────────────────────
+// â”€â”€â”€ Phase 2.4 â€” POST /:id/bulk-import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Bulk-insert questions from a parsed Excel/CSV or AI output. Accepts:
 //   { questions: [{ question_text, question_type, answers: [{ answer_text, is_correct }] }] }
 // Runs in a transaction so either all succeed or none do. Returns the
 // created question IDs + count. Frontend handles Excel parsing (via SheetJS)
 // and POSTs the normalized JSON here.
-router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Response) => {
+router.post('/:id/bulk-import', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const { questions } = req.body as {
     questions?: Array<{
@@ -354,8 +354,8 @@ router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Respons
       if (!text) { skipped.push('(blank question)'); continue; }
       const qtype = q.question_type === 'true_false' ? 'true_false' : 'multiple_choice';
       const answers = Array.isArray(q.answers) ? q.answers.filter(a => a.answer_text?.trim()) : [];
-      if (answers.length < 2) { skipped.push(`"${text.slice(0, 40)}..." — needs at least 2 answers`); continue; }
-      if (!answers.some(a => a.is_correct)) { skipped.push(`"${text.slice(0, 40)}..." — no correct answer marked`); continue; }
+      if (answers.length < 2) { skipped.push(`"${text.slice(0, 40)}..." â€” needs at least 2 answers`); continue; }
+      if (!answers.some(a => a.is_correct)) { skipped.push(`"${text.slice(0, 40)}..." â€” no correct answer marked`); continue; }
 
       const qRes = await client.query(
         `INSERT INTO comp_exam_questions (exam_id, question_text, question_type, sort_order, explanation)
@@ -392,8 +392,8 @@ router.post('/:id/bulk-import', requireAuth(), async (req: Request, res: Respons
   }
 });
 
-// ─── POST /:id/questions ──────────────────────────────────────────────────────
-router.post('/:id/questions', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/questions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/questions', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { question_text, question_type, sort_order } = req.body;
@@ -411,8 +411,8 @@ router.post('/:id/questions', requireAuth(), async (req: Request, res: Response)
   }
 });
 
-// ─── PUT /:id/questions/:qid ──────────────────────────────────────────────────
-router.put('/:id/questions/:qid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id/questions/:qid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id/questions/:qid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { qid } = req.params;
     const { question_text, question_type, sort_order } = req.body;
@@ -436,8 +436,8 @@ router.put('/:id/questions/:qid', requireAuth(), async (req: Request, res: Respo
   }
 });
 
-// ─── DELETE /:id/questions/:qid ───────────────────────────────────────────────
-router.delete('/:id/questions/:qid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id/questions/:qid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id/questions/:qid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { qid } = req.params;
     await pool.query('DELETE FROM comp_exam_questions WHERE id = $1', [qid]);
@@ -448,8 +448,8 @@ router.delete('/:id/questions/:qid', requireAuth(), async (req: Request, res: Re
   }
 });
 
-// ─── POST /:id/questions/:qid/answers ────────────────────────────────────────
-router.post('/:id/questions/:qid/answers', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/questions/:qid/answers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/questions/:qid/answers', requireAuth, async (req: Request, res: Response) => {
   try {
     const { qid } = req.params;
     const { answer_text, is_correct, sort_order } = req.body;
@@ -467,8 +467,8 @@ router.post('/:id/questions/:qid/answers', requireAuth(), async (req: Request, r
   }
 });
 
-// ─── PUT /:id/questions/:qid/answers/:aid ─────────────────────────────────────
-router.put('/:id/questions/:qid/answers/:aid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ PUT /:id/questions/:qid/answers/:aid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.put('/:id/questions/:qid/answers/:aid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { aid } = req.params;
     const { answer_text, is_correct, sort_order } = req.body;
@@ -492,8 +492,8 @@ router.put('/:id/questions/:qid/answers/:aid', requireAuth(), async (req: Reques
   }
 });
 
-// ─── DELETE /:id/questions/:qid/answers/:aid ──────────────────────────────────
-router.delete('/:id/questions/:qid/answers/:aid', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id/questions/:qid/answers/:aid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id/questions/:qid/answers/:aid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { aid } = req.params;
     await pool.query('DELETE FROM comp_exam_answers WHERE id = $1', [aid]);
@@ -504,8 +504,8 @@ router.delete('/:id/questions/:qid/answers/:aid', requireAuth(), async (req: Req
   }
 });
 
-// ─── POST /:id/start — start exam attempt ─────────────────────────────────────
-router.post('/:id/start', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/start â€” start exam attempt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/start', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     const { id } = req.params;
@@ -634,8 +634,8 @@ router.post('/:id/start', requireAuth(), async (req: Request, res: Response) => 
   }
 });
 
-// ─── POST /:id/submit — submit exam attempt ───────────────────────────────────
-router.post('/:id/submit', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/submit â€” submit exam attempt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/submit', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const { userId } = getAuth(req);
@@ -645,7 +645,7 @@ router.post('/:id/submit', requireAuth(), async (req: Request, res: Response) =>
       answers: { question_id: string; answer_id: string }[];
     };
 
-    // 1. Fetch attempt — verify belongs to this user and is in_progress
+    // 1. Fetch attempt â€” verify belongs to this user and is in_progress
     const attemptResult = await client.query(
       `SELECT a.*, e.passing_score, e.max_attempts, e.expiration_type, e.title AS exam_title
        FROM comp_exam_attempts a
@@ -779,8 +779,8 @@ router.post('/:id/submit', requireAuth(), async (req: Request, res: Response) =>
   }
 });
 
-// ─── GET /:id/attempts — my attempts ─────────────────────────────────────────
-router.get('/:id/attempts', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id/attempts â€” my attempts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id/attempts', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     const { id } = req.params;
@@ -799,8 +799,8 @@ router.get('/:id/attempts', requireAuth(), async (req: Request, res: Response) =
   }
 });
 
-// ─── GET /:id/attempts/all — all attempts (admin) ─────────────────────────────
-router.get('/:id/attempts/all', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /:id/attempts/all â€” all attempts (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/:id/attempts/all', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

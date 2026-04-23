@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 import Anthropic from '@anthropic-ai/sdk';
 import multer from 'multer';

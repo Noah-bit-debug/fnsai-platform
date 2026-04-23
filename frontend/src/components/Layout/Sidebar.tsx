@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { useClerk, useUser } from '../../lib/auth';
 import { useRBAC } from '../../contexts/RBACContext';
 
-// ─── Types ────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type Role = 'ceo' | 'admin' | 'manager' | 'hr' | 'recruiter' | 'coordinator' | 'viewer' | null;
 
 interface NavItemDef {
@@ -26,7 +26,7 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
-// ─── Role badge config ────────────────────────────────────────
+// â”€â”€â”€ Role badge config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ROLE_BADGES: Record<string, { label: string; color: string; bg: string }> = {
   ceo:         { label: 'CEO',         color: '#1e40af', bg: '#dbeafe' },
   admin:       { label: 'Admin',       color: '#6b21a8', bg: '#f3e8ff' },
@@ -37,7 +37,7 @@ const ROLE_BADGES: Record<string, { label: string; color: string; bg: string }> 
   viewer:      { label: 'Viewer',      color: '#64748b', bg: '#f1f5f9' },
 };
 
-// ─── Navigation structure ─────────────────────────────────────
+// â”€â”€â”€ Navigation structure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // roles: null = all roles; array = only those roles
 // Group is hidden if ALL its visible items are empty for current role
 const NAV_GROUPS: NavGroupDef[] = [
@@ -46,11 +46,11 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: null,
     defaultOpen: true,
     items: [
-      { to: '/dashboard',            icon: '▦',   label: 'Dashboard',         roles: null },
-      { to: '/ceo-dashboard',        icon: '👔',  label: 'Executive View',    roles: ['ceo'] },
-      { to: '/management-dashboard', icon: '📊',  label: 'Management View',   roles: ['manager', 'admin'] },
-      { to: '/hr-dashboard',         icon: '🧑‍💼', label: 'HR Overview',       roles: ['hr'] },
-      { to: '/recruiting-dashboard', icon: '🎯',  label: 'Recruiting View',   roles: ['recruiter'] },
+      { to: '/dashboard',            icon: 'â–¦',   label: 'Dashboard',         roles: null },
+      { to: '/ceo-dashboard',        icon: 'ðŸ‘”',  label: 'Executive View',    roles: ['ceo'] },
+      { to: '/management-dashboard', icon: 'ðŸ“Š',  label: 'Management View',   roles: ['manager', 'admin'] },
+      { to: '/hr-dashboard',         icon: 'ðŸ§‘â€ðŸ’¼', label: 'HR Overview',       roles: ['hr'] },
+      { to: '/recruiting-dashboard', icon: 'ðŸŽ¯',  label: 'Recruiting View',   roles: ['recruiter'] },
     ],
   },
   {
@@ -58,66 +58,66 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator'],
     defaultOpen: true,
     items: [
-      { to: '/candidates',    icon: '👤', label: 'Candidates',  roles: null },
-      { to: '/jobs',          icon: '📋', label: 'Jobs',        roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/submissions',   icon: '📤', label: 'Submissions', roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/clients-orgs',  icon: '🏢', label: 'Clients',     roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/pipeline',      icon: '🔄', label: 'Candidate Pipeline',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/kanban',        icon: '📊', label: 'Submissions Kanban',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
-      { to: '/tasks',         icon: '✅', label: 'Tasks',       roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator', 'hr'] },
-      { to: '/ats-reports',   icon: '📈', label: 'ATS Reports', roles: ['ceo', 'admin', 'manager'] },
-      { to: '/reminders',     icon: '🔔', label: 'Reminders',   roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/candidates',    icon: 'ðŸ‘¤', label: 'Candidates',  roles: null },
+      { to: '/jobs',          icon: 'ðŸ“‹', label: 'Jobs',        roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/submissions',   icon: 'ðŸ“¤', label: 'Submissions', roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/clients-orgs',  icon: 'ðŸ¢', label: 'Clients',     roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/pipeline',      icon: 'ðŸ”„', label: 'Candidate Pipeline',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/kanban',        icon: 'ðŸ“Š', label: 'Submissions Kanban',  roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
+      { to: '/tasks',         icon: 'âœ…', label: 'Tasks',       roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator', 'hr'] },
+      { to: '/ats-reports',   icon: 'ðŸ“ˆ', label: 'ATS Reports', roles: ['ceo', 'admin', 'manager'] },
+      { to: '/reminders',     icon: 'ðŸ””', label: 'Reminders',   roles: ['ceo', 'admin', 'manager', 'recruiter', 'coordinator'] },
     ],
   },
-  // ─── My Compliance (user-facing) ─────────────────────────────
+  // â”€â”€â”€ My Compliance (user-facing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     title: 'My Compliance',
     roles: null,
     defaultOpen: false,
     items: [
-      { to: '/compliance/my',           icon: '✅', label: 'My assignments', roles: null },
-      { to: '/compliance/certificates', icon: '🏅', label: 'My certificates', roles: null },
-      { to: '/compliance/messages',     icon: '💬', label: 'Messages',        roles: null },
+      { to: '/compliance/my',           icon: 'âœ…', label: 'My assignments', roles: null },
+      { to: '/compliance/certificates', icon: 'ðŸ…', label: 'My certificates', roles: null },
+      { to: '/compliance/messages',     icon: 'ðŸ’¬', label: 'Messages',        roles: null },
     ],
   },
-  // ─── Credentialing (records) ─────────────────────────────────
+  // â”€â”€â”€ Credentialing (records) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     title: 'Credentialing',
     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'],
     defaultOpen: false,
     items: [
-      { to: '/credentialing-dashboard', icon: '📊', label: 'Dashboard',      roles: null },
-      { to: '/credentialing',           icon: '🏅', label: 'Records',        roles: null },
-      { to: '/documents',               icon: '📎', label: 'Document Checker', roles: null },
+      { to: '/credentialing-dashboard', icon: 'ðŸ“Š', label: 'Dashboard',      roles: null },
+      { to: '/credentialing',           icon: 'ðŸ…', label: 'Records',        roles: null },
+      { to: '/documents',               icon: 'ðŸ“Ž', label: 'Document Checker', roles: null },
     ],
   },
-  // ─── Onboarding + eSign ──────────────────────────────────────
+  // â”€â”€â”€ Onboarding + eSign â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     title: 'Onboarding',
     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'],
     defaultOpen: false,
     items: [
-      { to: '/onboarding',      icon: '🎓', label: 'Active onboarding', roles: null },
-      { to: '/esign',           icon: '✍️', label: 'eSign dashboard',   roles: null },
-      { to: '/esign/documents', icon: '📄', label: 'eSign documents',   roles: null },
+      { to: '/onboarding',      icon: 'ðŸŽ“', label: 'Active onboarding', roles: null },
+      { to: '/esign',           icon: 'âœï¸', label: 'eSign dashboard',   roles: null },
+      { to: '/esign/documents', icon: 'ðŸ“„', label: 'eSign documents',   roles: null },
     ],
   },
-  // ─── Compliance Admin (content + operations) ─────────────────
+  // â”€â”€â”€ Compliance Admin (content + operations) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     title: 'Compliance Admin',
     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'],
     defaultOpen: false,
     items: [
-      { to: '/compliance/admin',                icon: '🛡️', label: 'Overview',             roles: null },
-      { to: '/compliance/admin/records',        icon: '📊', label: 'All records',           roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/readiness',      icon: '🎯', label: 'Placement readiness',   roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/policies',       icon: '📋', label: 'Policies',              roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/documents',      icon: '📄', label: 'Compliance documents',  roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/exams',          icon: '📝', label: 'Exams',                 roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/checklists',     icon: '☑️', label: 'Skills checklists',     roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/bundles',        icon: '📦', label: 'Bundles',               roles: ['ceo','admin','manager','hr'] },
-      { to: '/compliance/admin/bulk-assign',    icon: '⚡', label: 'Bulk assign',           roles: ['ceo','admin','manager'] },
-      { to: '/compliance/admin/reports',        icon: '📈', label: 'Compliance reports',    roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin',                icon: 'ðŸ›¡ï¸', label: 'Overview',             roles: null },
+      { to: '/compliance/admin/records',        icon: 'ðŸ“Š', label: 'All records',           roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/readiness',      icon: 'ðŸŽ¯', label: 'Placement readiness',   roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/policies',       icon: 'ðŸ“‹', label: 'Policies',              roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/documents',      icon: 'ðŸ“„', label: 'Compliance documents',  roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/exams',          icon: 'ðŸ“', label: 'Exams',                 roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/checklists',     icon: 'â˜‘ï¸', label: 'Skills checklists',     roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/bundles',        icon: 'ðŸ“¦', label: 'Bundles',               roles: ['ceo','admin','manager','hr'] },
+      { to: '/compliance/admin/bulk-assign',    icon: 'âš¡', label: 'Bulk assign',           roles: ['ceo','admin','manager'] },
+      { to: '/compliance/admin/reports',        icon: 'ðŸ“ˆ', label: 'Compliance reports',    roles: ['ceo','admin','manager','hr'] },
     ],
   },
   {
@@ -125,13 +125,13 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'],
     defaultOpen: false,
     items: [
-      { to: '/staff',       icon: '👥', label: 'Staff Management',  roles: null },
-      { to: '/placements',  icon: '📍', label: 'Active Placements', roles: ['ceo', 'admin', 'manager', 'coordinator'] },
-      { to: '/scheduling',  icon: '📆', label: 'Scheduling',        roles: ['ceo', 'admin', 'manager', 'coordinator'] },
-      { to: '/attendance',  icon: '📅', label: 'Attendance',        roles: ['ceo', 'admin'] },
-      { to: '/timekeeping', icon: '⏰', label: 'Timekeeping',       roles: ['ceo', 'admin', 'manager'] },
-      { to: '/pto',         icon: '🏖️', label: 'PTO',              roles: ['ceo', 'admin', 'hr', 'manager'] },
-      { to: '/incidents',   icon: '⚠️', label: 'Incidents',        roles: ['ceo', 'admin'] },
+      { to: '/staff',       icon: 'ðŸ‘¥', label: 'Staff Management',  roles: null },
+      { to: '/placements',  icon: 'ðŸ“', label: 'Active Placements', roles: ['ceo', 'admin', 'manager', 'coordinator'] },
+      { to: '/scheduling',  icon: 'ðŸ“†', label: 'Scheduling',        roles: ['ceo', 'admin', 'manager', 'coordinator'] },
+      { to: '/attendance',  icon: 'ðŸ“…', label: 'Attendance',        roles: ['ceo', 'admin'] },
+      { to: '/timekeeping', icon: 'â°', label: 'Timekeeping',       roles: ['ceo', 'admin', 'manager'] },
+      { to: '/pto',         icon: 'ðŸ–ï¸', label: 'PTO',              roles: ['ceo', 'admin', 'hr', 'manager'] },
+      { to: '/incidents',   icon: 'âš ï¸', label: 'Incidents',        roles: ['ceo', 'admin'] },
     ],
   },
   {
@@ -140,11 +140,11 @@ const NAV_GROUPS: NavGroupDef[] = [
     defaultOpen: false,
     items: [
       // "Facilities" is the legacy flat list. Full client management now
-      // lives under Recruiting → Clients. This stays as a quick facility-
+      // lives under Recruiting â†’ Clients. This stays as a quick facility-
       // only shortcut (contracts, addresses).
-      { to: '/clients',      icon: '🏥', label: 'Facilities',            roles: null },
-      { to: '/business-dev', icon: '💼', label: 'Business Development',  roles: null },
-      { to: '/contracts',    icon: '📝', label: 'Contracts',             roles: ['ceo', 'admin', 'manager'] },
+      { to: '/clients',      icon: 'ðŸ¥', label: 'Facilities',            roles: null },
+      { to: '/business-dev', icon: 'ðŸ’¼', label: 'Business Development',  roles: null },
+      { to: '/contracts',    icon: 'ðŸ“', label: 'Contracts',             roles: ['ceo', 'admin', 'manager'] },
     ],
   },
   {
@@ -152,9 +152,9 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator', 'viewer'],
     defaultOpen: false,
     items: [
-      { to: '/reports',       icon: '📊', label: 'Reports',           roles: null },
-      { to: '/daily-summary', icon: '📅', label: 'Daily Summary',     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'] },
-      { to: '/action-plan',   icon: '📋', label: 'Action Plan & Tasks', roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'] },
+      { to: '/reports',       icon: 'ðŸ“Š', label: 'Reports',           roles: null },
+      { to: '/daily-summary', icon: 'ðŸ“…', label: 'Daily Summary',     roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'] },
+      { to: '/action-plan',   icon: 'ðŸ“‹', label: 'Action Plan & Tasks', roles: ['ceo', 'admin', 'manager', 'hr', 'coordinator'] },
     ],
   },
   {
@@ -162,12 +162,12 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: ['ceo', 'admin'],
     defaultOpen: false,
     items: [
-      { to: '/ai-assistant',  icon: '🤖', label: 'AI Chat',           roles: null },
-      { to: '/ai-knowledge',  icon: '📚', label: 'Knowledge Base',    roles: null },
-      { to: '/ai-brain',      icon: '🧠', label: 'AI Brain (admin)',   roles: null },
-      { to: '/templates',     icon: '📝', label: 'Message Templates',  roles: null },
-      { to: '/sms',           icon: '💬', label: 'SMS Approvals',      roles: null },
-      { to: '/email-monitor', icon: '📧', label: 'Email Monitor',      roles: null },
+      { to: '/ai-assistant',  icon: 'ðŸ¤–', label: 'AI Chat',           roles: null },
+      { to: '/ai-knowledge',  icon: 'ðŸ“š', label: 'Knowledge Base',    roles: null },
+      { to: '/ai-brain',      icon: 'ðŸ§ ', label: 'AI Brain (admin)',   roles: null },
+      { to: '/templates',     icon: 'ðŸ“', label: 'Message Templates',  roles: null },
+      { to: '/sms',           icon: 'ðŸ’¬', label: 'SMS Approvals',      roles: null },
+      { to: '/email-monitor', icon: 'ðŸ“§', label: 'Email Monitor',      roles: null },
     ],
   },
   {
@@ -175,19 +175,19 @@ const NAV_GROUPS: NavGroupDef[] = [
     roles: null,
     defaultOpen: false,
     items: [
-      { to: '/settings/users',                  icon: '👥', label: 'User Management',        roles: ['ceo', 'admin', 'manager'] },
-      { to: '/security',                        icon: '🔒', label: 'Security & MFA',         roles: null },
-      { to: '/settings/integrations',           icon: '🔌', label: 'Integrations',           roles: ['ceo', 'admin'] },
-      { to: '/settings/error-log',              icon: '🪲', label: 'Error Log',              roles: ['ceo', 'admin'] },
-      { to: '/compliance/admin/categories',     icon: '🗂️', label: 'Compliance Categories',  roles: ['ceo', 'admin'] },
-      { to: '/compliance/admin/notifications',  icon: '🔔', label: 'Compliance Notifications', roles: ['ceo', 'admin'] },
-      { to: '/settings/notifications',          icon: '🔕', label: 'My Notification Prefs',  roles: null },
-      { to: '/time-tracking',                   icon: '⏱', label: 'Work Session Tracker',   roles: null },
+      { to: '/settings/users',                  icon: 'ðŸ‘¥', label: 'User Management',        roles: ['ceo', 'admin', 'manager'] },
+      { to: '/security',                        icon: 'ðŸ”’', label: 'Security & MFA',         roles: null },
+      { to: '/settings/integrations',           icon: 'ðŸ”Œ', label: 'Integrations',           roles: ['ceo', 'admin'] },
+      { to: '/settings/error-log',              icon: 'ðŸª²', label: 'Error Log',              roles: ['ceo', 'admin'] },
+      { to: '/compliance/admin/categories',     icon: 'ðŸ—‚ï¸', label: 'Compliance Categories',  roles: ['ceo', 'admin'] },
+      { to: '/compliance/admin/notifications',  icon: 'ðŸ””', label: 'Compliance Notifications', roles: ['ceo', 'admin'] },
+      { to: '/settings/notifications',          icon: 'ðŸ”•', label: 'My Notification Prefs',  roles: null },
+      { to: '/time-tracking',                   icon: 'â±', label: 'Work Session Tracker',   roles: null },
     ],
   },
 ];
 
-// ─── Role-based filter helpers ────────────────────────────────
+// â”€â”€â”€ Role-based filter helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function groupIsVisible(group: NavGroupDef, role: Role): boolean {
   if (group.roles === null) return true;
   if (!role) return false;
@@ -200,7 +200,7 @@ function itemIsVisible(item: NavItemDef, role: Role): boolean {
   return (item.roles as string[]).includes(role);
 }
 
-// ─── SidebarGroup ─────────────────────────────────────────────
+// â”€â”€â”€ SidebarGroup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function SidebarGroup({ group, role }: { group: NavGroupDef; role: Role }) {
   const [open, setOpen] = useState(group.defaultOpen ?? false);
   const visibleItems = group.items.filter((item) => itemIsVisible(item, role));
@@ -215,7 +215,7 @@ function SidebarGroup({ group, role }: { group: NavGroupDef; role: Role }) {
         type="button"
       >
         <span className="sb-group-label">{group.title}</span>
-        <span className={`sb-group-chevron${open ? ' open' : ''}`}>▼</span>
+        <span className={`sb-group-chevron${open ? ' open' : ''}`}>â–¼</span>
       </button>
 
       {open && visibleItems.map((item) => (
@@ -232,7 +232,7 @@ function SidebarGroup({ group, role }: { group: NavGroupDef; role: Role }) {
   );
 }
 
-// ─── Main Sidebar ─────────────────────────────────────────────
+// â”€â”€â”€ Main Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function Sidebar({ isOpen = true, isMobile = false, onClose }: SidebarProps) {
   const { signOut } = useClerk();
   const { user } = useUser();
@@ -290,7 +290,7 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }: Si
           }}
           aria-label="Close menu"
         >
-          ✕
+          âœ•
         </button>
       )}
 
@@ -331,7 +331,7 @@ export default function Sidebar({ isOpen = true, isMobile = false, onClose }: Si
           type="button"
           onClick={() => signOut({ redirectUrl: '/' })}
         >
-          <span className="sb-item-icon">↩</span>
+          <span className="sb-item-icon">â†©</span>
           <span>Sign Out</span>
         </button>
       </div>

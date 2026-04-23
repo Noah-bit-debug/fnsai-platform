@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { searchEmails, getEmailWithAttachments } from '../services/graph';
@@ -29,7 +29,7 @@ router.post('/search', requireAuth, async (req: Request, res: Response) => {
     ).catch(() => {});
     res.json({ emails, total: emails.length });
   } catch (err: any) {
-    res.json({ emails: [], total: 0, error: err.message ?? 'Email search unavailable — Microsoft Graph not configured' });
+    res.json({ emails: [], total: 0, error: err.message ?? 'Email search unavailable â€” Microsoft Graph not configured' });
   }
 });
 

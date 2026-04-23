@@ -1,6 +1,8 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
-// Clerk token getter — will be set from main.tsx after ClerkProvider mounts
+// Azure AD (MSAL) token getter — set from main.tsx after MsalProvider mounts.
+// Returns a JWT access token from MSAL; axios attaches it as
+// `Authorization: Bearer <jwt>` on every request.
 let getTokenFn: (() => Promise<string | null>) | null = null;
 
 export function setTokenGetter(fn: () => Promise<string | null>): void {
@@ -21,7 +23,7 @@ const api: AxiosInstance = axios.create({
   timeout: 30000,
 });
 
-// Request interceptor — attach Clerk session token
+// Request interceptor — attach Azure AD access token
 api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   if (getTokenFn) {
     try {

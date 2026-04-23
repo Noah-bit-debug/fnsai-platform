@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requirePermission, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { generateReportNarrative } from '../services/intelligenceEngine';
 
 const router = Router();
@@ -10,7 +10,7 @@ const router = Router();
 // Report Definitions
 // ---------------------------------------------------------------------------
 
-// GET /definitions — list report definitions
+// GET /definitions â€” list report definitions
 router.get('/definitions', requireAuth, requirePermission('reports_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -30,7 +30,7 @@ router.get('/definitions', requireAuth, requirePermission('reports_view'), async
   }
 });
 
-// POST /definitions — create report definition
+// POST /definitions â€” create report definition
 router.post('/definitions', requireAuth, requirePermission('reports_create'), async (req: AuthenticatedRequest, res: Response) => {
   const { name, description, report_type, default_filters, schedule_cron } = req.body;
   const auth = getAuth(req);
@@ -55,7 +55,7 @@ router.post('/definitions', requireAuth, requirePermission('reports_create'), as
   }
 });
 
-// GET /definitions/:id — get one definition
+// GET /definitions/:id â€” get one definition
 router.get('/definitions/:id', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -77,7 +77,7 @@ router.get('/definitions/:id', requireAuth, requirePermission('reports_view'), a
   }
 });
 
-// DELETE /definitions/:id — delete definition
+// DELETE /definitions/:id â€” delete definition
 router.delete('/definitions/:id', requireAuth, requirePermission('reports_create'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -98,7 +98,7 @@ router.delete('/definitions/:id', requireAuth, requirePermission('reports_create
 // Report Runs
 // ---------------------------------------------------------------------------
 
-// GET /runs — list recent report runs (last 50)
+// GET /runs â€” list recent report runs (last 50)
 router.get('/runs', requireAuth, requirePermission('reports_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -118,7 +118,7 @@ router.get('/runs', requireAuth, requirePermission('reports_view'), async (_req:
   }
 });
 
-// POST /runs — generate a new report run
+// POST /runs â€” generate a new report run
 router.post('/runs', requireAuth, requirePermission('reports_view'), async (req: AuthenticatedRequest, res: Response) => {
   const { definition_id, run_name, report_type, filters = {} } = req.body;
   const auth = getAuth(req);
@@ -316,7 +316,7 @@ router.post('/runs', requireAuth, requirePermission('reports_view'), async (req:
 
     res.status(201).json(runResult.rows[0]);
   } catch (err) {
-    // Phase 5.4 QA fix — QA reported "Failed to generate report" on
+    // Phase 5.4 QA fix â€” QA reported "Failed to generate report" on
     // every type with no indication of WHY. The catch was swallowing
     // the specific pg error (missing column, bad JOIN, etc.). Now we
     // log the full error server-side AND return the message to the
@@ -333,7 +333,7 @@ router.post('/runs', requireAuth, requirePermission('reports_view'), async (req:
   }
 });
 
-// GET /runs/:id — get a specific run result
+// GET /runs/:id â€” get a specific run result
 router.get('/runs/:id', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -358,7 +358,7 @@ router.get('/runs/:id', requireAuth, requirePermission('reports_view'), async (r
   }
 });
 
-// GET /runs/:id/export — return run data as plain text
+// GET /runs/:id/export â€” return run data as plain text
 router.get('/runs/:id/export', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -402,10 +402,10 @@ router.get('/runs/:id/export', requireAuth, requirePermission('reports_view'), a
 // Standard Metrics Snapshot (no AI, fast)
 // ---------------------------------------------------------------------------
 
-// GET /standard/metrics — return all key operational metrics
+// GET /standard/metrics â€” return all key operational metrics
 // Returns the KPI snapshot the Reports page renders. Flat shape so the
 // frontend renders each card without extra mapping. Each metric's query is
-// independently wrapped — a single missing table (e.g. jobs not yet migrated)
+// independently wrapped â€” a single missing table (e.g. jobs not yet migrated)
 // returns 0 for that metric instead of 500-ing the whole endpoint.
 router.get('/standard/metrics', requireAuth, requirePermission('reports_view'), async (_req: Request, res: Response) => {
   const safeNum = async (sql: string): Promise<number> => {
@@ -467,7 +467,7 @@ router.get('/standard/metrics', requireAuth, requirePermission('reports_view'), 
     compliance_rate,
     open_positions,
     avg_time_to_fill,
-    // No revenue/invoicing table yet — return 0 so the card renders "$0" instead of undefined.
+    // No revenue/invoicing table yet â€” return 0 so the card renders "$0" instead of undefined.
     revenue_mtd: 0,
     generated_at: new Date().toISOString(),
   });

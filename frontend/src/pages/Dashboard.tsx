@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../lib/auth';
 import { staffApi, placementsApi, credentialsApi, onboardingApi, candidatesApi } from '../lib/api';
 import AIActionPanel from '../components/AI/AIActionPanel';
 
@@ -104,23 +104,23 @@ export default function Dashboard() {
   }).length;
   const totalCredIssues = expiredCreds + expiringCreds;
   // If no staff AND no credentials at all, compliance rate is genuinely
-  // unknown — show '—' instead of a confusing 0% or misleading 100%.
+  // unknown â€” show 'â€”' instead of a confusing 0% or misleading 100%.
   const hasAnyCredData = activeEmployees > 0 || totalCredIssues > 0;
   const complianceRate: number | null = !hasAnyCredData
     ? null
     : totalCredIssues === 0
       ? 100
       : Math.max(0, Math.round(100 - (totalCredIssues / Math.max(1, activeEmployees)) * 20));
-  const complianceRateDisplay = complianceRate == null ? '—' : `${complianceRate}%`;
+  const complianceRateDisplay = complianceRate == null ? 'â€”' : `${complianceRate}%`;
   const criticalAlert = expiredCreds > 0 || expiringCreds >= 3;
 
   const quickLinks = [
-    { icon: '👥', label: 'Candidates', nav: '/candidates', color: 'var(--pr)' },
-    { icon: '📋', label: 'Credentialing', nav: '/credentialing', color: 'var(--dg)' },
-    { icon: '🎓', label: 'Onboarding', nav: '/onboarding', color: 'var(--wn)' },
-    { icon: '🔗', label: 'Placements', nav: '/placements', color: '#7c3aed' },
-    { icon: '🔔', label: 'Reminders', nav: '/reminders', color: '#0891b2' },
-    { icon: '📊', label: 'Reports', nav: '/reports', color: 'var(--ac)' },
+    { icon: 'ðŸ‘¥', label: 'Candidates', nav: '/candidates', color: 'var(--pr)' },
+    { icon: 'ðŸ“‹', label: 'Credentialing', nav: '/credentialing', color: 'var(--dg)' },
+    { icon: 'ðŸŽ“', label: 'Onboarding', nav: '/onboarding', color: 'var(--wn)' },
+    { icon: 'ðŸ”—', label: 'Placements', nav: '/placements', color: '#7c3aed' },
+    { icon: 'ðŸ””', label: 'Reminders', nav: '/reminders', color: '#0891b2' },
+    { icon: 'ðŸ“Š', label: 'Reports', nav: '/reports', color: 'var(--ac)' },
   ];
 
   return (
@@ -129,21 +129,21 @@ export default function Dashboard() {
       <div className="page-header">
         <div className="page-header-row">
           <div>
-            <h1>{getGreeting()}, {firstName} 👋</h1>
+            <h1>{getGreeting()}, {firstName} ðŸ‘‹</h1>
             <p style={{ color: 'var(--t3)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>{today}</span>
               <span
-                title="Live data — refreshes every 60 seconds"
+                title="Live data â€” refreshes every 60 seconds"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'rgba(22,163,74,0.1)', color: 'var(--ac)', fontWeight: 600 }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ac)' }} />
-                Live · updated {relativeTimeAgo(lastUpdated)}
+                Live Â· updated {relativeTimeAgo(lastUpdated)}
               </span>
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => navigate('/ai-assistant')}>
-              🤖 Ask AI
+              ðŸ¤– Ask AI
             </button>
             <button className="btn btn-primary btn-sm" type="button" onClick={() => navigate('/staff')}>
               + Add Staff
@@ -152,7 +152,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Phase 6.6 — Context-aware AI suggestions for the dashboard.
+      {/* Phase 6.6 â€” Context-aware AI suggestions for the dashboard.
           User clicks the button to see what Claude thinks they should
           prioritize today, based on live counts of expiring credentials,
           pending placements, onboarding backlog, etc. */}
@@ -171,7 +171,7 @@ export default function Dashboard() {
       {/* Critical alert banner */}
       {criticalAlert && (
         <div className="critical-banner">
-          <span>🚨</span>
+          <span>ðŸš¨</span>
           <div>
             <strong>Compliance Alert: </strong>
             {expiredCreds > 0 && `${expiredCreds} expired credential${expiredCreds > 1 ? 's' : ''} require immediate attention. `}
@@ -181,13 +181,13 @@ export default function Dashboard() {
               style={{ marginLeft: 8 }}
               onClick={() => navigate('/credentialing')}
             >
-              View now →
+              View now â†’
             </span>
           </div>
         </div>
       )}
 
-      {/* 4 Stat cards — clickable, each routes to the filtered destination */}
+      {/* 4 Stat cards â€” clickable, each routes to the filtered destination */}
       <div className="sc-grid">
         <div
           className="sc"
@@ -197,7 +197,7 @@ export default function Dashboard() {
           onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
           title="Open Staff"
         >
-          <div className="sc-icon" style={{ background: 'rgba(30,64,175,0.1)', color: 'var(--pr)' }}>👥</div>
+          <div className="sc-icon" style={{ background: 'rgba(30,64,175,0.1)', color: 'var(--pr)' }}>ðŸ‘¥</div>
           <div className="sc-label">Active Employees</div>
           <div className="sc-value">{activeEmployees}</div>
           <div className="sc-sub">Currently active staff</div>
@@ -211,7 +211,7 @@ export default function Dashboard() {
           onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
           title="Open Placements"
         >
-          <div className="sc-icon" style={{ background: 'rgba(234,88,12,0.1)', color: 'var(--wn)' }}>⏳</div>
+          <div className="sc-icon" style={{ background: 'rgba(234,88,12,0.1)', color: 'var(--wn)' }}>â³</div>
           <div className="sc-label">Pending Placements</div>
           <div className="sc-value" style={{ color: pendingPlacements > 0 ? 'var(--wn)' : 'var(--t1)' }}>
             {pendingPlacements}
@@ -227,7 +227,7 @@ export default function Dashboard() {
           onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
           title="Open Onboarding"
         >
-          <div className="sc-icon" style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>🎓</div>
+          <div className="sc-icon" style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>ðŸŽ“</div>
           <div className="sc-label">In Onboarding</div>
           <div className="sc-value">{onboardingCount}</div>
           <div className="sc-sub">Completing onboarding</div>
@@ -253,7 +253,7 @@ export default function Dashboard() {
           onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
           title="Open Compliance Records"
         >
-          <div className="sc-icon" style={{ background: 'rgba(22,163,74,0.1)', color: 'var(--ac)' }}>✅</div>
+          <div className="sc-icon" style={{ background: 'rgba(22,163,74,0.1)', color: 'var(--ac)' }}>âœ…</div>
           <div className="sc-label">Compliance Rate</div>
           <div
             className="sc-value"
@@ -281,13 +281,13 @@ export default function Dashboard() {
         {/* Immediate Actions */}
         <div className="pn">
           <div className="pnh">
-            <h3>⚡ Immediate Actions</h3>
+            <h3>âš¡ Immediate Actions</h3>
             <span className="tgr" style={{ fontSize: 11 }}>Live</span>
           </div>
           <div className="pnb" style={{ padding: '8px 18px' }}>
             {totalCredIssues === 0 && onboardingCount === 0 ? (
               <div className="empty-state" style={{ padding: '24px' }}>
-                <div className="empty-state-icon">🎉</div>
+                <div className="empty-state-icon">ðŸŽ‰</div>
                 <h3>All caught up!</h3>
                 <p>No immediate actions required.</p>
               </div>
@@ -314,7 +314,7 @@ export default function Dashboard() {
                       <div className="action-title">
                         {expiringWithin7} Credential{expiringWithin7 > 1 ? 's' : ''} Expiring This Week
                       </div>
-                      <div className="action-meta">Expires within 7 days — urgent renewal needed</div>
+                      <div className="action-meta">Expires within 7 days â€” urgent renewal needed</div>
                     </div>
                     <button className="btn btn-danger btn-sm" type="button" onClick={() => navigate('/credentialing')}>
                       Fix Now
@@ -328,7 +328,7 @@ export default function Dashboard() {
                       <div className="action-title">
                         {expiringCreds - expiringWithin7} Credential{expiringCreds - expiringWithin7 > 1 ? 's' : ''} Expiring Soon
                       </div>
-                      <div className="action-meta">Within 30 days — notify staff to renew</div>
+                      <div className="action-meta">Within 30 days â€” notify staff to renew</div>
                     </div>
                     <button className="btn btn-ghost btn-sm" type="button" onClick={() => navigate('/credentialing')}>
                       Review
@@ -357,13 +357,13 @@ export default function Dashboard() {
         {/* Compliance Alerts */}
         <div className="pn">
           <div className="pnh">
-            <h3>🛡️ Compliance Alerts</h3>
+            <h3>ðŸ›¡ï¸ Compliance Alerts</h3>
             <button
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => navigate('/credentialing')}
             >
-              Manage →
+              Manage â†’
             </button>
           </div>
           <div className="pnb" style={{ padding: '8px 18px' }}>
@@ -373,7 +373,7 @@ export default function Dashboard() {
                 value: expiredCreds,
                 color: 'var(--dg)',
                 bg: 'rgba(220,38,38,0.07)',
-                icon: '🔴',
+                icon: 'ðŸ”´',
                 urgent: true,
               },
               {
@@ -381,7 +381,7 @@ export default function Dashboard() {
                 value: expiringWithin7,
                 color: 'var(--dg)',
                 bg: 'rgba(220,38,38,0.05)',
-                icon: '🔴',
+                icon: 'ðŸ”´',
                 urgent: true,
               },
               {
@@ -389,7 +389,7 @@ export default function Dashboard() {
                 value: expiringCreds,
                 color: 'var(--wn)',
                 bg: 'rgba(234,88,12,0.06)',
-                icon: '🟠',
+                icon: 'ðŸŸ ',
                 urgent: false,
               },
             ].map((item) => (
@@ -432,7 +432,7 @@ export default function Dashboard() {
               }}
               onClick={() => navigate('/credentialing')}
             >
-              View all in Credentialing →
+              View all in Credentialing â†’
             </div>
           </div>
         </div>
@@ -442,7 +442,7 @@ export default function Dashboard() {
       <div className="grid-2" style={{ marginTop: 20 }}>
         <div className="pn">
           <div className="pnh">
-            <h3>📊 Workforce Overview</h3>
+            <h3>ðŸ“Š Workforce Overview</h3>
           </div>
           <div className="pnb">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -475,7 +475,7 @@ export default function Dashboard() {
         {/* Quick Links */}
         <div className="pn">
           <div className="pnh">
-            <h3>🔗 Quick Access</h3>
+            <h3>ðŸ”— Quick Access</h3>
           </div>
           <div className="pnb">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>

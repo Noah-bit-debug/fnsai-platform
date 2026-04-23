@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../../lib/auth';
 import { useNavigate } from 'react-router-dom';
 import { useRBAC } from '../../contexts/RBACContext';
 
-// ─── Types ────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type TabKey = 'overview' | 'users' | 'content' | 'activity';
 
@@ -70,7 +70,7 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
-// ─── Toast System ─────────────────────────────────────────────
+// â”€â”€â”€ Toast System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 let toastIdCounter = 0;
 
@@ -100,15 +100,15 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function formatDate(iso: string | null) {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   return new Date(iso).toLocaleDateString();
 }
 
 function truncate(s: string, n = 16) {
-  if (!s) return '—';
+  if (!s) return 'â€”';
   return s.length > n ? s.slice(0, n) + '...' : s;
 }
 
@@ -191,11 +191,11 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
-  if (!active) return <span style={{ color: '#cbd5e1', marginLeft: 4 }}>↕</span>;
-  return <span style={{ color: '#2563eb', marginLeft: 4 }}>{dir === 'asc' ? '↑' : '↓'}</span>;
+  if (!active) return <span style={{ color: '#cbd5e1', marginLeft: 4 }}>â†•</span>;
+  return <span style={{ color: '#2563eb', marginLeft: 4 }}>{dir === 'asc' ? 'â†‘' : 'â†“'}</span>;
 }
 
-// ─── Tab: Overview ────────────────────────────────────────────
+// â”€â”€â”€ Tab: Overview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']) => void }) {
   const navigate = useNavigate();
@@ -254,13 +254,13 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
   const rateColor = completionColor(data.completion_rate);
 
   const contentTypes = [
-    { key: 'policies', label: 'Policies', icon: '📋', path: '/compliance/admin/policies' },
-    { key: 'documents', label: 'Documents', icon: '📄', path: '/compliance/admin/documents' },
-    { key: 'exams', label: 'Exams', icon: '📝', path: '/compliance/admin/exams' },
-    { key: 'checklists', label: 'Checklists', icon: '✅', path: '/compliance/admin/checklists' },
+    { key: 'policies', label: 'Policies', icon: 'ðŸ“‹', path: '/compliance/admin/policies' },
+    { key: 'documents', label: 'Documents', icon: 'ðŸ“„', path: '/compliance/admin/documents' },
+    { key: 'exams', label: 'Exams', icon: 'ðŸ“', path: '/compliance/admin/exams' },
+    { key: 'checklists', label: 'Checklists', icon: 'âœ…', path: '/compliance/admin/checklists' },
     // Phase 2 additions
-    { key: 'courses', label: 'Courses', icon: '📚', path: '/compliance/admin/courses' },
-    { key: 'doc_types', label: 'Doc Types', icon: '🏷️', path: '/compliance/admin/doc-types' },
+    { key: 'courses', label: 'Courses', icon: 'ðŸ“š', path: '/compliance/admin/courses' },
+    { key: 'doc_types', label: 'Doc Types', icon: 'ðŸ·ï¸', path: '/compliance/admin/doc-types' },
   ];
 
   return (
@@ -269,7 +269,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         {/* Total Assigned */}
         <div style={{ flex: 1, minWidth: 180, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '20px 24px' }}>
-          <div style={{ fontSize: 28 }}>📋</div>
+          <div style={{ fontSize: 28 }}>ðŸ“‹</div>
           <div style={{ fontSize: 26, fontWeight: 700, color: '#1e293b', marginTop: 8 }}>{data.total_records.toLocaleString()}</div>
           <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Total Assigned</div>
         </div>
@@ -283,13 +283,13 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
         </div>
         {/* Expiring Soon */}
         <div style={{ flex: 1, minWidth: 180, background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid #ea580c', borderRadius: 10, padding: '20px 24px' }}>
-          <div style={{ fontSize: 28 }}>⏳</div>
+          <div style={{ fontSize: 28 }}>â³</div>
           <div style={{ fontSize: 26, fontWeight: 700, color: '#ea580c', marginTop: 8 }}>{data.expiring_soon_count.toLocaleString()}</div>
           <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Expiring Soon</div>
         </div>
         {/* Overdue */}
         <div style={{ flex: 1, minWidth: 180, background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid #dc2626', borderRadius: 10, padding: '20px 24px' }}>
-          <div style={{ fontSize: 28 }}>⚠️</div>
+          <div style={{ fontSize: 28 }}>âš ï¸</div>
           <div style={{ fontSize: 26, fontWeight: 700, color: '#dc2626', marginTop: 8 }}>{data.overdue_count.toLocaleString()}</div>
           <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Overdue</div>
         </div>
@@ -345,7 +345,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{label}</span>
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b' }}>{published.toLocaleString()}</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>published · {assigned.toLocaleString()} assigned</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>published Â· {assigned.toLocaleString()} assigned</div>
               <div style={{ height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ width: `${Math.min(100, compRate)}%`, height: '100%', background: completionColor(compRate), borderRadius: 3 }} />
               </div>
@@ -370,7 +370,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
                 fontSize: 13, fontWeight: 600, textAlign: 'left',
               }}
             >
-              {runningJobs ? '⏳ Running...' : '▶ Run All Jobs'}
+              {runningJobs ? 'â³ Running...' : 'â–¶ Run All Jobs'}
             </button>
             <button
               onClick={() => addToast('Export feature coming soon.', 'info')}
@@ -380,7 +380,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
                 fontSize: 13, fontWeight: 600, textAlign: 'left',
               }}
             >
-              📥 Export Report
+              ðŸ“¥ Export Report
             </button>
           </div>
         </div>
@@ -389,7 +389,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
         <div style={{ flex: 2, minWidth: 220, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 24 }}>
           <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600, color: '#1e293b' }}>Recent Alerts</h3>
           {overdue.length === 0 ? (
-            <div style={{ fontSize: 13, color: '#64748b' }}>No overdue items. 🎉</div>
+            <div style={{ fontSize: 13, color: '#64748b' }}>No overdue items. ðŸŽ‰</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {overdue.map((item) => (
@@ -411,7 +411,7 @@ function OverviewTab({ addToast }: { addToast: (msg: string, type: Toast['type']
   );
 }
 
-// ─── Tab: Users ───────────────────────────────────────────────
+// â”€â”€â”€ Tab: Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function UsersTab() {
   const [users, setUsers] = useState<UserStat[]>([]);
@@ -561,7 +561,7 @@ function UsersTab() {
   );
 }
 
-// ─── Tab: Content ─────────────────────────────────────────────
+// â”€â”€â”€ Tab: Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ContentTab() {
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -670,9 +670,9 @@ function ContentTab() {
           style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expiringExpanded ? '1px solid #e2e8f0' : 'none' }}
         >
           <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>
-            ⏳ {expiring.length} item{expiring.length !== 1 ? 's' : ''} expiring in the next 30 days
+            â³ {expiring.length} item{expiring.length !== 1 ? 's' : ''} expiring in the next 30 days
           </div>
-          <span style={{ color: '#64748b' }}>{expiringExpanded ? '▲' : '▼'}</span>
+          <span style={{ color: '#64748b' }}>{expiringExpanded ? 'â–²' : 'â–¼'}</span>
         </div>
         {expiringExpanded && (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -703,7 +703,7 @@ function ContentTab() {
   );
 }
 
-// ─── Tab: Activity ────────────────────────────────────────────
+// â”€â”€â”€ Tab: Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ActivityTab({ addToast }: { addToast: (msg: string, type: Toast['type']) => void }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -775,7 +775,7 @@ function ActivityTab({ addToast }: { addToast: (msg: string, type: Toast['type']
             fontSize: 13, fontWeight: 600,
           }}
         >
-          {running ? '⏳ Running...' : '▶ Run Notifications'}
+          {running ? 'â³ Running...' : 'â–¶ Run Notifications'}
         </button>
       </div>
 
@@ -824,7 +824,7 @@ function ActivityTab({ addToast }: { addToast: (msg: string, type: Toast['type']
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────
+// â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function ComplianceAdminHub() {
   const { user } = useUser();
@@ -852,7 +852,7 @@ export default function ComplianceAdminHub() {
   if (!allowedRoles.includes(role ?? '')) {
     return (
       <div style={{ padding: '64px 40px', background: '#f8fafc', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-        <div style={{ fontSize: 48 }}>🔒</div>
+        <div style={{ fontSize: 48 }}>ðŸ”’</div>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', margin: 0 }}>Access Denied</h2>
         <p style={{ fontSize: 14, color: '#64748b', margin: 0 }}>You don't have permission to view this page. Contact an administrator.</p>
       </div>

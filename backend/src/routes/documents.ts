@@ -3,7 +3,7 @@ import { z } from 'zod';
 import multer from 'multer';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { analyzeDocument } from '../services/ai';
 
 const router = Router();

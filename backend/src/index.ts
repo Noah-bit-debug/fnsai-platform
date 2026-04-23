@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
-import { clerkMiddleware } from '@clerk/express';
+import { azureMiddleware, getAuth } from './middleware/auth';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -90,23 +90,24 @@ app.set('trust proxy', 1);
 
 app.use(helmet({
   // Content Security Policy. Default-src='self' blocks 3rd-party script
-  // injection. We open the specific origins the frontend needs: Clerk for
-  // auth widgets, cdnjs for the PDF.js worker used by ESignPrepare, and
-  // data:/blob: for canvases. Adjust if you ever add a new CDN.
+  // injection. We open the specific origins the frontend needs: Microsoft
+  // Entra ID (Azure AD) for the auth endpoints MSAL.js talks to, cdnjs for
+  // the PDF.js worker used by ESignPrepare, and data:/blob: for canvases.
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
       'default-src':  ["'self'"],
-      'script-src':   ["'self'", "'unsafe-inline'", 'https://clerk.accounts.dev', 'https://*.clerk.accounts.dev', 'https://cdnjs.cloudflare.com'],
+      'script-src':   ["'self'", "'unsafe-inline'", 'https://login.microsoftonline.com', 'https://cdnjs.cloudflare.com'],
       'style-src':    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src':     ["'self'", 'https://fonts.gstatic.com', 'data:'],
       'img-src':      ["'self'", 'data:', 'blob:', 'https:'],
-      'connect-src':  ["'self'", 'https://clerk.accounts.dev', 'https://*.clerk.accounts.dev', 'https://*.clerk.com'],
+      'connect-src':  ["'self'", 'https://login.microsoftonline.com', 'https://login.microsoft.com', 'https://graph.microsoft.com'],
       'worker-src':   ["'self'", 'blob:', 'https://cdnjs.cloudflare.com'],
+      'frame-src':    ["'self'", 'https://login.microsoftonline.com'],
       'frame-ancestors': ["'none'"],
       'object-src':   ["'none'"],
       'base-uri':     ["'self'"],
-      'form-action':  ["'self'"],
+      'form-action':  ["'self'", 'https://login.microsoftonline.com'],
     },
   },
   // Forces HTTPS for 1 year; submits to browser preload lists. Railway
@@ -122,7 +123,7 @@ app.use(helmet({
 // ─── CORS ─────────────────────────────────────────────────────────────────
 // Previous config accepted ANY origin matching '.vercel.app' — that includes
 // any attacker's Vercel preview deployment, which could run malicious JS
-// against our API with the user's Clerk session. Now we only accept
+// against our API with the user's Azure session. Now we only accept
 // exactly the origins we've explicitly allowed.
 //
 // To add a preview URL (e.g. for a staging branch) paste the exact origin
@@ -143,7 +144,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       // No origin — server-to-server or curl. Accept; each route still
-      // requires a Clerk Bearer token, so no data leaks to anonymous callers.
+      // requires an Azure Bearer token, so no data leaks to anonymous callers.
       if (!origin) return callback(null, true);
       if (STATIC_ALLOWED.includes(origin)) return callback(null, true);
       if (PROJECT_VERCEL_PATTERN.test(origin))  return callback(null, true);
@@ -207,87 +208,113 @@ const authLimiter = rateLimit({
 
 app.use(globalLimiter);
 
-// Clerk auth middleware — must be before routes
-app.use(clerkMiddleware());
+// Azure AD auth middleware — validates the Bearer JWT, populates req.auth.
+// Must be before routes.
+app.use(azureMiddleware());
 
-// ─── Auto-role middleware: assign pre-configured roles on first login ──────────
-app.use(async (req: Request, _res, next) => {
-  try {
-    const auth = (req as any).auth;
-    const userId: string | undefined = auth?.userId;
-    if (!userId) return next();
-
-    // Only run this check for authenticated users — lazy import to avoid circular deps
-    const { getAuth } = await import('@clerk/express');
-    const { clerkClient: cc } = await import('@clerk/express');
-
-    // Check if user already has a role set
-    const user = await cc.users.getUser(userId);
-    const existingRole = user.publicMetadata?.role as string | undefined;
-    if (existingRole) return next(); // already has a role, skip
-
-    // Look up their primary email in pre_role_assignments
-    const email = user.emailAddresses?.[0]?.emailAddress?.toLowerCase();
-    if (!email) return next();
-
-    const result = await pool.query(
-      'SELECT role FROM pre_role_assignments WHERE LOWER(email) = $1 AND applied = FALSE',
-      [email]
-    );
-    if (result.rows.length === 0) return next();
-
-    const assignedRole = result.rows[0].role;
-
-    // Set the role in Clerk
-    await cc.users.updateUserMetadata(userId, { publicMetadata: { role: assignedRole } });
-
-    // Mark as applied
-    await pool.query(
-      'UPDATE pre_role_assignments SET applied = TRUE, applied_at = NOW() WHERE LOWER(email) = $1',
-      [email]
-    );
-
-    console.log(`[auto-role] Assigned role '${assignedRole}' to ${email} (${userId})`);
-  } catch {
-    // Never block a request over this
-  }
-  next();
-});
-
-// ─── Auto-sync users table from Clerk on first authenticated request ──────────
-// The root cause of MANY Phase 1 QA failures: Clerk users that have never had
-// a users table row. Without a row:
+// ─── Auto-sync users table from Azure JWT claims on first authenticated request ──
+//
+// Root motivation (preserved from the Clerk era): Many Phase 1 QA failures
+// traced back to auth-layer users that had no `users` table row. Without
+// a row:
 //   - requireRole (SQL-backed) returns 403 for legitimate admins
 //   - assigned_recruiter_id lookups return NULL → auto-assign silently fails
-//   - stage history joins return no name → raw clerk IDs leak to the UI
+//   - stage history joins return no name → raw oids leak to the UI
 //   - assignee dropdowns show email because users.name is unset
-// This middleware upserts a users row on every authenticated request using
-// the user's Clerk identity. Idempotent, cheap, guarded with in-memory cache
-// so we only hit the DB once per process per user.
+//
+// Under Azure there is NO out-of-band API call to Microsoft Graph needed —
+// the JWT already carries `oid`, `email`/`preferred_username`, and `name`
+// claims. We read them directly off req.auth and upsert.
+//
+// Migration behaviour (Clerk → Azure cutover):
+//   The `users.clerk_user_id` column previously held Clerk user ids ("user_xxx").
+//   First Azure sign-in for a pre-existing user: lookup by email → stamp
+//   the Azure oid into clerk_user_id (replaces the stale Clerk id). This
+//   preserves role, assignments, and all FK relationships.
+//
+// Idempotent + cached in-memory so we only hit the DB once per process
+// per user.
 const upsertedUserIds = new Set<string>();
 app.use(async (req: Request, _res, next) => {
   try {
-    const auth = (req as any).auth;
-    const userId: string | undefined = auth?.userId;
+    const auth = getAuth(req);
+    const userId = auth?.userId;
     if (!userId || upsertedUserIds.has(userId)) return next();
 
-    const { clerkClient: cc } = await import('@clerk/express');
-    const user = await cc.users.getUser(userId);
-    const email = user.emailAddresses?.[0]?.emailAddress;
-    if (!email) return next(); // skip users with no email (malformed)
+    const email = auth?.email;
+    if (!email) return next(); // no email claim → can't safely sync
 
-    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || null;
-    const role = (user.publicMetadata?.role as string | undefined) ?? 'coordinator';
+    const name = auth?.name ?? null;
 
-    // INSERT if missing, UPDATE name/email/role otherwise. Keyed on
-    // clerk_user_id which is unique in the schema.
+    // Step 1: is there already a row with this azure oid? → pure update path.
+    // Step 2: is there a row with the same email but a stale (Clerk) id? →
+    //         migration path: rewrite clerk_user_id to the Azure oid.
+    // Step 3: no row → insert fresh.
+    //
+    // Role resolution: keep existing role if row exists; otherwise check
+    // pre_role_assignments; otherwise default to 'coordinator'.
+    const existingByOid = await pool.query<{ id: string }>(
+      'SELECT id FROM users WHERE clerk_user_id = $1 LIMIT 1',
+      [userId]
+    );
+
+    if (existingByOid.rows.length > 0) {
+      // Normal post-migration path: update email/name, keep role.
+      await pool.query(
+        `UPDATE users
+            SET email = $2,
+                name  = COALESCE(NULLIF($3, ''), name),
+                updated_at = NOW()
+          WHERE clerk_user_id = $1`,
+        [userId, email, name]
+      );
+      upsertedUserIds.add(userId);
+      return next();
+    }
+
+    const existingByEmail = await pool.query<{ id: string; clerk_user_id: string | null }>(
+      'SELECT id, clerk_user_id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      [email]
+    );
+
+    if (existingByEmail.rows.length > 0) {
+      // Migration path: stamp the Azure oid over whatever was in clerk_user_id
+      // (likely a stale Clerk id). Preserves role, FK relationships, history.
+      await pool.query(
+        `UPDATE users
+            SET clerk_user_id = $1,
+                email         = $2,
+                name          = COALESCE(NULLIF($3, ''), name),
+                updated_at    = NOW()
+          WHERE id = $4`,
+        [userId, email, name, existingByEmail.rows[0].id]
+      );
+      console.log(`[user-sync] Migrated existing user ${email} to Azure oid ${userId}`);
+      upsertedUserIds.add(userId);
+      return next();
+    }
+
+    // Fresh insert. Check pre_role_assignments for a pre-seeded role.
+    let role = 'coordinator';
+    const preRole = await pool.query<{ role: string }>(
+      'SELECT role FROM pre_role_assignments WHERE LOWER(email) = LOWER($1) AND applied = FALSE LIMIT 1',
+      [email]
+    );
+    if (preRole.rows.length > 0) {
+      role = preRole.rows[0].role;
+      await pool.query(
+        'UPDATE pre_role_assignments SET applied = TRUE, applied_at = NOW() WHERE LOWER(email) = LOWER($1)',
+        [email]
+      );
+      console.log(`[auto-role] Assigned role '${role}' to ${email} (${userId})`);
+    }
+
     await pool.query(
       `INSERT INTO users (clerk_user_id, email, name, role)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (clerk_user_id) DO UPDATE
          SET email = EXCLUDED.email,
              name  = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
-             role  = COALESCE(EXCLUDED.role, users.role),
              updated_at = NOW()`,
       [userId, email, name, role]
     );
@@ -295,7 +322,7 @@ app.use(async (req: Request, _res, next) => {
     upsertedUserIds.add(userId);
   } catch (err) {
     // Never block a request over this. Log so we can debug silent no-ops.
-    console.error('[user-sync] failed for', (req as any).auth?.userId, ':', (err as Error).message);
+    console.error('[user-sync] failed for', getAuth(req)?.userId, ':', (err as Error).message);
   }
   next();
 });

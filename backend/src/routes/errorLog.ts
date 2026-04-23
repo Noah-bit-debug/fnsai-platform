@@ -1,13 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { requireAuth, requireClerkAdmin } from '../middleware/auth';
 
 /**
- * In-memory error log. Zero external dependency / zero cost — holds the
+ * In-memory error log. Zero external dependency / zero cost â€” holds the
  * last N unhandled errors so an admin can see prod issues at a glance.
  *
  * This is intentionally NOT persisted:
- *  - Survives Railway restarts? No, and that's fine — this is operational
+ *  - Survives Railway restarts? No, and that's fine â€” this is operational
  *    telemetry, not an audit trail. If you need permanence, drop in Sentry
  *    later (frontend upload endpoint below stays the same shape).
  *  - Memory-bounded: ring buffer of MAX_ENTRIES. Older entries drop silently.
@@ -69,7 +69,7 @@ const router = Router();
 
 // Accept a frontend error report. Auth required so anonymous attackers
 // can't spam your buffer, but any logged-in user can report their own
-// crash (which is fine — it's their session).
+// crash (which is fine â€” it's their session).
 router.post('/client', requireAuth, (req: Request, res: Response) => {
   const auth = getAuth(req);
   const b = (req.body ?? {}) as {

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { generateDailySummary, SummaryPeriod, SummaryScope } from '../services/intelligenceEngine';
 
 const router = Router();
@@ -19,7 +19,7 @@ function parseScope(v: unknown): SummaryScope {
 }
 
 // ---------------------------------------------------------------------------
-// GET / — list recent summaries (last 90 days). Optional filters:
+// GET / â€” list recent summaries (last 90 days). Optional filters:
 //   ?period=day|week|month
 //   ?scope=all|recruiting|hr|credentialing|bd|ceo
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ router.get('/', requireAuth, requirePermission('reports_view'), async (req: Requ
 });
 
 // ---------------------------------------------------------------------------
-// GET /today — get or generate today's summary for the requested (period, scope).
+// GET /today â€” get or generate today's summary for the requested (period, scope).
 // ---------------------------------------------------------------------------
 router.get('/today', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const today = new Date().toISOString().split('T')[0];
@@ -89,7 +89,7 @@ router.get('/today', requireAuth, requirePermission('reports_view'), async (req:
 });
 
 // ---------------------------------------------------------------------------
-// POST /generate — force regenerate.
+// POST /generate â€” force regenerate.
 // Body: { period?: 'day'|'week'|'month', scope?: ..., date?: 'YYYY-MM-DD' }
 // ---------------------------------------------------------------------------
 router.post('/generate', requireAuth, requirePermission('reports_view'), async (req: AuthenticatedRequest, res: Response) => {
@@ -123,7 +123,7 @@ router.post('/generate', requireAuth, requirePermission('reports_view'), async (
 });
 
 // ---------------------------------------------------------------------------
-// GET /:date — get summary for a specific date + optional ?period=, ?scope=
+// GET /:date â€” get summary for a specific date + optional ?period=, ?scope=
 // ---------------------------------------------------------------------------
 router.get('/:date', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const { date } = req.params;
@@ -151,7 +151,7 @@ router.get('/:date', requireAuth, requirePermission('reports_view'), async (req:
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /:id/review — mark summary as reviewed
+// PATCH /:id/review â€” mark summary as reviewed
 // ---------------------------------------------------------------------------
 router.patch('/:id/review', requireAuth, requirePermission('reports_view'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;

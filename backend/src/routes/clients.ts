@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -70,7 +70,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 // "/orgs" don't accidentally get matched by /:id and routed to the
 // facility-by-id handler. Without this, GET /api/v1/clients/orgs hits
 // `GET /:id` with id="orgs", tries SELECT * FROM facilities WHERE id='orgs'
-// → pg invalid-UUID error → 500. The pattern below requires 36 chars of
+// â†’ pg invalid-UUID error â†’ 500. The pattern below requires 36 chars of
 // hex + dashes, so "orgs" (4 chars) falls through to the /orgs route.
 const UUID_ID = ':id([0-9a-fA-F-]{36})';
 
@@ -219,11 +219,11 @@ router.delete(`/${UUID_ID}`, requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // ATS Phase 1: "Client Organizations" endpoints backed by the new `clients`
 // table. Existing `/` endpoints above still target the legacy `facilities`
 // table to avoid breaking current UI. Frontend will migrate to /orgs in Phase 2.
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const clientSchema = z.object({
   name: z.string().min(1).max(300),
@@ -262,7 +262,7 @@ const reqTemplateSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
 });
 
-// GET /orgs — list client organizations
+// GET /orgs â€” list client organizations
 router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
   const { status, search } = req.query;
   const conditions: string[] = [];
@@ -298,7 +298,7 @@ router.get('/orgs', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /orgs/:id — full client record
+// GET /orgs/:id â€” full client record
 router.get('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const [client, facs, contacts, templates] = await Promise.all([
@@ -354,14 +354,14 @@ router.post('/orgs', requireAuth, async (req: Request, res: Response) => {
     await logAudit(null, auth?.userId ?? 'unknown', 'client.create', result.rows[0].id as string, { name: d.name }, req.ip ?? 'unknown');
     res.status(201).json({ client: result.rows[0] });
   } catch (err) {
-    // Specific pg error codes → specific user-facing messages. The
+    // Specific pg error codes â†’ specific user-facing messages. The
     // ats_phase1 migration creates the `clients` table; if it failed
     // silently at startup, 42P01 is what we'd see here.
     const e = err as { code?: string; message?: string; detail?: string };
     console.error('Client create error:', { code: e.code, message: e.message, detail: e.detail });
     if (e.code === '42P01') {
       res.status(503).json({
-        error: 'Clients table is missing — the ats_phase1 database migration has not been applied. Contact your server admin to run migrations.',
+        error: 'Clients table is missing â€” the ats_phase1 database migration has not been applied. Contact your server admin to run migrations.',
         code: e.code,
       });
       return;
@@ -401,7 +401,7 @@ router.put('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /orgs/:id — soft delete (set status='churned')
+// DELETE /orgs/:id â€” soft delete (set status='churned')
 router.delete('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await query(

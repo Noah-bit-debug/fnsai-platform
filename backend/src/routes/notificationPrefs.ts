@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { requireAuth } from '../middleware/auth';
 import { query } from '../db/client';
 
@@ -29,7 +29,7 @@ const prefsSchema = z.object({
   quiet_end: z.string().optional(),
 });
 
-/** GET /me — fetch the current user's prefs; creates a default row on first hit. */
+/** GET /me â€” fetch the current user's prefs; creates a default row on first hit. */
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
   const clerkId = auth?.userId;
@@ -48,7 +48,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
 
     // Create the default row. ON CONFLICT handles the race where two parallel
     // requests from the same user (e.g. HMR + actual page load) both try to
-    // insert — the losing one gets back the winner's row.
+    // insert â€” the losing one gets back the winner's row.
     const created = await query(
       `INSERT INTO notification_prefs (clerk_user_id) VALUES ($1)
        ON CONFLICT (clerk_user_id) DO UPDATE SET updated_at = notification_prefs.updated_at
@@ -57,7 +57,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
     );
     res.json({ prefs: created.rows[0] });
   } catch (err: any) {
-    // Table not migrated yet — return safe defaults so the page still renders.
+    // Table not migrated yet â€” return safe defaults so the page still renders.
     if (err?.code === '42P01') {
       res.json({
         prefs: {
@@ -77,7 +77,7 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-/** PUT /me — upsert. Accepts any subset of fields. */
+/** PUT /me â€” upsert. Accepts any subset of fields. */
 router.put('/me', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
   const clerkId = auth?.userId;

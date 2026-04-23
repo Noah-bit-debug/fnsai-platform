@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
@@ -8,7 +8,7 @@ import { MODEL_FOR } from '../services/aiModels';
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── SESSION MANAGEMENT ──────────────────────────────────────────────────────
+// â”€â”€â”€ SESSION MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // POST /sessions/start
 router.post('/sessions/start', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
@@ -196,7 +196,7 @@ router.get('/sessions/today', requireAuth, requirePermission('time_tracking_view
   }
 });
 
-// ─── ACTIVITY LOGS ───────────────────────────────────────────────────────────
+// â”€â”€â”€ ACTIVITY LOGS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // POST /activity/batch
 router.post('/activity/batch', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
@@ -323,7 +323,7 @@ router.get('/activity/:sessionId', requireAuth, requirePermission('time_tracking
   }
 });
 
-// ─── IDLE EVENTS ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ IDLE EVENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // POST /idle-events
 router.post('/idle-events', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
@@ -404,7 +404,7 @@ router.patch('/idle-events/:id/respond', requireAuth, requirePermission('time_tr
   }
 });
 
-// ─── BREAK EVENTS ────────────────────────────────────────────────────────────
+// â”€â”€â”€ BREAK EVENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // POST /breaks
 router.post('/breaks', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
@@ -481,9 +481,9 @@ router.patch('/breaks/:id/end', requireAuth, requirePermission('time_tracking_vi
   }
 });
 
-// ─── REPORTING — OWN ─────────────────────────────────────────────────────────
+// â”€â”€â”€ REPORTING â€” OWN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// GET /me — today's totals, weekly summary, recent sessions (last 7 days)
+// GET /me â€” today's totals, weekly summary, recent sessions (last 7 days)
 router.get('/me', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
   const clerkUserId = auth?.userId;
@@ -534,7 +534,7 @@ router.get('/me', requireAuth, requirePermission('time_tracking_view_own'), asyn
   }
 });
 
-// GET /me/summary — daily totals for last 30 days (for charts)
+// GET /me/summary â€” daily totals for last 30 days (for charts)
 router.get('/me/summary', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
   const clerkUserId = auth?.userId;
@@ -561,9 +561,9 @@ router.get('/me/summary', requireAuth, requirePermission('time_tracking_view_own
   }
 });
 
-// ─── REPORTING — TEAM / MANAGER ──────────────────────────────────────────────
+// â”€â”€â”€ REPORTING â€” TEAM / MANAGER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// GET /team — manager view of today's team stats
+// GET /team â€” manager view of today's team stats
 router.get('/team', requireAuth, requirePermission('time_tracking_view_team'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await query(
@@ -592,7 +592,7 @@ router.get('/team', requireAuth, requirePermission('time_tracking_view_team'), a
   }
 });
 
-// GET /reports — per-day per-user breakdown
+// GET /reports â€” per-day per-user breakdown
 router.get('/reports', requireAuth, requirePermission('time_tracking_view_team'), async (req: Request, res: Response) => {
   const { from_date, to_date, clerk_user_id, department } = req.query;
 
@@ -636,9 +636,9 @@ router.get('/reports', requireAuth, requirePermission('time_tracking_view_team')
   }
 });
 
-// ─── POLICY ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ POLICY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// GET /policy — get policy applicable to current user
+// GET /policy â€” get policy applicable to current user
 router.get('/policy', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
   const clerkUserId = auth?.userId;
@@ -659,7 +659,7 @@ router.get('/policy', requireAuth, requirePermission('time_tracking_view_own'), 
   }
 });
 
-// GET /policy/all — admin only
+// GET /policy/all â€” admin only
 router.get('/policy/all', requireAuth, requirePermission('time_tracking_admin'), async (_req: Request, res: Response) => {
   try {
     const result = await query(`SELECT * FROM tracking_policies ORDER BY scope_type, created_at DESC`);
@@ -670,7 +670,7 @@ router.get('/policy/all', requireAuth, requirePermission('time_tracking_admin'),
   }
 });
 
-// POST /policy — create or update policy
+// POST /policy â€” create or update policy
 router.post('/policy', requireAuth, requirePermission('time_tracking_admin'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
   const clerkUserId = auth?.userId;
@@ -728,7 +728,7 @@ router.post('/policy', requireAuth, requirePermission('time_tracking_admin'), as
   }
 });
 
-// ─── DOMAIN CLASSIFICATIONS ───────────────────────────────────────────────────
+// â”€â”€â”€ DOMAIN CLASSIFICATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // GET /domains
 router.get('/domains', requireAuth, requirePermission('time_tracking_view_own'), async (_req: Request, res: Response) => {
@@ -795,7 +795,7 @@ router.delete('/domains/:id', requireAuth, requirePermission('time_tracking_admi
   }
 });
 
-// POST /domains/ai-suggest — AI suggests classifications for unknown domains
+// POST /domains/ai-suggest â€” AI suggests classifications for unknown domains
 router.post('/domains/ai-suggest', requireAuth, requirePermission('time_tracking_admin'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
   const clerkUserId = auth?.userId;
@@ -876,9 +876,9 @@ Return only the JSON array, no other text.`,
   }
 });
 
-// ─── AI SUMMARY ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ AI SUMMARY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// POST /ai-summary — generate AI work pattern summary
+// POST /ai-summary â€” generate AI work pattern summary
 router.post('/ai-summary', requireAuth, requirePermission('time_tracking_view_own'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
   const clerkUserId = auth?.userId;

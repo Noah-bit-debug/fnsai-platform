@@ -6,12 +6,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { chatCompletion, analyzeDocument, categorizeEmail, SYSTEM_PROMPT } from '../services/ai';
 import { MODEL_FOR } from '../services/aiModels';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { query } from '../db/client';
 
 const router = Router();
 
-// Phase 6.6 QA diagnostic — unauthenticated GET /api/v1/ai/_diag
+// Phase 6.6 QA diagnostic â€” unauthenticated GET /api/v1/ai/_diag
 // so we can verify this router is actually live on the deployed
 // backend. If a client reports 404 on /ai/suggest-actions, have them
 // hit _diag first. If _diag works but suggest-actions 404s, the bug
@@ -26,7 +26,7 @@ router.get('/_diag', (_req, res) => {
   });
 });
 
-// Phase 5.3d — in-memory file upload for AI chat. We don't persist
+// Phase 5.3d â€” in-memory file upload for AI chat. We don't persist
 // these; they only live in the chat context. 20 MB cap is plenty for
 // the image/PDF attachments this is meant for.
 const chatFileUpload = multer({
@@ -35,7 +35,7 @@ const chatFileUpload = multer({
 });
 const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Shared guard — returns `true` if the request has been short-circuited
+// Shared guard â€” returns `true` if the request has been short-circuited
 // because the AI backend is unconfigured. Prevents 500s with obscure
 // Anthropic errors when ANTHROPIC_API_KEY is missing.
 function aiUnavailable(res: Response): boolean {
@@ -159,7 +159,7 @@ router.post('/categorize-email', requireAuth, async (req: Request, res: Response
   }
 });
 
-// POST /ai/chat-with-file — Phase 5.3d
+// POST /ai/chat-with-file â€” Phase 5.3d
 // multipart/form-data with: file (required), messages (JSON string),
 // userContext (optional string). Server extracts text (PDF/DOCX/TXT)
 // or sends the image inline to Claude's vision endpoint.
@@ -252,7 +252,7 @@ router.post('/chat-with-file', requireAuth, chatFileUpload.single('file'), async
 });
 
 // GET /ai/resolve-entity?type=candidate&q=noah
-// Phase 5.3c — name disambiguation. When an AI response contains a
+// Phase 5.3c â€” name disambiguation. When an AI response contains a
 // [[link:candidate:Noah]] tag and the user clicks it, the frontend
 // hits this endpoint. If one match is returned, navigate there. If
 // multiple are returned, show the picker. If none, show "not found".
@@ -326,7 +326,7 @@ router.get('/resolve-entity', requireAuth, async (req: Request, res: Response) =
   }
 });
 
-// POST /ai/suggest-actions — Phase 6.6
+// POST /ai/suggest-actions â€” Phase 6.6
 // Context-aware action suggestions for a workflow page.
 // Request body: { subject: string, context: object }
 // Response: { suggestions: string } where the string uses the same
@@ -337,7 +337,7 @@ router.post('/suggest-actions', requireAuth, async (req: Request, res: Response)
 
   const schema = z.object({
     subject: z.string().min(1).max(200),
-    // Arbitrary JSON context — whatever the caller thinks is relevant.
+    // Arbitrary JSON context â€” whatever the caller thinks is relevant.
     // Serialized to Claude as-is.
     context: z.record(z.string(), z.unknown()),
   });
@@ -348,17 +348,17 @@ router.post('/suggest-actions', requireAuth, async (req: Request, res: Response)
   const sys = `You are FNS AI suggesting 3-6 concrete next actions for a healthcare staffing ops user looking at a workflow page. Return ONLY a short markdown list (3-6 items) of suggested actions. Each item should be 1-2 sentences.
 
 Use the inline tag grammar defined in the main SYSTEM_PROMPT wherever relevant:
-  [[link:<type>:<value>]]              — inline entity link
-  [[action:create_task|<goal>]]        — create a task button
-  [[action:send_esign|<recipient>]]    — send eSign button
-  [[action:draft_email|<prompt>]]      — draft email button
+  [[link:<type>:<value>]]              â€” inline entity link
+  [[action:create_task|<goal>]]        â€” create a task button
+  [[action:send_esign|<recipient>]]    â€” send eSign button
+  [[action:draft_email|<prompt>]]      â€” draft email button
 
 Rules:
 - Prioritize time-sensitive or unblocking actions first.
 - Use [[action:...]] tags liberally when the user can act directly.
 - Use [[link:...]] tags for any entity the user will need to click through to.
 - Do not fabricate names that aren't in the context.
-- No preamble, no closing — just the bulleted list.`;
+- No preamble, no closing â€” just the bulleted list.`;
 
   const userMsg = `Subject: ${subject}\n\nContext:\n${JSON.stringify(context, null, 2)}\n\nSuggest the next 3-6 actions the user should take.`;
 

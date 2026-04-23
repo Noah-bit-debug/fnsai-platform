@@ -1,53 +1,159 @@
 import { Request, Response, NextFunction } from 'express';
-import { getAuth, clerkClient } from '@clerk/express';
+import jwt, { JwtPayload } from 'jsonwebtoken';
+import jwksClient from 'jwks-rsa';
 import { query } from '../db/client';
 
 /**
- * DB-free admin check — verifies the caller has admin/ceo role directly
- * from Clerk's publicMetadata instead of the users SQL table. Use this
- * for any operational/debug endpoint that must work even when the DB is
- * partial or broken (the users table row sync runs off a trigger that
- * doesn't always fire, so the SQL-backed requireRole can 403 legitimate
- * admins on edge cases).
+ * Azure AD (Microsoft Entra ID) auth middleware.
  *
- * Also honors ADMIN_BOOTSTRAP_CLERK_USER_IDS env var as a belt-and-
- * suspenders allowlist for initial bootstrap.
+ * Replaces the previous @clerk/express-based stack. The public API surface
+ * (getAuth, requireAuth, requireRole, requirePermission, logAudit,
+ * requireClerkAdmin, AuthenticatedRequest, PERMISSIONS) is preserved so
+ * the ~50 route files importing from here don't need to change.
+ *
+ * Flow:
+ *   1. Frontend (MSAL.js) acquires an access token for the SPA's App
+ *      Registration. Token is a signed JWT (RS256) from the Entra tenant.
+ *   2. axios attaches it as `Authorization: Bearer <jwt>`.
+ *   3. azureMiddleware() validates the signature against Microsoft's JWKS
+ *      endpoint, checks issuer/audience/expiry, and attaches a normalised
+ *      AuthContext to req.auth.
+ *   4. Downstream middleware/routes call getAuth(req) — same pattern as
+ *      before with @clerk/express.
+ *
+ * NOTE on the column name:
+ *   The users table column is still called `clerk_user_id`. We now store
+ *   the Azure `oid` (object id — a GUID, unique per user per tenant) in
+ *   that column. Kept the name to avoid churning 100+ lines of SQL across
+ *   route files; can be renamed in a future schema cleanup.
  */
-export async function requireClerkAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const auth = getAuth(req);
-  if (!auth?.userId) {
-    res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
-    return;
-  }
 
-  const bootstrapIds = (process.env.ADMIN_BOOTSTRAP_CLERK_USER_IDS ?? '')
-    .split(',').map(s => s.trim()).filter(Boolean);
-  if (bootstrapIds.includes(auth.userId)) {
-    next();
-    return;
-  }
+// ─── Env config ───────────────────────────────────────────────────────────
+const TENANT_ID = process.env.MICROSOFT_TENANT_ID ?? '';
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID ?? '';
+// Entra v2.0 issuer is tenant-specific. If you switch to multi-tenant,
+// change this to the `common` endpoint and validate `tid` claim manually.
+const AZURE_ISSUER = process.env.AZURE_ISSUER ?? `https://login.microsoftonline.com/${TENANT_ID}/v2.0`;
+// SPA tokens are bound to the App Registration's client id as audience.
+// If you also issue tokens for a custom Web API App Registration, set
+// AZURE_AUDIENCE to its Application ID URI (e.g. api://<guid>).
+const AZURE_AUDIENCE = process.env.AZURE_AUDIENCE ?? AZURE_CLIENT_ID;
 
-  try {
-    const user = await clerkClient.users.getUser(auth.userId);
-    const role = (user.publicMetadata?.role as string | undefined)?.toLowerCase();
-    if (role === 'admin' || role === 'ceo') {
-      next();
-      return;
-    }
-    res.status(403).json({
-      error: 'Forbidden',
-      message: `Clerk role '${role ?? 'none'}' does not have admin access`,
+if (!TENANT_ID) {
+  console.warn('[auth] MICROSOFT_TENANT_ID not set — JWT verification will fail.');
+}
+
+// ─── JWKS client (cached 24h — Microsoft rotates keys infrequently) ──────
+const jwks = jwksClient({
+  jwksUri: `https://login.microsoftonline.com/${TENANT_ID || 'common'}/discovery/v2.0/keys`,
+  cache: true,
+  cacheMaxEntries: 5,
+  cacheMaxAge: 24 * 60 * 60 * 1000,
+  rateLimit: true,
+  jwksRequestsPerMinute: 10,
+});
+
+function getSigningKey(kid: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    jwks.getSigningKey(kid, (err, key) => {
+      if (err || !key) return reject(err ?? new Error('no key'));
+      resolve(key.getPublicKey());
     });
-  } catch (err) {
-    console.error('[auth] requireClerkAdmin Clerk lookup failed:', (err as Error).message);
-    res.status(500).json({ error: 'Failed to verify admin role via Clerk' });
+  });
+}
+
+// ─── Claim shapes ─────────────────────────────────────────────────────────
+export interface AzureClaims extends JwtPayload {
+  oid: string;                    // User object id (stable GUID per user)
+  tid: string;                    // Tenant id
+  preferred_username?: string;    // Usually the UPN / email
+  email?: string;
+  name?: string;
+  roles?: string[];               // Azure App Roles (optional — we use DB role)
+}
+
+/**
+ * Public auth context attached to req.auth after successful verification.
+ * `userId` is kept named that way (instead of `oid`) so downstream code
+ * doesn't need to change.
+ */
+export interface AuthContext {
+  userId: string;       // Azure `oid` — stable per user per tenant
+  email: string | null;
+  name: string | null;
+  tid: string;
+  roles: string[];      // Azure-issued app roles (not used for DB RBAC)
+}
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      auth?: AuthContext;
+    }
   }
 }
 
+// ─── Middleware ───────────────────────────────────────────────────────────
+/**
+ * Global middleware (mounted once in index.ts). Parses the Bearer token
+ * if present, validates it, and populates req.auth. Missing/invalid tokens
+ * fall through with req.auth = undefined so the route-level requireAuth
+ * guard can return 401 with a consistent shape.
+ */
+export function azureMiddleware() {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) return next();
+    const token = header.slice('Bearer '.length).trim();
+    if (!token) return next();
+
+    try {
+      const decoded = jwt.decode(token, { complete: true });
+      if (!decoded || typeof decoded === 'string' || !decoded.header?.kid) return next();
+
+      const key = await getSigningKey(decoded.header.kid);
+      const verifyOpts: jwt.VerifyOptions = {
+        algorithms: ['RS256'],
+        issuer: AZURE_ISSUER,
+      };
+      if (AZURE_AUDIENCE) verifyOpts.audience = AZURE_AUDIENCE;
+
+      const claims = jwt.verify(token, key, verifyOpts) as AzureClaims;
+      if (!claims.oid) return next();
+
+      req.auth = {
+        userId: claims.oid,
+        email: (claims.email ?? claims.preferred_username ?? null)?.toLowerCase() ?? null,
+        name: claims.name ?? null,
+        tid: claims.tid,
+        roles: claims.roles ?? [],
+      };
+    } catch (err) {
+      // Swallow verify errors; unauthenticated requests fall through. Route
+      // guards return 401 with a consistent shape. Log in dev to help debug.
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[auth] JWT verify failed:', (err as Error).message);
+      }
+    }
+    next();
+  };
+}
+
+/**
+ * Compat shim — preserves the shape of @clerk/express's getAuth(req).
+ * Returns `{ userId }`-at-minimum so downstream callers like
+ * `getAuth(req)?.userId` keep working unchanged.
+ */
+export function getAuth(req: Request): AuthContext | undefined {
+  return req.auth;
+}
+
+// ─── Guards ───────────────────────────────────────────────────────────────
 export interface AuthenticatedRequest extends Request {
   userRecord?: {
     id: string;
-    clerk_user_id: string;
+    clerk_user_id: string;    // now holds Azure oid — see note at top
     email: string;
     name: string | null;
     role: string;
@@ -55,7 +161,7 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-// Permission definitions — maps permission key to allowed roles
+// Permission definitions — maps permission key to allowed roles. Unchanged.
 export const PERMISSIONS: Record<string, string[]> = {
   system_settings:      ['ceo', 'admin'],
   user_management:      ['ceo', 'manager', 'admin'],
@@ -163,7 +269,8 @@ export function requirePermission(permission: string) {
       }>('SELECT * FROM users WHERE clerk_user_id = $1', [auth.userId]);
 
       if (result.rows.length === 0) {
-        // If user not in DB, allow if they have a valid Clerk session (first login)
+        // If user not in DB, allow if they have a valid Azure session (first
+        // login before the sync middleware has inserted them).
         next();
         return;
       }
@@ -194,6 +301,54 @@ export function requirePermission(permission: string) {
       res.status(500).json({ error: 'Internal Server Error' });
     }
   };
+}
+
+/**
+ * DB-free admin check. Previously consulted Clerk's publicMetadata.role.
+ * Now reads the users table `role` column (populated by the user-sync
+ * middleware on first authenticated request). Still tolerant of the edge
+ * case where the user exists in Azure but has no DB row yet — in that
+ * case we fall back to the AZURE_ADMIN_OIDS allowlist.
+ *
+ * AZURE_ADMIN_OIDS is a comma-separated list of Azure `oid` values,
+ * replacing the old ADMIN_BOOTSTRAP_CLERK_USER_IDS env var.
+ */
+export async function requireClerkAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const auth = getAuth(req);
+  if (!auth?.userId) {
+    res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
+    return;
+  }
+
+  const bootstrapIds = (
+    process.env.AZURE_ADMIN_OIDS ??
+    process.env.ADMIN_BOOTSTRAP_CLERK_USER_IDS ?? // legacy var name, still honored
+    ''
+  )
+    .split(',').map(s => s.trim()).filter(Boolean);
+  if (bootstrapIds.includes(auth.userId)) {
+    next();
+    return;
+  }
+
+  try {
+    const result = await query<{ role: string }>(
+      'SELECT role FROM users WHERE clerk_user_id = $1',
+      [auth.userId]
+    );
+    const role = result.rows[0]?.role?.toLowerCase();
+    if (role === 'admin' || role === 'ceo') {
+      next();
+      return;
+    }
+    res.status(403).json({
+      error: 'Forbidden',
+      message: `Role '${role ?? 'none'}' does not have admin access`,
+    });
+  } catch (err) {
+    console.error('[auth] requireClerkAdmin DB lookup failed:', (err as Error).message);
+    res.status(500).json({ error: 'Failed to verify admin role' });
+  }
 }
 
 export async function logAudit(

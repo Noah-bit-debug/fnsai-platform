@@ -3,7 +3,7 @@ import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
@@ -200,21 +200,21 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// ─── Phase 4.1 — AI-assisted incident report creation ────────────────────────
+// â”€â”€â”€ Phase 4.1 â€” AI-assisted incident report creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Two endpoints. The guided-interview flow in the frontend calls them
 // alternately until the AI indicates it has enough answers, then asks
 // for a final narrative:
 //
-//   1. POST /ai-next-question  — given current answers + context, return
+//   1. POST /ai-next-question  â€” given current answers + context, return
 //      the next question to ask (or { done: true }).
-//   2. POST /ai-draft          — given the full set of answers, return a
+//   2. POST /ai-draft          â€” given the full set of answers, return a
 //      well-formed incident narrative to paste into the Description field.
 //
 // Both endpoints are narrow helpers: they never create or update an
 // incident on their own. The user still reviews + submits via the
 // existing POST /. Manual mode (typing straight into the textarea) is
-// always available — these endpoints are optional.
+// always available â€” these endpoints are optional.
 
 const aiNextSchema = z.object({
   type: z.string().min(1).max(100),
@@ -246,10 +246,10 @@ router.post('/ai-next-question', requireAuth, async (req: Request, res: Response
 
 Respond with ONE of:
 - A JSON object: { "question": "<your next question>" }
-- { "done": true }  — ONLY when you have enough facts for a solid report (typically 4-6 questions, rarely more than 8).
+- { "done": true }  â€” ONLY when you have enough facts for a solid report (typically 4-6 questions, rarely more than 8).
 
 Rules:
-- Questions should be plain English, ≤25 words.
+- Questions should be plain English, â‰¤25 words.
 - Do not repeat a topic already answered.
 - Prioritize facts that a compliance/HR reviewer would need.
 - If the reporter gave a thin answer, push once for specifics, then move on.
@@ -316,7 +316,7 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
   }
   const { type, staff_name, facility_name, date, answers } = parse.data;
 
-  const systemPrompt = `You write concise, factual incident narratives for healthcare staffing compliance records. Output plain prose — no bullet lists, no headings, no markdown. 3-6 sentences. Use the third person. Preserve all facts the user gave. Do NOT invent details the user didn't provide. Do NOT include personal opinions or recommendations. Do NOT add a closing signature line.`;
+  const systemPrompt = `You write concise, factual incident narratives for healthcare staffing compliance records. Output plain prose â€” no bullet lists, no headings, no markdown. 3-6 sentences. Use the third person. Preserve all facts the user gave. Do NOT invent details the user didn't provide. Do NOT include personal opinions or recommendations. Do NOT add a closing signature line.`;
 
   const ctx: string[] = [`Incident type: ${type}`];
   if (staff_name) ctx.push(`Staff: ${staff_name}`);

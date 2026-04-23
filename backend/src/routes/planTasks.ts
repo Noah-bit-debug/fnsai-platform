@@ -1,5 +1,5 @@
 /**
- * Phase 5.2 — Action Plan tasks
+ * Phase 5.2 â€” Action Plan tasks
  *
  * Backed CRUD for:
  *   * Tasks      (plan_tasks)
@@ -8,8 +8,8 @@
  *   * Reminders  (plan_task_reminders)
  *
  * Plus AI-assist endpoints:
- *   POST /ai-next-question — one question at a time to refine a task idea
- *   POST /ai-draft         — given collected answers, produce title +
+ *   POST /ai-next-question â€” one question at a time to refine a task idea
+ *   POST /ai-draft         â€” given collected answers, produce title +
  *                            category + priority + subtasks + notes +
  *                            a suggested reminder date.
  *
@@ -20,14 +20,14 @@ import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const uid = (req: Request): string => getAuth(req)?.userId ?? 'unknown';
 
-// ── Groups ──────────────────────────────────────────────────────────────
+// â”€â”€ Groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const groupSchema = z.object({
   name: z.string().min(1).max(100),
   color: z.string().max(16).optional().nullable(),
@@ -69,7 +69,7 @@ router.delete('/groups/:id', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// ── Tasks ───────────────────────────────────────────────────────────────
+// â”€â”€ Tasks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const taskSchema = z.object({
   title: z.string().min(1).max(300),
   category: z.string().max(50).optional().nullable(),
@@ -125,7 +125,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// Phase 5.2 QA fix — /upcoming-reminders MUST be registered BEFORE
+// Phase 5.2 QA fix â€” /upcoming-reminders MUST be registered BEFORE
 // /:id because Express matches in declaration order. If :id comes
 // first, a GET /upcoming-reminders matches as id="upcoming-reminders"
 // and the handler tries SELECT WHERE id='upcoming-reminders' which
@@ -191,7 +191,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   if (keys.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
   const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
   const vals = keys.map(k => (d as Record<string, unknown>)[k] ?? null);
-  // When flipping done → true, also stamp done_at
+  // When flipping done â†’ true, also stamp done_at
   const extraSet = d.done === true ? ', done_at = NOW()' : d.done === false ? ', done_at = NULL' : '';
   try {
     const result = await query(
@@ -217,7 +217,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// ── Subtasks ────────────────────────────────────────────────────────────
+// â”€â”€ Subtasks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const subtaskSchema = z.object({
   title: z.string().min(1).max(500),
   done: z.boolean().optional().default(false),
@@ -283,7 +283,7 @@ router.delete('/:id/subtasks/:sid', requireAuth, async (req: Request, res: Respo
   }
 });
 
-// ── Reminders ───────────────────────────────────────────────────────────
+// â”€â”€ Reminders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const reminderSchema = z.object({
   remind_at: z.string(),                        // ISO datetime
   message: z.string().max(1000).optional().nullable(),
@@ -334,10 +334,10 @@ router.delete('/:id/reminders/:rid', requireAuth, async (req: Request, res: Resp
 });
 
 // /upcoming-reminders moved to the top of the file above /:id (Phase 5.2
-// QA fix) — see comment there. This location is now a no-op; left only
+// QA fix) â€” see comment there. This location is now a no-op; left only
 // as a breadcrumb so future readers don't wonder where it went.
 
-// ── AI Guided task creation ─────────────────────────────────────────────
+// â”€â”€ AI Guided task creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const aiNextSchema = z.object({
   goal: z.string().max(1000),            // short user-typed goal
@@ -353,14 +353,14 @@ router.post('/ai-next-question', requireAuth, async (req: Request, res: Response
   const { goal, answers } = parse.data;
   if (answers.length >= 6) { res.json({ done: true }); return; }
 
-  const systemPrompt = `You help a healthcare staffing operator break a goal into an actionable task. Ask ONE short question at a time to clarify scope, owner, deadline, success criteria, or potential blockers. Never write the task itself — just ask questions.
+  const systemPrompt = `You help a healthcare staffing operator break a goal into an actionable task. Ask ONE short question at a time to clarify scope, owner, deadline, success criteria, or potential blockers. Never write the task itself â€” just ask questions.
 
 Respond with JSON ONLY, no markdown fences:
   { "question": "<your next question>" }   -- keep asking
   { "done": true }                         -- you have enough
 
 Rules:
-- Questions ≤20 words, plain English.
+- Questions â‰¤20 words, plain English.
 - Don't repeat a topic already answered.
 - Stop after 4-6 questions (rarely 7-8).
 - Push once for specifics when an answer is thin, then move on.`;
@@ -390,7 +390,7 @@ Rules:
     res.json({ done: false, question: parsed.question });
   } catch (err: any) {
     console.error('plan_tasks ai-next-question error:', err);
-    // Phase 5.2 QA — surface rate-limit (429) and overload (529)
+    // Phase 5.2 QA â€” surface rate-limit (429) and overload (529)
     // separately so the frontend can auto-retry vs. show a persistent
     // banner. 529 = Anthropic is currently over capacity; usually
     // resolves in <30s.
@@ -413,14 +413,14 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
   const { goal, answers } = parse.data;
 
-  // Phase 6.6 QA fix — include today's date in the prompt so Claude
+  // Phase 6.6 QA fix â€” include today's date in the prompt so Claude
   // doesn't draft due dates in the past. Without this the model
   // defaults to its training-cutoff date, which was producing 2025
   // dates in mid-2026.
   const today = new Date().toISOString().slice(0, 10);
   const systemPrompt = `You turn a goal + collected answers into a concrete task definition for a healthcare staffing ops team.
 
-Today's date is ${today}. All due dates you generate MUST be on or after this date — never in the past.
+Today's date is ${today}. All due dates you generate MUST be on or after this date â€” never in the past.
 
 Return JSON only, no markdown fences:
 
@@ -430,16 +430,16 @@ Return JSON only, no markdown fences:
   "priority": "High|Medium|Low",
   "due_date": "YYYY-MM-DD (must be >= ${today}) or null",
   "notes": "<2-4 sentence context capturing what the answers revealed>",
-  "subtasks": ["<ordered actionable steps, 3-8 items, each ≤120 chars>"],
+  "subtasks": ["<ordered actionable steps, 3-8 items, each â‰¤120 chars>"],
   "suggested_reminder_days": <integer 1-30, how many days before due_date to remind; null if no due date>
 }
 
 Rules:
 - Subtasks must be verb-first and actionable ("Call Sarah at BankEasy to confirm account number", not "Account stuff").
-- If the answers didn't pin down a date, set due_date to null. Do NOT guess a date from training data — use today (${today}) as the earliest possible date.
+- If the answers didn't pin down a date, set due_date to null. Do NOT guess a date from training data â€” use today (${today}) as the earliest possible date.
 - If the user said "by Friday" or "next week", calculate the actual YYYY-MM-DD relative to ${today}.
 - Do not invent facts the answers didn't provide.
-- priority = High if the answers indicate a blocker / deadline in ≤7 days; Medium otherwise; Low if purely housekeeping.`;
+- priority = High if the answers indicate a blocker / deadline in â‰¤7 days; Medium otherwise; Low if purely housekeeping.`;
 
   const ctx: string[] = [`Goal: ${goal}`, '', 'Collected answers:'];
   answers.forEach((a, i) => ctx.push(`${i + 1}. Q: ${a.question}\n   A: ${a.answer}`));
@@ -463,18 +463,18 @@ Rules:
     catch { res.status(502).json({ error: 'AI returned malformed JSON.', raw_preview: raw.slice(0, 500) }); return; }
     if (!parsed.title) { res.status(502).json({ error: 'AI response missing title' }); return; }
 
-    // Phase 6.6 QA fix — belt-and-suspenders guard against Claude
+    // Phase 6.6 QA fix â€” belt-and-suspenders guard against Claude
     // emitting a due_date in the past despite the prompt. If it does,
     // null it out so the frontend doesn't save an overdue task out of
     // the gate.
     let dueDate: string | null = parsed.due_date ?? null;
     if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
       if (dueDate < today) {
-        console.warn('[plan-tasks] AI returned past due_date', dueDate, 'today is', today, '— nulling it out');
+        console.warn('[plan-tasks] AI returned past due_date', dueDate, 'today is', today, 'â€” nulling it out');
         dueDate = null;
       }
     } else if (dueDate) {
-      // malformed string → drop
+      // malformed string â†’ drop
       dueDate = null;
     }
 
@@ -489,7 +489,7 @@ Rules:
     });
   } catch (err: any) {
     console.error('plan_tasks ai-draft error:', err);
-    // Phase 5.2 QA — surface rate-limit (429) and overload (529)
+    // Phase 5.2 QA â€” surface rate-limit (429) and overload (529)
     // separately so the frontend can auto-retry vs. show a persistent
     // banner. 529 = Anthropic is currently over capacity; usually
     // resolves in <30s.

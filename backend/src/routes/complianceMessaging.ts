@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth, getAuth } from '@clerk/express';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 
 const router = Router();
 
-// ─── GET / — inbox (received messages) ───────────────────────────────────────
-router.get('/', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET / â€” inbox (received messages) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -29,8 +29,8 @@ router.get('/', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /sent — sent messages ────────────────────────────────────────────────
-router.get('/sent', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /sent â€” sent messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/sent', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -49,8 +49,8 @@ router.get('/sent', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /unread-count ────────────────────────────────────────────────────────
-router.get('/unread-count', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ GET /unread-count â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get('/unread-count', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -68,8 +68,8 @@ router.get('/unread-count', requireAuth(), async (req: Request, res: Response) =
   }
 });
 
-// ─── POST / — send a message ──────────────────────────────────────────────────
-router.post('/', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST / â€” send a message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -122,9 +122,9 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /:id — get a message with its replies ────────────────────────────────
+// â”€â”€â”€ GET /:id â€” get a message with its replies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // NOTE: This route must come AFTER named sub-routes (/sent, /unread-count)
-router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
+router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -155,8 +155,8 @@ router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── POST /:id/reply ──────────────────────────────────────────────────────────
-router.post('/:id/reply', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/reply', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -208,8 +208,8 @@ router.post('/:id/reply', requireAuth(), async (req: Request, res: Response) => 
   }
 });
 
-// ─── POST /:id/read — mark as read ────────────────────────────────────────────
-router.post('/:id/read', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ POST /:id/read â€” mark as read â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.post('/:id/read', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -230,8 +230,8 @@ router.post('/:id/read', requireAuth(), async (req: Request, res: Response) => {
   }
 });
 
-// ─── DELETE /:id — archive (soft delete) ─────────────────────────────────────
-router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
+// â”€â”€â”€ DELETE /:id â€” archive (soft delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });

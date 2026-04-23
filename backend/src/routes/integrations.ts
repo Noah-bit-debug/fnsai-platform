@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
-import { getAuth } from '@clerk/express';
+import { getAuth } from '../middleware/auth';
 
 const router = Router();
 
 const SUPPORTED_TYPES = ['quickbooks', 'onedrive', 'teams', 'outlook', 'sharepoint', 'custom'] as const;
 
-// GET /health/all — must be declared before /:id to avoid route conflict
+// GET /health/all â€” must be declared before /:id to avoid route conflict
 router.get('/health/all', requireAuth, requirePermission('integrations_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -31,7 +31,7 @@ router.get('/health/all', requireAuth, requirePermission('integrations_view'), a
   }
 });
 
-// GET / — list all integrations
+// GET / â€” list all integrations
 router.get('/', requireAuth, requirePermission('integrations_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -50,7 +50,7 @@ router.get('/', requireAuth, requirePermission('integrations_view'), async (_req
   }
 });
 
-// POST / — create integration
+// POST / â€” create integration
 router.post('/', requireAuth, requirePermission('integrations_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { type, name, config, sync_frequency_minutes } = req.body;
   const auth = getAuth(req);
@@ -80,7 +80,7 @@ router.post('/', requireAuth, requirePermission('integrations_manage'), async (r
     res.status(500).json({ error: 'Failed to create integration' });
   }
 });
-// GET /status — env-var-driven readiness pills for Settings → Integrations
+// GET /status â€” env-var-driven readiness pills for Settings â†’ Integrations
 router.get('/status', requireAuth, requirePermission('integrations_view'), async (_req: Request, res: Response) => {
   const has = (...keys: string[]) =>
     keys.every(k => !!(process.env[k] && process.env[k]!.trim()));
@@ -115,7 +115,7 @@ router.get('/status', requireAuth, requirePermission('integrations_view'), async
   });
 });
 
-// GET /:id — get integration details + recent sync logs
+// GET /:id â€” get integration details + recent sync logs
 router.get('/:id', requireAuth, requirePermission('integrations_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
 if (!/^\d+$/.test(id)) { res.status(404).json({ error: 'Integration not found' }); return; }
@@ -139,7 +139,7 @@ if (!/^\d+$/.test(id)) { res.status(404).json({ error: 'Integration not found' }
   }
 });
 
-// PATCH /:id — update integration config/status
+// PATCH /:id â€” update integration config/status
 router.patch('/:id', requireAuth, requirePermission('integrations_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { name, config, status, sync_frequency_minutes } = req.body;
@@ -175,7 +175,7 @@ router.patch('/:id', requireAuth, requirePermission('integrations_manage'), asyn
   }
 });
 
-// DELETE /:id — remove integration
+// DELETE /:id â€” remove integration
 router.delete('/:id', requireAuth, requirePermission('integrations_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -196,7 +196,7 @@ router.delete('/:id', requireAuth, requirePermission('integrations_manage'), asy
   }
 });
 
-// POST /:id/sync — trigger manual sync
+// POST /:id/sync â€” trigger manual sync
 router.post('/:id/sync', requireAuth, requirePermission('integrations_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -248,7 +248,7 @@ router.post('/:id/sync', requireAuth, requirePermission('integrations_manage'), 
   }
 });
 
-// GET /:id/logs — get sync logs for integration
+// GET /:id/logs â€” get sync logs for integration
 router.get('/:id/logs', requireAuth, requirePermission('integrations_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);

@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '@clerk/express';
+import { requireAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET /overview — overall compliance dashboard data
+// GET /overview â€” overall compliance dashboard data
 // ---------------------------------------------------------------------------
 
-router.get('/overview', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/overview', requireAuth, async (_req: Request, res: Response) => {
   try {
     const [
       statusBreakdown,
@@ -96,10 +96,10 @@ router.get('/overview', requireAuth(), async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /users — per-user completion stats
+// GET /users â€” per-user completion stats
 // ---------------------------------------------------------------------------
 
-router.get('/users', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/users', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -140,10 +140,10 @@ router.get('/users', requireAuth(), async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /content — per-content-item completion rates
+// GET /content â€” per-content-item completion rates
 // ---------------------------------------------------------------------------
 
-router.get('/content', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/content', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -183,10 +183,10 @@ router.get('/content', requireAuth(), async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /expiring — items expiring in next N days (default 30, ?days=N)
+// GET /expiring â€” items expiring in next N days (default 30, ?days=N)
 // ---------------------------------------------------------------------------
 
-router.get('/expiring', requireAuth(), async (req: Request, res: Response) => {
+router.get('/expiring', requireAuth, async (req: Request, res: Response) => {
   try {
     const days = parseInt((req.query.days as string) ?? '30', 10);
 
@@ -207,10 +207,10 @@ router.get('/expiring', requireAuth(), async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /overdue — past due, not completed
+// GET /overdue â€” past due, not completed
 // ---------------------------------------------------------------------------
 
-router.get('/overdue', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/overdue', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT *,
@@ -229,10 +229,10 @@ router.get('/overdue', requireAuth(), async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /notifications — recent notification log (last 100)
+// GET /notifications â€” recent notification log (last 100)
 // ---------------------------------------------------------------------------
 
-router.get('/notifications', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/notifications', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT *
@@ -249,10 +249,10 @@ router.get('/notifications', requireAuth(), async (_req: Request, res: Response)
 });
 
 // ---------------------------------------------------------------------------
-// GET /user/:userId — Full compliance report for a specific user.
+// GET /user/:userId â€” Full compliance report for a specific user.
 // ---------------------------------------------------------------------------
 
-router.get('/user/:userId', requireAuth(), async (req: Request, res: Response) => {
+router.get('/user/:userId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -319,10 +319,10 @@ router.get('/user/:userId', requireAuth(), async (req: Request, res: Response) =
 });
 
 // ---------------------------------------------------------------------------
-// GET /exam/:examId — Exam analytics.
+// GET /exam/:examId â€” Exam analytics.
 // ---------------------------------------------------------------------------
 
-router.get('/exam/:examId', requireAuth(), async (req: Request, res: Response) => {
+router.get('/exam/:examId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { examId } = req.params;
 
@@ -396,10 +396,10 @@ router.get('/exam/:examId', requireAuth(), async (req: Request, res: Response) =
 });
 
 // ---------------------------------------------------------------------------
-// GET /trends — Completion trends last 30 days.
+// GET /trends â€” Completion trends last 30 days.
 // ---------------------------------------------------------------------------
 
-router.get('/trends', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/trends', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -433,10 +433,10 @@ router.get('/trends', requireAuth(), async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /export/records — CSV export of competency records.
+// GET /export/records â€” CSV export of competency records.
 // ---------------------------------------------------------------------------
 
-router.get('/export/records', requireAuth(), async (req: Request, res: Response) => {
+router.get('/export/records', requireAuth, async (req: Request, res: Response) => {
   try {
     const { status, item_type, user_clerk_id, from_date, to_date } = req.query as Record<string, string | undefined>;
 
@@ -509,10 +509,10 @@ router.get('/export/records', requireAuth(), async (req: Request, res: Response)
 });
 
 // ---------------------------------------------------------------------------
-// GET /export/certificates — CSV export of all certificates.
+// GET /export/certificates â€” CSV export of all certificates.
 // ---------------------------------------------------------------------------
 
-router.get('/export/certificates', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/export/certificates', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT id, user_clerk_id, title, certificate_number, issued_at, expires_at

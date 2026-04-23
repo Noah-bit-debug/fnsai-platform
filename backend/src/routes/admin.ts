@@ -1,9 +1,8 @@
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getAuth, clerkClient } from '@clerk/express';
-import { requireAuth, requireClerkAdmin } from '../middleware/auth';
-import { pool } from '../db/client';
+import { getAuth, requireAuth, requireClerkAdmin } from '../middleware/auth';
+import { pool, query } from '../db/client';
 
 /**
  * Admin-only operational endpoints. Keep this small and tightly gated —
@@ -161,10 +160,14 @@ router.get('/schema-check', requireAuth, requireClerkAdmin, async (_req: Request
   }
 });
 
-// GET /whoami — DB-free identity echo. Returns the caller's Clerk user id,
-// email, and publicMetadata role. Useful for "why can't I access X" debugging
-// without having to paste the JWT into clerk.dev. No auth beyond a valid
-// session — this is identity-about-you, not privileged data.
+// GET /whoami — identity echo. Returns the caller's Azure oid, email, name,
+// and resolved DB role. Useful for "why can't I access X" debugging without
+// having to decode the JWT by hand. No auth beyond a valid session — this
+// is identity-about-you, not privileged data.
+//
+// Field names keep the `clerk_` prefix for API backward-compatibility with
+// any frontend that was built against the original shape; the value is now
+// the Azure object id (oid).
 router.get('/whoami', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
   if (!auth?.userId) {
@@ -172,19 +175,24 @@ router.get('/whoami', requireAuth, async (req: Request, res: Response) => {
     return;
   }
   try {
-    const user = await clerkClient.users.getUser(auth.userId);
+    const result = await query<{ role: string | null; email: string | null; name: string | null }>(
+      'SELECT role, email, name FROM users WHERE clerk_user_id = $1',
+      [auth.userId]
+    );
+    const row = result.rows[0];
+    const role = row?.role ?? null;
     res.json({
-      clerk_user_id: auth.userId,
-      email: user.emailAddresses?.[0]?.emailAddress ?? null,
-      name: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
-      role_in_clerk_metadata: user.publicMetadata?.role ?? null,
-      is_admin_via_clerk: ['admin', 'ceo'].includes(
-        ((user.publicMetadata?.role as string | undefined) ?? '').toLowerCase()
-      ),
+      clerk_user_id: auth.userId,     // legacy field name — holds Azure oid
+      azure_oid: auth.userId,
+      email: row?.email ?? auth.email ?? null,
+      name: row?.name ?? auth.name ?? null,
+      role_in_db: role,
+      is_admin: ['admin', 'ceo'].includes((role ?? '').toLowerCase()),
+      tenant_id: auth.tid,
     });
   } catch (err) {
     console.error('[admin] whoami failed:', (err as Error).message);
-    res.status(500).json({ error: 'Failed to load Clerk user' });
+    res.status(500).json({ error: 'Failed to load user' });
   }
 });
 

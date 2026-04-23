@@ -1,11 +1,11 @@
 import { lazy, Suspense } from 'react';
-import { useUser, SignIn, RedirectToSignIn } from '@clerk/clerk-react';
+import { useUser, SignIn, RedirectToSignIn } from './lib/auth';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { RBACProvider } from './contexts/RBACContext';
 import AppShell from './components/Layout/AppShell';
 import RootErrorBoundary from './components/RootErrorBoundary';
 
-// ─── Eager (hot-path pages) ─────────────────────────────────────────────────
+// â”€â”€â”€ Eager (hot-path pages) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import Dashboard from './pages/Dashboard';
 import CandidateList from './pages/candidates/CandidateList';
 import JobList from './pages/jobs/JobList';
@@ -14,7 +14,7 @@ import Pipeline from './pages/Pipeline';
 import KanbanBoard from './pages/KanbanBoard';
 import Tasks from './pages/Tasks';
 
-// ─── Lazy (loaded on demand) ────────────────────────────────────────────────
+// â”€â”€â”€ Lazy (loaded on demand) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Recruiting
 const CandidateNew = lazy(() => import('./pages/candidates/CandidateNew'));
 const CandidateDetail = lazy(() => import('./pages/candidates/CandidateDetail'));
@@ -50,7 +50,7 @@ const Attendance = lazy(() => import('./pages/Attendance'));
 const TimeTrackingManager = lazy(() => import('./pages/TimeTrackingManager'));
 const TimeTrackingAdmin = lazy(() => import('./pages/TimeTrackingAdmin'));
 
-// eSign — heavy (pdf + signature)
+// eSign â€” heavy (pdf + signature)
 const SignDocument = lazy(() => import('./pages/SignDocument'));
 const ESignDashboard = lazy(() => import('./pages/esign/ESignDashboard'));
 const ESignDocuments = lazy(() => import('./pages/esign/ESignDocuments'));
@@ -61,11 +61,11 @@ const ESignPrepare = lazy(() => import('./pages/esign/ESignPrepare'));
 const ESignTemplates = lazy(() => import('./pages/esign/ESignTemplates'));
 const ESignForms = lazy(() => import('./pages/esign/ESignForms'));
 
-// Compliance — 25+ pages, all lazy
+// Compliance â€” 25+ pages, all lazy
 const ComplianceReports = lazy(() => import('./pages/compliance/ComplianceReports'));
 const MyCertificates = lazy(() => import('./pages/compliance/MyCertificates'));
 const CertificateVerify = lazy(() => import('./pages/compliance/CertificateVerify'));
-// Phase 6.5 — public client portal (token-auth, no sign-in required)
+// Phase 6.5 â€” public client portal (token-auth, no sign-in required)
 const ClientPortalView = lazy(() => import('./pages/ClientPortalView'));
 const ComplianceAdminHub = lazy(() => import('./pages/compliance/ComplianceAdminHub'));
 const CategoryManager = lazy(() => import('./pages/compliance/CategoryManager'));
@@ -142,10 +142,10 @@ const Security = lazy(() => import('./pages/Security'));
 const IntegrationSettings = lazy(() => import('./pages/IntegrationSettings'));
 const ErrorLog = lazy(() => import('./pages/admin/ErrorLog'));
 
-// DEV BYPASS — set localStorage.setItem('fnsai_dev_bypass','1') in console to skip auth
+// DEV BYPASS â€” set localStorage.setItem('fnsai_dev_bypass','1') in console to skip auth
 const DEV_BYPASS = import.meta.env.DEV && localStorage.getItem('fnsai_dev_bypass') === '1';
 
-// ─── Fallbacks ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Fallbacks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PageSpinner() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60 }}>
@@ -165,14 +165,14 @@ function PageSpinner() {
 }
 
 // Unused AILearning + DocumentQA references (old redirects use Navigate, but TS flags them)
-// are silenced by re-exporting — kept in case any route is re-added later.
+// are silenced by re-exporting â€” kept in case any route is re-added later.
 void AILearning;
 void DocumentQA;
 
 function App() {
   const { isLoaded, isSignedIn } = useUser();
 
-  // DEV bypass — skip auth entirely for pressure testing
+  // DEV bypass â€” skip auth entirely for pressure testing
   if (DEV_BYPASS) return <RBACProvider><AppRoutes /></RBACProvider>;
 
   if (!isLoaded) {
@@ -218,7 +218,7 @@ function App() {
           FNS <span style={{ color: 'var(--ac)' }}>AI</span>
         </div>
         <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 24 }}>
-          FNS AI Compliance Infrastructure — Secure Login
+          FNS AI Compliance Infrastructure â€” Secure Login
         </div>
         <SignIn routing="hash" />
       </div>
@@ -265,7 +265,7 @@ function AppRoutes() {
           <Route path="credentialing" element={<Credentialing />} />
           <Route path="placements" element={<Placements />} />
           <Route path="checklists" element={<Checklists />} />
-          {/* Phase 4.4 — scheduling + PTO */}
+          {/* Phase 4.4 â€” scheduling + PTO */}
           <Route path="scheduling" element={<Scheduling />} />
           <Route path="pto" element={<PTO />} />
 
@@ -292,7 +292,7 @@ function AppRoutes() {
           {/* AI System */}
           <Route path="ai-assistant" element={<AIAssistant />} />
           <Route path="ai-knowledge" element={<AIKnowledgeBase />} />
-          {/* Redirect old AI URLs → consolidated AI Knowledge Base */}
+          {/* Redirect old AI URLs â†’ consolidated AI Knowledge Base */}
           <Route path="knowledge"    element={<Navigate to="/ai-knowledge" replace />} />
           <Route path="ai-learning"  element={<Navigate to="/ai-knowledge" replace />} />
           <Route path="ai-brain" element={<AIBrain />} />
@@ -350,7 +350,7 @@ function AppRoutes() {
           <Route path="/compliance/admin/bundles/new" element={<BundleEditor />} />
           <Route path="/compliance/admin/bundles/:id/edit" element={<BundleEditor />} />
           <Route path="/compliance/admin/bundles/:id/assign" element={<BundleAssign />} />
-          {/* Phase 2.6 — Courses. `/new` must come BEFORE `/:id/edit` so it
+          {/* Phase 2.6 â€” Courses. `/new` must come BEFORE `/:id/edit` so it
               doesn't get matched as id="new" by a stricter guard. */}
           <Route path="/compliance/admin/courses" element={<CourseList />} />
           <Route path="/compliance/admin/courses/new" element={<CourseEditor />} />
@@ -364,7 +364,7 @@ function AppRoutes() {
           <Route path="/compliance/certificates" element={<MyCertificates />} />
           <Route path="/compliance/admin/reports" element={<ComplianceReports />} />
 
-          {/* eSign — full module */}
+          {/* eSign â€” full module */}
           <Route path="esign" element={<ESignDashboard />} />
           <Route path="esign/documents" element={<ESignDocuments />} />
           <Route path="esign/documents/new" element={<ESignDocumentNew />} />
@@ -398,13 +398,13 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
 
-        {/* Public signing page — no auth wrapper */}
+        {/* Public signing page â€” no auth wrapper */}
         <Route path="/sign/:token" element={<SignDocument />} />
 
-        {/* Public certificate verification — no auth */}
+        {/* Public certificate verification â€” no auth */}
         <Route path="/verify-cert/:number" element={<CertificateVerify />} />
 
-        {/* Phase 6.5 — Public client portal view. Token in URL is the
+        {/* Phase 6.5 â€” Public client portal view. Token in URL is the
             only credential. Backend validates + revokes + expires. */}
         <Route path="/client-view/:token" element={<ClientPortalView />} />
 
