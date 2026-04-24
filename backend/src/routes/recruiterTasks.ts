@@ -1,10 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import Anthropic from '@anthropic-ai/sdk';
 import { getAuth } from '../middleware/auth';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
+import { MODEL_FOR } from '../services/aiModels';
 
 const router = Router();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const taskSchema = z.object({
   title: z.string().min(1).max(300),
@@ -159,6 +162,184 @@ router.delete('/:id', requireAuth, requirePermission('reminders_manage'), async 
   } catch (err) {
     console.error('Task cancel error:', err);
     res.status(500).json({ error: 'Failed to cancel task' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// AI-assisted task creation — mirrors the Action Plan wizard pattern
+// (plan-tasks/ai-next-question + plan-tasks/ai-draft), but tuned for
+// recruiting workflows (candidates, submissions, clients, interviews,
+// follow-ups) and the recruiter_tasks data shape (task_type enum,
+// due_at timestamp, reminder_minutes_before).
+//
+// Flow:
+//   1. POST /ai-next-question  — AI asks one refining question; returns
+//                                 { done: true } once it has enough
+//   2. POST /ai-draft          — AI emits a concrete draft task:
+//                                 { title, task_type, due_at, description,
+//                                   reminder_minutes_before }
+//
+// The frontend wizard walks the user through 3–6 questions and then
+// shows the draft in an editable form before calling tasksApi.create.
+// ─────────────────────────────────────────────────────────────────────
+
+const aiNextSchema = z.object({
+  goal: z.string().max(1000),
+  answers: z.array(z.object({
+    question: z.string().max(500),
+    answer: z.string().max(5000),
+  })).max(10),
+});
+
+router.post('/ai-next-question', requireAuth, async (req: Request, res: Response) => {
+  const parse = aiNextSchema.safeParse(req.body);
+  if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
+  const { goal, answers } = parse.data;
+  if (answers.length >= 6) { res.json({ done: true }); return; }
+
+  const systemPrompt = `You help a healthcare-staffing recruiter turn a vague task idea into a concrete recruiter_tasks row. Ask ONE short clarifying question at a time. Focus on:
+- WHO the task involves (candidate name, client/facility, job/submission)
+- WHAT the task type really is (call, meeting, email, SMS, follow-up, todo)
+- WHEN it needs to happen (specific day + time if possible — recruiters use tight schedules)
+- WHY it matters / urgency (screening today vs. 30-day follow-up)
+
+Respond with JSON ONLY, no markdown fences:
+  { "question": "<your next question>" }   -- keep asking
+  { "done": true }                         -- you have enough
+
+Rules:
+- Questions ≤20 words, plain English, recruiter-speak ok ("Who's the candidate?" not "What is the target individual?").
+- Don't repeat a topic already answered.
+- Stop after 3-5 questions (rarely 6).
+- Be pragmatic: skip the "why" if context is already clear.`;
+
+  const ctx: string[] = [`Goal: ${goal}`];
+  if (answers.length === 0) ctx.push('No answers yet. Ask the first useful question.');
+  else {
+    ctx.push('Answers so far:');
+    answers.forEach((a, i) => ctx.push(`${i + 1}. Q: ${a.question}\n   A: ${a.answer}`));
+  }
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.taskDraft,
+      max_tokens: 200,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: ctx.join('\n') }],
+    });
+    const raw = (response.content[0] as { type: string; text: string }).text;
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{'); const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+    let parsed: { question?: string; done?: boolean };
+    try { parsed = JSON.parse(jsonStr); } catch { parsed = { question: cleaned.slice(0, 300) }; }
+    if (parsed.done) { res.json({ done: true }); return; }
+    if (!parsed.question) { res.json({ done: true }); return; }
+    res.json({ done: false, question: parsed.question });
+  } catch (err: any) {
+    console.error('recruiter-tasks ai-next-question error:', err);
+    // Same 429/529 handling pattern as plan-tasks + AI chat.
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.', retry_after_seconds: 15 }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is temporarily over capacity. Retrying usually works within a minute.', retry_after_seconds: 30 }); return; }
+    res.status(500).json({ error: `AI failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
+  }
+});
+
+const aiDraftSchema = z.object({
+  goal: z.string().max(1000),
+  answers: z.array(z.object({
+    question: z.string().max(500),
+    answer: z.string().max(5000),
+  })).min(1).max(10),
+});
+
+router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
+  const parse = aiDraftSchema.safeParse(req.body);
+  if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
+  const { goal, answers } = parse.data;
+
+  // Include today's date so Claude doesn't draft tasks in the past.
+  const today = new Date().toISOString().slice(0, 10);
+  const systemPrompt = `You turn a recruiter's goal + collected answers into a concrete task definition.
+
+Today's date is ${today}. All due_at timestamps MUST be on or after ${today}T00:00:00Z — never in the past.
+
+Return JSON only, no markdown fences:
+
+{
+  "title": "<short action-verb title, under 120 chars>",
+  "task_type": "call | meeting | email | sms | follow_up | todo | other",
+  "due_at": "YYYY-MM-DDTHH:MM:00Z (ISO 8601 UTC) or null",
+  "description": "<1-3 sentences of context from the answers>",
+  "reminder_minutes_before": <integer 5..1440 or null>
+}
+
+Rules:
+- task_type must be ONE of: call, meeting, email, sms, follow_up, todo, other.
+- If the user said "tomorrow at 2pm", calculate the actual ISO timestamp relative to ${today} in UTC. Assume America/New_York (UTC-4 currently) unless the answers say otherwise.
+- If no specific time was mentioned, pick a sensible default (9am local for morning tasks, 2pm for afternoon, null if open-ended).
+- reminder_minutes_before: 60 for same-day tasks, 1440 (24h) for next-day meetings, null for low-urgency tasks.
+- Never invent a candidate/client name that wasn't mentioned — just describe the context.`;
+
+  const ctx: string[] = [`Goal: ${goal}`, '', 'Collected answers:'];
+  answers.forEach((a, i) => ctx.push(`${i + 1}. Q: ${a.question}\n   A: ${a.answer}`));
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.taskDraft,
+      max_tokens: 800,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: ctx.join('\n') }],
+    });
+    const raw = (response.content[0] as { type: string; text: string }).text;
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{'); const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+    let parsed: {
+      title?: string;
+      task_type?: string;
+      due_at?: string | null;
+      description?: string;
+      reminder_minutes_before?: number | null;
+    };
+    try { parsed = JSON.parse(jsonStr); }
+    catch { res.status(502).json({ error: 'AI returned malformed JSON.', raw_preview: raw.slice(0, 500) }); return; }
+    if (!parsed.title) { res.status(502).json({ error: 'AI response missing title' }); return; }
+
+    // Guard: clamp task_type to the enum, default to 'todo'.
+    const validTypes = ['call', 'meeting', 'email', 'sms', 'follow_up', 'todo', 'other'];
+    const taskType = validTypes.includes(parsed.task_type ?? '') ? parsed.task_type! : 'todo';
+
+    // Guard: drop past or malformed due_at.
+    let dueAt: string | null = parsed.due_at ?? null;
+    if (dueAt) {
+      const parsedDate = new Date(dueAt);
+      if (isNaN(parsedDate.getTime()) || parsedDate.getTime() < Date.now() - 60_000) {
+        console.warn('[recruiter-tasks] AI returned past/bad due_at', dueAt, '— nulling out');
+        dueAt = null;
+      } else {
+        dueAt = parsedDate.toISOString();
+      }
+    }
+
+    // Guard: clamp reminder to 5..1440 minutes.
+    let reminder: number | null = parsed.reminder_minutes_before ?? null;
+    if (reminder != null) {
+      reminder = Math.max(5, Math.min(1440, Math.round(reminder)));
+    }
+
+    res.json({
+      title: parsed.title.slice(0, 120),
+      task_type: taskType,
+      due_at: dueAt,
+      description: (parsed.description ?? '').slice(0, 2000),
+      reminder_minutes_before: reminder,
+    });
+  } catch (err: any) {
+    console.error('recruiter-tasks ai-draft error:', err);
+    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.', retry_after_seconds: 15 }); return; }
+    if (err?.status === 529) { res.status(503).json({ error: 'Claude is temporarily over capacity. Retrying usually works within a minute.', retry_after_seconds: 30 }); return; }
+    res.status(500).json({ error: `AI failed: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });
 

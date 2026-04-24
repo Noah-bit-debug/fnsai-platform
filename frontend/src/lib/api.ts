@@ -2450,6 +2450,14 @@ export const candidateSavedViewsApi = {
   delete: (id: string) => api.delete(`/candidates/saved-views/${id}`),
 };
 
+export interface RecruiterTaskAIDraftResult {
+  title: string;
+  task_type: 'call' | 'meeting' | 'email' | 'sms' | 'follow_up' | 'todo' | 'other';
+  due_at: string | null;
+  description: string;
+  reminder_minutes_before: number | null;
+}
+
 export const tasksApi = {
   list: (params?: {
     assigned_to?: string;
@@ -2465,6 +2473,13 @@ export const tasksApi = {
   update: (id: string, data: Partial<RecruiterTask>) => api.put<{ task: RecruiterTask }>(`/tasks/${id}`, data),
   complete: (id: string) => api.post<{ task: RecruiterTask }>(`/tasks/${id}/complete`),
   cancel: (id: string) => api.delete(`/tasks/${id}`),
+
+  // AI-assisted task creation — same contract as the Action Plan wizard but
+  // tuned for recruiter workflows. See backend/src/routes/recruiterTasks.ts.
+  aiNextQuestion: (data: { goal: string; answers: { question: string; answer: string }[] }) =>
+    api.post<{ done: boolean; question?: string }>('/tasks/ai-next-question', data),
+  aiDraft: (data: { goal: string; answers: { question: string; answer: string }[] }) =>
+    api.post<RecruiterTaskAIDraftResult>('/tasks/ai-draft', data),
 };
 
 export default api;
