@@ -213,6 +213,7 @@ const NAV_GROUPS: NavGroupDef[] = [
       { to: '/settings/roles',                  icon: '🛡️', label: 'Roles & Permissions',    roles: ['ceo', 'admin'], permissions: ['admin.roles.manage'] },
       { to: '/settings/user-access',            icon: '👤', label: 'User Access',            roles: ['ceo', 'admin'], permissions: ['admin.users.manage'] },
       { to: '/settings/audit-log',              icon: '📜', label: 'Security Audit Log',     roles: ['ceo', 'admin'], permissions: ['admin.security_logs.view', 'admin.ai_logs.view'] },
+      { to: '/settings/api-docs',               icon: '📘', label: 'API Documentation',      roles: ['ceo', 'admin'], permissions: ['admin.integrations.manage'] },
       { to: '/settings/error-log',              icon: '🪲', label: 'Error Log',              roles: ['ceo', 'admin'], permissions: ['admin.integrations.manage'] },
       { to: '/compliance/admin/categories',     icon: '🗂️', label: 'Compliance Categories',  roles: ['ceo', 'admin'], permissions: ['compliance.policies.manage'] },
       { to: '/compliance/admin/notifications',  icon: '🔔', label: 'Compliance Notifications', roles: ['ceo', 'admin'], permissions: ['compliance.policies.manage'] },

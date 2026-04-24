@@ -150,6 +150,7 @@ const SecurityAuditLog  = lazy(() => import('./pages/admin/SecurityAuditLog'));
 const UserAuditDetail   = lazy(() => import('./pages/admin/UserAuditDetail'));
 const MyPermissions     = lazy(() => import('./pages/admin/MyPermissions'));
 const NotificationCenter = lazy(() => import('./pages/NotificationCenter'));
+const ApiDocs = lazy(() => import('./pages/admin/ApiDocs'));
 
 import ViewAsRoleBanner from './components/admin/ViewAsRoleBanner';
 
@@ -417,6 +418,7 @@ function AppRoutes() {
           <Route path="settings/audit-log/user/:userId" element={<UserAuditDetail />} />
           <Route path="settings/my-permissions" element={<MyPermissions />} />
           <Route path="notifications" element={<NotificationCenter />} />
+          <Route path="settings/api-docs" element={<ApiDocs />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

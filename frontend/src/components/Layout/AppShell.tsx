@@ -8,6 +8,7 @@ import RootErrorBoundary from '../RootErrorBoundary';
 import ViewAsRoleBanner from '../admin/ViewAsRoleBanner';
 import OnboardingWalkthrough from '../Onboarding/OnboardingWalkthrough';
 import CommandPalette from '../CommandPalette';
+import { SkipToMain } from '../States';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -30,6 +31,9 @@ export default function AppShell() {
 
   return (
     <div className="app-shell">
+      {/* Keyboard accessibility — first focusable element, hidden until tabbed */}
+      <SkipToMain />
+
       {/* Phase 8 — yellow banner when admin is simulating another role */}
       <ViewAsRoleBanner />
 
@@ -61,6 +65,7 @@ export default function AppShell() {
       />
 
       <main
+        id="main-content"
         className="main-content"
         style={isMobile ? { marginLeft: 0, paddingTop: 60 } : undefined}
       >
