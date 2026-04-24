@@ -10,6 +10,7 @@
  * Top strip shows 24h stats. Filter by user, action, outcome, date.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { rbacApi, SecurityEvent, AISecurityEvent } from '../../lib/rbacApi';
 import { useToast } from '../../components/ToastHost';
 
@@ -157,7 +158,13 @@ function EventTable({ events }: { events: SecurityEvent[] }) {
           {events.map(e => (
             <tr key={e.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
               <td style={td}>{new Date(e.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
-              <td style={td}>{e.user_name ?? e.user_email ?? <span style={{ color: '#94a3b8' }}>—</span>}</td>
+              <td style={td}>
+                {e.user_id ? (
+                  <Link to={`/settings/audit-log/user/${e.user_id}`} style={{ color: '#6d28d9', textDecoration: 'none' }}>
+                    {e.user_name ?? e.user_email ?? e.user_id.slice(0, 8)}
+                  </Link>
+                ) : <span style={{ color: '#94a3b8' }}>—</span>}
+              </td>
               <td style={td}><code style={codeTag}>{e.action}</code></td>
               <td style={td}>{e.permission_key ? <code style={codeTag}>{e.permission_key}</code> : <span style={{ color: '#94a3b8' }}>—</span>}</td>
               <td style={td}><OutcomeBadge outcome={e.outcome} /></td>
@@ -190,7 +197,13 @@ function AIEventTable({ events }: { events: AISecurityEvent[] }) {
           {events.map(e => (
             <tr key={e.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
               <td style={td}>{new Date(e.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
-              <td style={td}>{e.user_name ?? e.user_email ?? <span style={{ color: '#94a3b8' }}>—</span>}</td>
+              <td style={td}>
+                {e.user_id ? (
+                  <Link to={`/settings/audit-log/user/${e.user_id}`} style={{ color: '#6d28d9', textDecoration: 'none' }}>
+                    {e.user_name ?? e.user_email ?? e.user_id.slice(0, 8)}
+                  </Link>
+                ) : <span style={{ color: '#94a3b8' }}>—</span>}
+              </td>
               <td style={td}><code style={codeTag}>{e.tool}</code></td>
               <td style={{ ...td, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.prompt_summary ?? ''}>
                 {e.prompt_summary ?? <span style={{ color: '#94a3b8' }}>—</span>}

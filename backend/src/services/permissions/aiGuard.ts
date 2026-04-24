@@ -48,7 +48,7 @@ import { PERMISSIONS, getPermissionDef } from './catalog';
 const INJECTION_PATTERNS: Array<{ flag: string; pattern: RegExp }> = [
   { flag: 'ignore_instructions',      pattern: /\b(ignore|disregard|forget)\s+(all\s+)?(your\s+)?(previous\s+|prior\s+)?(instructions?|rules?|directives?|guidelines?|system\s+prompts?)\b/i },
   { flag: 'ignore_permissions',       pattern: /\bignore\s+(your\s+|the\s+)?permissions?\b/i },
-  { flag: 'pretend_admin',            pattern: /\b(pretend|act\s+as|roleplay\s+as|assume\s+the\s+role\s+of|you\s+are\s+now)\s+(an?\s+)?(admin(istrator)?|ceo|root|superuser|god\s*mode)\b/i },
+  { flag: 'pretend_admin',            pattern: /\b(pretend(\s+(that\s+)?you(\s+are)?)?|act\s+(as|like\s+you(\s+are)?)|roleplay\s+as|assume\s+the\s+role\s+of|you\s+are\s+now|be)\s+(an?\s+)?(admin(istrator)?|ceo|root|superuser|god\s*mode)\b/i },
   { flag: 'pretend_user',             pattern: /\b(i\s+am|assume\s+i\s+am|pretend\s+i\s+am)\s+(an?\s+)?(admin(istrator)?|ceo|root|owner)\b/i },
   { flag: 'bypass_check',             pattern: /\b(bypass|override|disable|turn\s+off)\s+(permissions?|security|authentication|access\s+controls?|rbac)\b/i },
   { flag: 'reveal_system_prompt',     pattern: /\b(show|reveal|print|output|display|dump)\s+(me\s+)?(your\s+|the\s+)?(system\s+prompt|initial\s+prompt|original\s+instructions)\b/i },
