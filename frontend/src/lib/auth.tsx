@@ -90,13 +90,28 @@ function splitName(full: string | null | undefined): { first: string | null; las
 }
 
 // ─── Token acquisition (silent + interactive fallback) ──────────────────
+//
+// IMPORTANT: we return `idToken` (NOT `accessToken`). Here's why:
+//
+// MSAL's acquireTokenSilent with Graph scopes like `User.Read` returns
+// BOTH tokens in its result:
+//   - `accessToken`: audience = Microsoft Graph (graph.microsoft.com)
+//   - `idToken`:     audience = our SPA client ID (AZURE_CLIENT_ID)
+//
+// Our backend validates `aud === AZURE_AUDIENCE` where AZURE_AUDIENCE is
+// the SPA's client ID. Sending the accessToken would give a Graph-audience
+// token, backend would 401 every time. Sending the idToken — whose audience
+// matches — is correct.
+//
+// The idToken is a full JWT signed by Microsoft, includes oid / email /
+// name / tid claims, same as any access token would for our purposes.
 async function acquireTokenSilentOrPopup(account: AccountInfo): Promise<string | null> {
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
       account,
     });
-    return result.accessToken || result.idToken || null;
+    return result.idToken || result.accessToken || null;
   } catch (err) {
     if (err instanceof InteractionRequiredAuthError) {
       try {
@@ -104,7 +119,7 @@ async function acquireTokenSilentOrPopup(account: AccountInfo): Promise<string |
           ...apiTokenRequest,
           account,
         });
-        return result.accessToken || result.idToken || null;
+        return result.idToken || result.accessToken || null;
       } catch (popupErr) {
         console.error('[auth] popup token acquisition failed:', popupErr);
         return null;

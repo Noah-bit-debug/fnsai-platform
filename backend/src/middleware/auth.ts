@@ -130,11 +130,16 @@ export function azureMiddleware() {
         roles: claims.roles ?? [],
       };
     } catch (err) {
-      // Swallow verify errors; unauthenticated requests fall through. Route
-      // guards return 401 with a consistent shape. Log in dev to help debug.
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[auth] JWT verify failed:', (err as Error).message);
-      }
+      // Swallow the error so the request continues to the route-level
+      // requireAuth guard (which returns a consistent 401 shape). But we
+      // LOG the reason always — even in prod — because "401 everywhere"
+      // is the kind of problem you need Railway logs to diagnose:
+      //   "jwt audience invalid. expected: <guid>"  → AZURE_AUDIENCE wrong
+      //   "jwt issuer invalid. expected: <url>"     → MICROSOFT_TENANT_ID wrong
+      //   "invalid signature"                       → JWKS / wrong tenant
+      //   "jwt expired"                             → token stale, frontend bug
+      // Non-PII: the message never contains the raw token or user claims.
+      console.warn('[auth] JWT verify failed:', (err as Error).message);
     }
     next();
   };
