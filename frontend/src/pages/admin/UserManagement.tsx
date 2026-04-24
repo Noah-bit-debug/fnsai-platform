@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '../../lib/auth';
 import { useRBAC } from '../../contexts/RBACContext';
+import { useCan } from '../../contexts/PermissionsContext';
 import api from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────
@@ -167,6 +168,9 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
 export default function UserManagement() {
   const { user } = useUser();
   const { role } = useRBAC();
+  // Permission gate: only users with admin.users.manage can change roles.
+  // Other admins can view the list but the role dropdown becomes read-only.
+  const canChangeRoles = useCan('admin.users.manage');
 
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
@@ -321,10 +325,12 @@ export default function UserManagement() {
                         {relativeTime(member.lastSignInAt)}
                       </td>
 
-                      {/* Change role */}
+                      {/* Change role — hidden unless user has admin.users.manage */}
                       <td style={{ padding: '12px 16px' }}>
                         {isCurrentUser ? (
                           <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Contact admin</span>
+                        ) : !canChangeRoles ? (
+                          <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>View only</span>
                         ) : (
                           <select
                             value={member.role}

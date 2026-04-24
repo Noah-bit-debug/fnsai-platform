@@ -147,6 +147,7 @@ const HelpCenter = lazy(() => import('./pages/HelpCenter'));
 const RolesPermissions = lazy(() => import('./pages/admin/RolesPermissions'));
 const UserAccessPage    = lazy(() => import('./pages/admin/UserAccess'));
 const SecurityAuditLog  = lazy(() => import('./pages/admin/SecurityAuditLog'));
+const MyPermissions     = lazy(() => import('./pages/admin/MyPermissions'));
 
 import ViewAsRoleBanner from './components/admin/ViewAsRoleBanner';
 
@@ -411,6 +412,7 @@ function AppRoutes() {
           <Route path="settings/roles" element={<RolesPermissions />} />
           <Route path="settings/user-access" element={<UserAccessPage />} />
           <Route path="settings/audit-log" element={<SecurityAuditLog />} />
+          <Route path="settings/my-permissions" element={<MyPermissions />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
