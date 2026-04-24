@@ -765,6 +765,16 @@ async function loadJobForOutreachById(jobId: string) {
 
 router.post('/:id/ai/sms-outreach', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req,
+      tool: 'ai_candidate_sms',
+      toolPermission: 'ai.chat.use',
+      additionalRequired: ['candidates.send_message', 'ai.action.draft_message', 'ai.topic.candidates'],
+      prompt: `Draft SMS outreach for candidate ${req.params.id}`,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     const { generateSmsOutreach } = await import('../services/ai');
     const cand = await loadCandidateForOutreach(req.params.id);
     if (!cand) { res.status(404).json({ error: 'Candidate not found' }); return; }
@@ -780,6 +790,14 @@ router.post('/:id/ai/sms-outreach', requireAuth, requirePermission('candidates_v
 
 router.post('/:id/ai/recruiter-summary', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req, tool: 'ai_candidate_summary', toolPermission: 'ai.chat.use',
+      additionalRequired: ['ai.topic.candidates'],
+      prompt: `Recruiter summary for candidate ${req.params.id}`,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     const { generateRecruiterSummary } = await import('../services/ai');
     const cand = await loadCandidateForOutreach(req.params.id);
     if (!cand) { res.status(404).json({ error: 'Candidate not found' }); return; }
@@ -795,6 +813,14 @@ router.post('/:id/ai/recruiter-summary', requireAuth, requirePermission('candida
 
 router.post('/:id/ai/client-summary', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req, tool: 'ai_candidate_summary', toolPermission: 'ai.chat.use',
+      additionalRequired: ['ai.topic.candidates'],
+      prompt: `Client-facing summary for candidate ${req.params.id}`,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     const { generateClientSummary } = await import('../services/ai');
     const cand = await loadCandidateForOutreach(req.params.id);
     if (!cand) { res.status(404).json({ error: 'Candidate not found' }); return; }

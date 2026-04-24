@@ -393,7 +393,17 @@ router.post('/bids/ai-draft', requireAuth, async (req: Request, res: Response) =
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
   const { context, client_name } = parse.data;
 
-  const systemPrompt = `You help a healthcare staffing business development team draft bids. Given a description of an opportunity, return a short suggested bid title, a tailored checklist of required steps (5-10 items), and initial notes capturing key facts from the description.
+  const { guardAIRequest } = await import('../services/permissions/aiGuard');
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_bid_draft',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['bd.bids.edit', 'ai.topic.bids'],
+    prompt: context,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
+  const systemPrompt = `${guard.systemPromptGuard}You help a healthcare staffing business development team draft bids. Given a description of an opportunity, return a short suggested bid title, a tailored checklist of required steps (5-10 items), and initial notes capturing key facts from the description.
 
 Respond with ONLY this JSON shape, no markdown fences:
 {

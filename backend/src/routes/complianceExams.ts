@@ -244,6 +244,17 @@ router.post('/:id/ai-generate', requireAuth, async (req: Request, res: Response)
     return;
   }
 
+  // Guard: exam authoring is admin-level compliance work
+  const { guardAIRequest } = await import('../services/permissions/aiGuard');
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_exam_generator',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['compliance.policies.manage', 'ai.topic.compliance'],
+    prompt: topic,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
   const systemPrompt = `You generate compliance exam questions for a healthcare staffing agency. Return ONLY JSON with this shape:
 
 {

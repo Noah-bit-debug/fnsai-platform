@@ -403,9 +403,6 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   const { messages, sources, pageContext } = req.body as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     sources?: string[];
-    // pageContext: {page: "/candidates/abc", entityType: "candidate", entityId: "abc"}
-    // Sent by the global AI sidebar so the assistant knows what the user is
-    // currently looking at without having to be told in natural language.
     pageContext?: { page?: string; entityType?: string; entityId?: string };
   };
   const auth = getAuth(req);
@@ -416,6 +413,20 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   }
 
   const userQuery = messages[messages.length - 1]?.content ?? '';
+
+  // Guard: AI Brain is the "Ask Esther" / central AI surface. It needs
+  // ai.chat.use + topic-specific perms based on what the user is asking.
+  const { guardAIRequest } = await import('../services/permissions/aiGuard');
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_brain_chat',
+    toolPermission: 'ai.chat.use',
+    prompt: userQuery,
+  });
+  if (!guard.allowed) {
+    res.json({ response: guard.denialMessage, model: 'guard', guard: { denied: true } });
+    return;
+  }
 
   try {
     const [companyContext, entityContext] = await Promise.all([
@@ -428,7 +439,7 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
     if (entityContext) contextBlocks.push(entityContext);
     contextBlocks.push(`LIVE COMPANY DATA:\n${companyContext}`);
 
-    const systemWithContext = `${BRAIN_SYSTEM_PROMPT}\n\n${contextBlocks.join('\n\n')}`;
+    const systemWithContext = `${guard.systemPromptGuard}${BRAIN_SYSTEM_PROMPT}\n\n${contextBlocks.join('\n\n')}`;
 
     const response = await anthropic.messages.create({
       model: MODEL_FOR.brainChat,
@@ -580,6 +591,14 @@ router.post('/smart-route', requireAuth, async (req: Request, res: Response) => 
   const { filename, context_hint } = req.body;
   if (!filename) { res.status(400).json({ error: 'filename is required' }); return; }
   const auth = getAuth(req);
+
+  const { guardAIRequest } = await import('../services/permissions/aiGuard');
+  const guard = await guardAIRequest({
+    req, tool: 'ai_smart_route', toolPermission: 'ai.chat.use',
+    additionalRequired: ['files.upload'],
+    prompt: `${filename} ${context_hint ?? ''}`,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
 
   const KNOWN_FOLDERS = [
     'Joint Commission', 'Candidate Credentials', 'Onboarding Documents',

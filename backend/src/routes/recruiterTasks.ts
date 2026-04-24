@@ -5,6 +5,7 @@ import { getAuth } from '../middleware/auth';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
 import { query } from '../db/client';
 import { MODEL_FOR } from '../services/aiModels';
+import { guardAIRequest } from '../services/permissions/aiGuard';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -195,6 +196,16 @@ router.post('/ai-next-question', requireAuth, async (req: Request, res: Response
   const parse = aiNextSchema.safeParse(req.body);
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
   const { goal, answers } = parse.data;
+
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_recruiter_task_wizard',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.topic.candidates'],
+    prompt: goal + ' ' + (answers[answers.length - 1]?.answer ?? ''),
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
   if (answers.length >= 6) { res.json({ done: true }); return; }
 
   const systemPrompt = `You help a healthcare-staffing recruiter turn a vague task idea into a concrete recruiter_tasks row. Ask ONE short clarifying question at a time. Focus on:
@@ -257,6 +268,15 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
   const parse = aiDraftSchema.safeParse(req.body);
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
   const { goal, answers } = parse.data;
+
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_recruiter_task_wizard',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.topic.candidates'],
+    prompt: goal + ' ' + answers.map(a => a.answer).join(' ').slice(0, 2000),
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
 
   // Include today's date so Claude doesn't draft tasks in the past.
   const today = new Date().toISOString().slice(0, 10);

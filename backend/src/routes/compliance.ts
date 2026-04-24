@@ -356,6 +356,19 @@ router.post('/policies/ai-parse', requireAuth, requirePermission('admin_manage')
       return;
     }
 
+    // Guard: injection-scan the filename + mimetype. File contents run
+    // through Claude already, and Claude is instructed in the system
+    // prompt to ignore embedded instructions.
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req,
+      tool: 'ai_policy_parse',
+      toolPermission: 'ai.chat.use',
+      additionalRequired: ['compliance.policies.manage', 'ai.topic.compliance'],
+      prompt: req.file.originalname,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     try {
       // Extract text depending on file type. PDF goes through Claude's
       // document vision directly. DOCX uses mammoth. TXT is read as UTF-8.
@@ -436,6 +449,16 @@ router.post('/policies/ai-rewrite', requireAuth, requirePermission('admin_manage
     res.status(503).json({ error: 'AI not configured (ANTHROPIC_API_KEY missing)' });
     return;
   }
+
+  const { guardAIRequest } = await import('../services/permissions/aiGuard');
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_policy_rewrite',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['compliance.policies.manage', 'ai.topic.compliance'],
+    prompt: instruction,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
 
   try {
     const userMsg = `EXISTING POLICY TITLE: ${title ?? '(untitled)'}

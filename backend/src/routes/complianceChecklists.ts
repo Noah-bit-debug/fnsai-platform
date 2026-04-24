@@ -203,6 +203,16 @@ router.post('/:id/ai-generate', requireAuth, async (req: Request, res: Response)
     return;
   }
 
+  const { guardAIRequest } = await import('../services/permissions/aiGuard');
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_checklist_generator',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['compliance.policies.manage', 'ai.topic.compliance'],
+    prompt: `${topic} ${role ?? ''}`,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
   const systemPrompt = `You generate skills-competency checklists for a healthcare staffing agency. Return ONLY JSON with this shape:
 
 {

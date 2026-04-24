@@ -137,7 +137,9 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /ai/analyze-document
+// POST /ai/analyze-document — guarded
+// Document analysis requires ai.chat.use + ai.search.files. The document
+// text itself is the "prompt" we scan for injection attempts.
 router.post('/analyze-document', requireAuth, async (req: Request, res: Response) => {
   const parse = analyzeDocumentSchema.safeParse(req.body);
   if (!parse.success) {
@@ -147,6 +149,15 @@ router.post('/analyze-document', requireAuth, async (req: Request, res: Response
 
   const { documentText, documentType, staffId } = parse.data;
   const auth = getAuth(req);
+
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_analyze_document',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.search.files'],
+    prompt: documentText.slice(0, 4000),
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
 
   try {
     // Fetch active AI rules
@@ -173,7 +184,10 @@ router.post('/analyze-document', requireAuth, async (req: Request, res: Response
   }
 });
 
-// POST /ai/categorize-email
+// POST /ai/categorize-email — guarded
+// Categorization is a low-risk AI call (no free-form output returned to
+// user — just a label), but still requires ai.chat.use and runs the body
+// through the injection detector.
 router.post('/categorize-email', requireAuth, async (req: Request, res: Response) => {
   const parse = categorizeEmailSchema.safeParse(req.body);
   if (!parse.success) {
@@ -182,6 +196,14 @@ router.post('/categorize-email', requireAuth, async (req: Request, res: Response
   }
 
   const { subject, body, from } = parse.data;
+
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_categorize_email',
+    toolPermission: 'ai.chat.use',
+    prompt: `${subject}\n\n${body.slice(0, 2000)}`,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
 
   try {
     const result = await categorizeEmail(subject, body, from);
@@ -210,9 +232,25 @@ router.post('/chat-with-file', requireAuth, chatFileUpload.single('file'), async
   }
 
   const userContext = typeof req.body?.userContext === 'string' ? req.body.userContext : undefined;
-  const systemWithContext = userContext
+
+  // Guard the conversation. The file text is analyzed for injection;
+  // topic detection runs on the last user message.
+  const lastUserForGuard = messages[messages.length - 1]?.content ?? '';
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_chat_with_file',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.search.files'],
+    prompt: lastUserForGuard,
+  });
+  if (!guard.allowed) {
+    res.json({ response: guard.denialMessage, model: 'guard', guard: { denied: true } });
+    return;
+  }
+
+  const systemWithContext = `${guard.systemPromptGuard}${userContext
     ? `${SYSTEM_PROMPT}\n\nCURRENT USER CONTEXT:\n${userContext}`
-    : SYSTEM_PROMPT;
+    : SYSTEM_PROMPT}`;
 
   const mime = req.file.mimetype;
   const buffer = req.file.buffer;
@@ -378,7 +416,19 @@ router.post('/suggest-actions', requireAuth, async (req: Request, res: Response)
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
   const { subject, context } = parse.data;
 
-  const sys = `You are FNS AI suggesting 3-6 concrete next actions for a healthcare staffing ops user looking at a workflow page. Return ONLY a short markdown list (3-6 items) of suggested actions. Each item should be 1-2 sentences.
+  // Guard the subject + context for injection + topic enforcement.
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_suggest_actions',
+    toolPermission: 'ai.chat.use',
+    prompt: `${subject} ${JSON.stringify(context).slice(0, 2000)}`,
+  });
+  if (!guard.allowed) {
+    res.json({ suggestions: guard.denialMessage ?? 'I can\'t help with that.', guard: { denied: true } });
+    return;
+  }
+
+  const sys = `${guard.systemPromptGuard}You are FNS AI suggesting 3-6 concrete next actions for a healthcare staffing ops user looking at a workflow page. Return ONLY a short markdown list (3-6 items) of suggested actions. Each item should be 1-2 sentences.
 
 Use the inline tag grammar defined in the main SYSTEM_PROMPT wherever relevant:
   [[link:<type>:<value>]]              — inline entity link

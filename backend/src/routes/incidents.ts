@@ -5,6 +5,7 @@ import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '../middleware/auth';
 import { MODEL_FOR } from '../services/aiModels';
+import { guardAIRequest } from '../services/permissions/aiGuard';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -236,6 +237,17 @@ router.post('/ai-next-question', requireAuth, async (req: Request, res: Response
   }
   const { type, staff_name, facility_name, answers } = parse.data;
 
+  // Guard: require ai.topic.hr (incidents are HR records) + ai.chat.use
+  const lastAnswer = answers[answers.length - 1]?.answer ?? type;
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_incident_wizard',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.topic.hr'],
+    prompt: lastAnswer,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
   // Cap the interview length so we don't loop forever.
   if (answers.length >= 8) {
     res.json({ done: true });
@@ -316,7 +328,17 @@ router.post('/ai-draft', requireAuth, async (req: Request, res: Response) => {
   }
   const { type, staff_name, facility_name, date, answers } = parse.data;
 
-  const systemPrompt = `You write concise, factual incident narratives for healthcare staffing compliance records. Output plain prose — no bullet lists, no headings, no markdown. 3-6 sentences. Use the third person. Preserve all facts the user gave. Do NOT invent details the user didn't provide. Do NOT include personal opinions or recommendations. Do NOT add a closing signature line.`;
+  const combinedPrompt = answers.map(a => a.answer).join(' ').slice(0, 2000);
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_incident_wizard',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.topic.hr'],
+    prompt: combinedPrompt,
+  });
+  if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
+  const systemPrompt = `${guard.systemPromptGuard}You write concise, factual incident narratives for healthcare staffing compliance records. Output plain prose — no bullet lists, no headings, no markdown. 3-6 sentences. Use the third person. Preserve all facts the user gave. Do NOT invent details the user didn't provide. Do NOT include personal opinions or recommendations. Do NOT add a closing signature line.`;
 
   const ctx: string[] = [`Incident type: ${type}`];
   if (staff_name) ctx.push(`Staff: ${staff_name}`);

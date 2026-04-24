@@ -5,23 +5,36 @@ import { pool } from '../db/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { searchEmails, getEmailWithAttachments } from '../services/graph';
 import { MODEL_FOR } from '../services/aiModels';
+import { requirePermission } from '../services/permissions/permissionService';
+import { guardAIRequest } from '../services/permissions/aiGuard';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// POST /api/v1/ai-email/search
-router.post('/search', requireAuth, async (req: Request, res: Response) => {
+// ─── POST /api/v1/ai-email/search ───────────────────────────────────────
+// Requires ai.search.email (high-risk) permission.
+// Only searches the user's OWN Outlook mailbox — never another user's.
+router.post('/search', requireAuth, requirePermission('ai.search.email'), async (req: Request, res: Response) => {
   const { sender, keyword, subject, date_from, date_to, has_attachments, top = 20, user_id } = req.body as {
     sender?: string; keyword?: string; subject?: string; date_from?: string; date_to?: string;
     has_attachments?: boolean; top?: number; user_id?: string;
   };
   const auth = getAuth(req);
+
+  // Security: ignore any caller-supplied user_id — always use the
+  // authenticated user's Azure oid. Prevents "search as someone else".
+  const safeUserId = auth?.userId;
+  if (user_id && user_id !== safeUserId) {
+    console.warn(`[ai-email] user_id override ignored: caller ${safeUserId} tried to search as ${user_id}`);
+  }
+
   try {
     const emails = await searchEmails({
       sender, keyword, subject,
       dateFrom: date_from, dateTo: date_to,
       hasAttachments: has_attachments,
-      top: Math.min(top, 50), userId: user_id,
+      top: Math.min(top, 50),
+      userId: safeUserId,
     });
     await pool.query(
       `INSERT INTO ai_brain_audit (user_clerk_id, action_type, source, details, ip_address) VALUES ($1, 'email_search', 'outlook', $2, $3)`,
@@ -33,13 +46,30 @@ router.post('/search', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/v1/ai-email/summarize
-router.post('/summarize', requireAuth, async (req: Request, res: Response) => {
+// ─── POST /api/v1/ai-email/summarize ────────────────────────────────────
+// Runs emails through Claude for summarization. Requires ai.search.email
+// (to even GET the emails) + ai.chat.use. AI guard runs on the question
+// text to catch injection attempts embedded in the user's prompt.
+router.post('/summarize', requireAuth, requirePermission('ai.search.email'), async (req: Request, res: Response) => {
   const { emails, question } = req.body as {
     emails: Array<{ subject: string; from: string; receivedDateTime: string; bodyPreview: string }>;
     question?: string;
   };
   if (!emails || emails.length === 0) { res.status(400).json({ error: 'emails array is required' }); return; }
+
+  // Guard the user's free-text question — topic detection, injection block.
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_email_search',
+    toolPermission: 'ai.chat.use',
+    additionalRequired: ['ai.search.email'],
+    prompt: question ?? 'Summarize recent emails',
+  });
+  if (!guard.allowed) {
+    res.json({ summary: guard.denialMessage ?? 'I can\'t help with that.', guard: { denied: true } });
+    return;
+  }
+
   const auth = getAuth(req);
   try {
     const emailText = emails.slice(0, 20).map((e, i) =>
@@ -51,7 +81,7 @@ router.post('/summarize', requireAuth, async (req: Request, res: Response) => {
     const response = await anthropic.messages.create({
       model: MODEL_FOR.searchSynthesis,
       max_tokens: 2048,
-      system: 'You are FNS AI Brain, analyzing emails for Frontline Healthcare Staffing. Be concise and operational. Focus on: credentials, placements, candidates, compliance, facility requests.',
+      system: `${guard.systemPromptGuard}You are FNS AI Brain, analyzing emails for Frontline Healthcare Staffing. Be concise and operational. Focus on: credentials, placements, candidates, compliance, facility requests.`,
       messages: [{ role: 'user', content: prompt }],
     });
     const block = response.content[0];
@@ -67,24 +97,27 @@ router.post('/summarize', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/v1/ai-email/recent
-router.get('/recent', requireAuth, async (req: Request, res: Response) => {
+// ─── GET /api/v1/ai-email/recent ────────────────────────────────────────
+router.get('/recent', requireAuth, requirePermission('ai.search.email'), async (req: Request, res: Response) => {
+  const auth = getAuth(req);
   const top = Math.min(parseInt(req.query.top as string) || 20, 50);
-  const userId = req.query.user_id as string | undefined;
+  // Security: always use caller's own mailbox.
+  const safeUserId = auth?.userId;
   try {
-    const emails = await searchEmails({ top, userId });
+    const emails = await searchEmails({ top, userId: safeUserId });
     res.json({ emails, total: emails.length });
   } catch (err: any) {
     res.json({ emails: [], total: 0, error: err.message ?? 'Email service unavailable' });
   }
 });
 
-// GET /api/v1/ai-email/:id/attachments
-router.get('/:id/attachments', requireAuth, async (req: Request, res: Response) => {
+// ─── GET /api/v1/ai-email/:id/attachments ──────────────────────────────
+router.get('/:id/attachments', requireAuth, requirePermission('ai.search.email'), async (req: Request, res: Response) => {
   const { id } = req.params;
-  const userId = req.query.user_id as string | undefined;
+  const auth = getAuth(req);
+  const safeUserId = auth?.userId;
   try {
-    const result = await getEmailWithAttachments(id, userId);
+    const result = await getEmailWithAttachments(id, safeUserId);
     res.json(result);
   } catch (err: any) {
     res.json({ attachments: [], error: err.message ?? 'Could not fetch attachments' });

@@ -340,6 +340,14 @@ async function loadJobForAI(jobId: string): Promise<JobForAI | null> {
 
 router.post('/:id/ai/boolean', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req, tool: 'ai_job_boolean', toolPermission: 'ai.chat.use',
+      additionalRequired: ['jobs.view', 'ai.topic.candidates'],
+      prompt: `Boolean search for job ${req.params.id}`,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     const job = await loadJobForAI(req.params.id);
     if (!job) { res.status(404).json({ error: 'Job not found' }); return; }
     const boolean_search = await generateBooleanSearch(job);
@@ -353,6 +361,14 @@ router.post('/:id/ai/boolean', requireAuth, requirePermission('candidates_view')
 
 router.post('/:id/ai/job-ad', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req, tool: 'ai_job_ad', toolPermission: 'ai.chat.use',
+      additionalRequired: ['jobs.view'],
+      prompt: `Job ad for ${req.params.id}`,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     const job = await loadJobForAI(req.params.id);
     if (!job) { res.status(404).json({ error: 'Job not found' }); return; }
     const job_ad = await generateJobAd(job);
@@ -366,6 +382,14 @@ router.post('/:id/ai/job-ad', requireAuth, requirePermission('candidates_view'),
 
 router.post('/:id/ai/summary', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
+    const { guardAIRequest } = await import('../services/permissions/aiGuard');
+    const guard = await guardAIRequest({
+      req, tool: 'ai_job_summary', toolPermission: 'ai.chat.use',
+      additionalRequired: ['jobs.view'],
+      prompt: `Job summary for ${req.params.id}`,
+    });
+    if (!guard.allowed) { res.status(403).json({ error: guard.denialMessage }); return; }
+
     const job = await loadJobForAI(req.params.id);
     if (!job) { res.status(404).json({ error: 'Job not found' }); return; }
     const summary = await generateJobSummary(job);
