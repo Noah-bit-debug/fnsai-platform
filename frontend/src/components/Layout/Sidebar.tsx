@@ -178,6 +178,10 @@ const NAV_GROUPS: NavGroupDef[] = [
       { to: '/settings/users',                  icon: '👥', label: 'User Management',        roles: ['ceo', 'admin', 'manager'] },
       { to: '/security',                        icon: '🔒', label: 'Security & MFA',         roles: null },
       { to: '/settings/integrations',           icon: '🔌', label: 'Integrations',           roles: ['ceo', 'admin'] },
+      // Phase 8 — RBAC admin
+      { to: '/settings/roles',                  icon: '🛡️', label: 'Roles & Permissions',    roles: ['ceo', 'admin'] },
+      { to: '/settings/user-access',            icon: '👤', label: 'User Access',            roles: ['ceo', 'admin'] },
+      { to: '/settings/audit-log',              icon: '📜', label: 'Security Audit Log',     roles: ['ceo', 'admin'] },
       { to: '/settings/error-log',              icon: '🪲', label: 'Error Log',              roles: ['ceo', 'admin'] },
       { to: '/compliance/admin/categories',     icon: '🗂️', label: 'Compliance Categories',  roles: ['ceo', 'admin'] },
       { to: '/compliance/admin/notifications',  icon: '🔔', label: 'Compliance Notifications', roles: ['ceo', 'admin'] },

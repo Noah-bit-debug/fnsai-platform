@@ -10,6 +10,7 @@ import { ToastProvider } from './components/ToastHost';
 import { ConfirmProvider } from './components/ConfirmHost';
 import { MsalProvider, msalInstance, useAuth } from './lib/auth';
 import { EventType } from '@azure/msal-browser';
+import { PermissionsProvider } from './contexts/PermissionsContext';
 
 // One-shot — attaches window.onerror + unhandledrejection listeners that
 // POST client-side errors to /api/v1/error-log/client for admin triage.
@@ -52,7 +53,9 @@ function bootstrap() {
           <BrowserRouter>
             <ToastProvider>
               <ConfirmProvider>
-                <AppWithAuth />
+                <PermissionsProvider>
+                  <AppWithAuth />
+                </PermissionsProvider>
               </ConfirmProvider>
             </ToastProvider>
           </BrowserRouter>

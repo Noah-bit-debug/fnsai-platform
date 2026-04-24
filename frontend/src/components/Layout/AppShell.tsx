@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import AIAssistantSidebar from '../AIAssistantSidebar';
 import TextingPanel from '../TextingPanel';
 import RootErrorBoundary from '../RootErrorBoundary';
+import ViewAsRoleBanner from '../admin/ViewAsRoleBanner';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -27,6 +28,9 @@ export default function AppShell() {
 
   return (
     <div className="app-shell">
+      {/* Phase 8 — yellow banner when admin is simulating another role */}
+      <ViewAsRoleBanner />
+
       <TopBar onMenuClick={() => setSidebarOpen(v => !v)} showMenuButton={isMobile} />
 
       {/* Mobile overlay */}

@@ -8,6 +8,7 @@ import { chatCompletion, analyzeDocument, categorizeEmail, SYSTEM_PROMPT } from 
 import { MODEL_FOR } from '../services/aiModels';
 import { getAuth } from '../middleware/auth';
 import { query } from '../db/client';
+import { guardAIRequest } from '../services/permissions/aiGuard';
 
 const router = Router();
 
@@ -72,7 +73,14 @@ const categorizeEmailSchema = z.object({
   from: z.string().max(255),
 });
 
-// POST /ai/chat
+// POST /ai/chat — wrapped with the RBAC AI guard.
+// The guard:
+//   1. Checks prompt injection patterns (ignore/pretend/bypass/etc.) → block
+//   2. Detects topic keywords → enforces ai.topic.* permissions
+//   3. Requires ai.chat.use baseline
+//   4. Builds a security-context system prompt preamble reminding AI what
+//      this specific user can/can't see, with a fixed denial string for
+//      out-of-scope questions
 router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   if (aiUnavailable(res)) return;
 
@@ -83,19 +91,44 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
   }
 
   const { messages, userContext } = parse.data;
-  const auth = getAuth(req);
+
+  // Extract the most recent user message for topic/injection detection
+  const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user') as any;
+  let userPrompt = '';
+  if (lastUserMsg) {
+    const content = lastUserMsg.content;
+    if (typeof content === 'string') userPrompt = content;
+    else if (Array.isArray(content)) userPrompt = content.map((c: any) => c.text ?? '').join(' ');
+  }
+
+  const guard = await guardAIRequest({
+    req,
+    tool: 'ai_chat',
+    toolPermission: 'ai.chat.use',
+    prompt: userPrompt,
+  });
+
+  if (!guard.allowed) {
+    // Return the safe denial as if it came from the AI — the frontend
+    // renders it in the chat UI without leaking which check fired.
+    res.json({
+      response: guard.denialMessage ?? 'I can\'t help with that.',
+      model: 'guard',
+      guard: {
+        denied: true,
+        reason: guard.injectionFlags.length ? 'injection' : 'permissions',
+      },
+    });
+    return;
+  }
 
   try {
-    const response = await chatCompletion(messages as any, userContext);
+    // Prepend the guard's security-context header to the system prompt
+    // being sent to Claude. The chatCompletion service uses this to wrap
+    // the user context.
+    const augmentedContext = `${guard.systemPromptGuard}${userContext ?? ''}`;
 
-    await logAudit(
-      null,
-      auth?.userId ?? 'unknown',
-      'ai.chat',
-      'AI Assistant',
-      { messageCount: messages.length },
-      req.ip
-    );
+    const response = await chatCompletion(messages as any, augmentedContext);
 
     res.json({ response, model: MODEL_FOR.brainChat });
   } catch (err) {

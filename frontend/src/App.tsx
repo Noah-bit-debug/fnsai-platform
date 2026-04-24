@@ -143,6 +143,13 @@ const IntegrationSettings = lazy(() => import('./pages/IntegrationSettings'));
 const ErrorLog = lazy(() => import('./pages/admin/ErrorLog'));
 const HelpCenter = lazy(() => import('./pages/HelpCenter'));
 
+// Phase 8 — RBAC admin pages
+const RolesPermissions = lazy(() => import('./pages/admin/RolesPermissions'));
+const UserAccessPage    = lazy(() => import('./pages/admin/UserAccess'));
+const SecurityAuditLog  = lazy(() => import('./pages/admin/SecurityAuditLog'));
+
+import ViewAsRoleBanner from './components/admin/ViewAsRoleBanner';
+
 // DEV BYPASS — set localStorage.setItem('fnsai_dev_bypass','1') in console to skip auth
 const DEV_BYPASS = import.meta.env.DEV && localStorage.getItem('fnsai_dev_bypass') === '1';
 
@@ -399,6 +406,11 @@ function AppRoutes() {
           {/* Help Center — accessible to everyone regardless of role */}
           <Route path="help" element={<HelpCenter />} />
           <Route path="help/:articleId" element={<HelpCenter />} />
+
+          {/* Phase 8 — RBAC admin */}
+          <Route path="settings/roles" element={<RolesPermissions />} />
+          <Route path="settings/user-access" element={<UserAccessPage />} />
+          <Route path="settings/audit-log" element={<SecurityAuditLog />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
