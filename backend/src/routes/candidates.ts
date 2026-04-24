@@ -918,6 +918,10 @@ router.post('/:id/merge', requireAuth, requirePermission('candidates_edit'), asy
 });
 
 // ─── Saved candidate views ────────────────────────────────────────────────
+// Resilient to missing table/column errors — the candidate_saved_views
+// table isn't universally present in every deployment (it's created by
+// the phase7 migration below). Treat any schema-layer error as "no views
+// saved yet" and return empty so the page still renders.
 router.get('/saved-views', requireAuth, requirePermission('candidates_view'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await query(
@@ -926,9 +930,14 @@ router.get('/saved-views', requireAuth, requirePermission('candidates_view'), as
     );
     res.json({ views: result.rows });
   } catch (err: any) {
-    if (err?.code === '42P01') { res.json({ views: [] }); return; }
+    // 42P01 undefined_table, 42703 undefined_column, 42P07 duplicate_table,
+    // 42701 duplicate_column — all "schema not where the code expected"
+    if (['42P01', '42703', '42P07', '42701'].includes(err?.code)) {
+      res.json({ views: [] });
+      return;
+    }
     console.error('Saved views error:', err);
-    res.status(500).json({ error: 'Failed to fetch saved views' });
+    res.status(500).json({ error: 'Failed to fetch saved views', detail: err?.message?.slice(0, 200) });
   }
 });
 

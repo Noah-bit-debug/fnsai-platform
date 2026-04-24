@@ -9,7 +9,9 @@ const router = Router();
 // Knowledge Sources
 // ---------------------------------------------------------------------------
 
-// GET /sources — list knowledge sources
+// GET /sources — list knowledge sources.
+// Resilient to missing tables (42P01) / missing columns (42703) so a
+// partially-migrated deployment shows an empty KB page instead of 500.
 router.get('/sources', requireAuth, requirePermission('knowledge_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -23,9 +25,63 @@ router.get('/sources', requireAuth, requirePermission('knowledge_view'), async (
        ORDER BY ks.created_at DESC`
     );
     res.json({ sources: result.rows });
-  } catch (err) {
+  } catch (err: any) {
+    if (['42P01', '42703'].includes(err?.code)) { res.json({ sources: [] }); return; }
     console.error('Knowledge sources list error:', err);
-    res.status(500).json({ error: 'Failed to fetch knowledge sources' });
+    res.status(500).json({ error: 'Failed to fetch knowledge sources', detail: err?.message?.slice(0, 200) });
+  }
+});
+
+// GET /stats — aggregate counts for the AI KB header pills.
+// Small calculation used by the header of AI Knowledge Base — matches the
+// shape the frontend expects { total_sources, active_sources, indexed_items,
+// pending_questions }. Same missing-table resilience as /sources.
+router.get('/stats', requireAuth, requirePermission('knowledge_view'), async (_req: Request, res: Response) => {
+  const safeCount = async (sql: string): Promise<number> => {
+    try {
+      const r = await query<{ count: string }>(sql);
+      return parseInt(r.rows[0]?.count ?? '0', 10);
+    } catch (err: any) {
+      if (['42P01', '42703'].includes(err?.code)) return 0;
+      throw err;
+    }
+  };
+  try {
+    const [total, active, indexed, pending] = await Promise.all([
+      safeCount(`SELECT COUNT(*)::TEXT AS count FROM knowledge_sources`),
+      safeCount(`SELECT COUNT(*)::TEXT AS count FROM knowledge_sources WHERE enabled = TRUE`),
+      safeCount(`SELECT COUNT(*)::TEXT AS count FROM knowledge_items`),
+      safeCount(`SELECT COUNT(*)::TEXT AS count FROM clarifications WHERE status = 'pending'`),
+    ]);
+    res.json({
+      total_sources: total,
+      active_sources: active,
+      indexed_items: indexed,
+      pending_questions: pending,
+    });
+  } catch (err: any) {
+    console.error('Knowledge stats error:', err);
+    res.json({ total_sources: 0, active_sources: 0, indexed_items: 0, pending_questions: 0 });
+  }
+});
+
+// GET /items/recent — last 20 indexed items across all sources.
+// Same resilience pattern: missing-table → empty list.
+router.get('/items/recent', requireAuth, requirePermission('knowledge_view'), async (_req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT ki.id, ki.title, ki.excerpt, ki.source_id, ki.url, ki.indexed_at,
+              ks.name AS source_name, ks.type AS source_type
+       FROM knowledge_items ki
+       LEFT JOIN knowledge_sources ks ON ks.id = ki.source_id
+       ORDER BY ki.indexed_at DESC NULLS LAST, ki.created_at DESC NULLS LAST
+       LIMIT 20`
+    );
+    res.json({ items: result.rows });
+  } catch (err: any) {
+    if (['42P01', '42703'].includes(err?.code)) { res.json({ items: [] }); return; }
+    console.error('Knowledge items/recent error:', err);
+    res.status(500).json({ error: 'Failed to fetch recent items', detail: err?.message?.slice(0, 200) });
   }
 });
 

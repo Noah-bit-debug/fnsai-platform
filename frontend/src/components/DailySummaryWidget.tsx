@@ -15,10 +15,21 @@ export default function DailySummaryWidget() {
   const navigate = useNavigate();
   const today = new Date().toLocaleDateString("en-CA");
 
+  // The backend returns 404 when no summary exists for `today` — which is
+  // the expected empty state, not an error. Swallow 404 inside queryFn so
+  // React Query treats it as a successful-but-null result and the
+  // "No summary for today yet" card renders without a console error.
   const { data, isLoading } = useQuery({
     queryKey: ['daily-summary-widget', today],
-    queryFn: () => api.get<{ summary: Summary | null }>(`/daily-summary/${today}`),
-    select: (r) => r.data?.summary ?? null,
+    queryFn: async () => {
+      try {
+        const r = await api.get<{ summary: Summary | null }>(`/daily-summary/${today}`);
+        return r.data?.summary ?? null;
+      } catch (err: any) {
+        if (err?.response?.status === 404) return null;
+        throw err;
+      }
+    },
     retry: 0,
   });
 

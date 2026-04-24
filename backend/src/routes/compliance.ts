@@ -292,6 +292,17 @@ router.get('/my-all', requireAuth, async (req: Request, res: Response) => {
       courses: courses.rows,
     });
   } catch (err: any) {
+    // Resilient: any schema error (missing table or column) returns an
+    // empty rollup rather than 500ing the whole My Compliance page.
+    if (['42P01', '42703'].includes(err?.code)) {
+      res.json({
+        user_clerk_id: targetUserId,
+        summary: { total: 0, completed: 0, in_progress: 0, overdue: 0, not_started: 0 },
+        competency: [],
+        courses: [],
+      });
+      return;
+    }
     console.error('GET /compliance/my-all error:', err);
     res.status(500).json({ error: `Failed to fetch compliance rollup: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }

@@ -68,15 +68,29 @@ router.patch('/settings', requireAuth, async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 router.get('/status', requireAuth, async (_req: Request, res: Response) => {
+  // Resilient: each sub-query runs independently. If comp_job_log or
+  // comp_notifications_log doesn't exist yet (some deployments don't run
+  // all compliance migrations), return empty rather than 500-ing the
+  // whole page.
+  const safeQuery = async <T = unknown>(sql: string): Promise<T[]> => {
+    try {
+      const r = await pool.query(sql);
+      return r.rows as T[];
+    } catch (err: any) {
+      if (['42P01', '42703'].includes(err?.code)) return [];
+      throw err;
+    }
+  };
+
   try {
-    const [jobsResult, pendingResult] = await Promise.all([
-      pool.query(`
+    const [jobs, counts] = await Promise.all([
+      safeQuery<any>(`
         SELECT job_name, status, records_processed, records_affected, started_at, completed_at
         FROM comp_job_log
         WHERE id IN (SELECT MAX(id) FROM comp_job_log GROUP BY job_name)
         ORDER BY job_name
       `),
-      pool.query(`
+      safeQuery<any>(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending') as pending,
           COUNT(*) FILTER (WHERE status = 'sent')    as sent,
@@ -86,15 +100,15 @@ router.get('/status', requireAuth, async (_req: Request, res: Response) => {
       `),
     ]);
 
-    const notifCounts = pendingResult.rows[0] ?? { pending: 0, sent: 0, failed: 0, total: 0 };
+    const notifCounts = counts[0] ?? { pending: 0, sent: 0, failed: 0, total: 0 };
 
     res.json({
-      jobs: jobsResult.rows,
+      jobs,
       notifications: {
-        pending: parseInt(notifCounts.pending, 10),
-        sent: parseInt(notifCounts.sent, 10),
-        failed: parseInt(notifCounts.failed, 10),
-        total: parseInt(notifCounts.total, 10),
+        pending: parseInt(notifCounts.pending ?? '0', 10),
+        sent:    parseInt(notifCounts.sent ?? '0', 10),
+        failed:  parseInt(notifCounts.failed ?? '0', 10),
+        total:   parseInt(notifCounts.total ?? '0', 10),
       },
     });
   } catch (err: any) {
