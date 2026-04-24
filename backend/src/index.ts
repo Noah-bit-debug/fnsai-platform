@@ -77,6 +77,10 @@ import ptoRouter from './routes/pto';
 import planTasksRouter from './routes/planTasks';
 // Phase 6.5
 import clientPortalRouter from './routes/clientPortal';
+// Phase 8 — RBAC + Security
+import rbacRouter from './routes/rbac';
+import securityAuditRouter from './routes/securityAudit';
+import { seedCatalog } from './services/permissions/permissionService';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -405,6 +409,9 @@ app.use('/api/v1/pto', ptoRouter);
 app.use('/api/v1/plan-tasks', planTasksRouter);
 // Phase 6.5 — Client portal (admin token CRUD + unauthenticated /view/:token)
 app.use('/api/v1/client-portal', clientPortalRouter);
+// Phase 8 — RBAC admin API + security audit log
+app.use('/api/v1/rbac', authLimiter, rbacRouter);
+app.use('/api/v1/security-audit', securityAuditRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
@@ -454,6 +461,7 @@ async function runMigrations(): Promise<void> {
     'phase5_weekly_monthly_summaries.sql',
     'phase6_client_portal.sql',
     'phase1_4_stage_check_drop.sql',
+    'phase8_security_rbac.sql',
   ];
 
   const client = await pool.connect();
@@ -514,6 +522,7 @@ function logMountedRoutes(): void {
 }
 
 runMigrations()
+  .then(() => seedCatalog())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`FNS AI API running on port ${PORT}`);

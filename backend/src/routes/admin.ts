@@ -68,6 +68,7 @@ const MIGRATION_FILES = [
   'phase5_weekly_monthly_summaries.sql',
   'phase6_client_portal.sql',
   'phase1_4_stage_check_drop.sql',
+  'phase8_security_rbac.sql',
 ];
 
 interface MigrationResult {
