@@ -141,6 +141,7 @@ const NotificationPrefs = lazy(() => import('./pages/admin/NotificationPrefs'));
 const Security = lazy(() => import('./pages/Security'));
 const IntegrationSettings = lazy(() => import('./pages/IntegrationSettings'));
 const ErrorLog = lazy(() => import('./pages/admin/ErrorLog'));
+const HelpCenter = lazy(() => import('./pages/HelpCenter'));
 
 // DEV BYPASS — set localStorage.setItem('fnsai_dev_bypass','1') in console to skip auth
 const DEV_BYPASS = import.meta.env.DEV && localStorage.getItem('fnsai_dev_bypass') === '1';
@@ -394,6 +395,10 @@ function AppRoutes() {
           <Route path="settings/notifications" element={<NotificationPrefs />} />
           <Route path="settings/integrations" element={<IntegrationSettings />} />
           <Route path="settings/error-log" element={<ErrorLog />} />
+
+          {/* Help Center — accessible to everyone regardless of role */}
+          <Route path="help" element={<HelpCenter />} />
+          <Route path="help/:articleId" element={<HelpCenter />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

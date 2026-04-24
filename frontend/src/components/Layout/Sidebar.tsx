@@ -183,6 +183,7 @@ const NAV_GROUPS: NavGroupDef[] = [
       { to: '/compliance/admin/notifications',  icon: '🔔', label: 'Compliance Notifications', roles: ['ceo', 'admin'] },
       { to: '/settings/notifications',          icon: '🔕', label: 'My Notification Prefs',  roles: null },
       { to: '/time-tracking',                   icon: '⏱', label: 'Work Session Tracker',   roles: null },
+      { to: '/help',                            icon: '❓', label: 'Help Center',            roles: null },
     ],
   },
 ];
