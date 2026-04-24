@@ -17,7 +17,7 @@ const smsApprovalSchema = z.object({
   details: z.string().max(1000).optional(),
 });
 
-// Phase 1.1B + 1.1C â€” direct send (no approval flow). For recruiter-to-candidate
+// Phase 1.1B + 1.1C — direct send (no approval flow). For recruiter-to-candidate
 // texting from the candidate profile or the global texting panel. Logs a
 // reference row in sms_approvals with status='sent' so messages still show up
 // in the audit / history view.
@@ -55,7 +55,7 @@ router.post('/send-direct', requireAuth, async (req: Request, res: Response) => 
   } else if (digitsOnly.length >= 10) {
     cleanedPhone = '+' + digitsOnly;   // international number without +
   } else {
-    res.status(400).json({ error: 'Invalid phone number â€” need at least 10 digits.' });
+    res.status(400).json({ error: 'Invalid phone number — need at least 10 digits.' });
     return;
   }
 
@@ -73,7 +73,7 @@ router.post('/send-direct', requireAuth, async (req: Request, res: Response) => 
          VALUES ('direct', 'Direct message', $1, $2, $3, $4, 'sent', NOW())`,
         [finalMessage.slice(0, 2000), cleanedPhone, d.reference_id ?? null, d.reference_type ?? null]
       );
-    } catch { /* table may not have all columns â€” best effort */ }
+    } catch { /* table may not have all columns — best effort */ }
 
     await logAudit(null, auth?.userId ?? 'unknown', 'sms.send_direct', d.reference_id ?? cleanedPhone,
       { to: cleanedPhone, len: finalMessage.length }, (req.ip ?? 'unknown'));

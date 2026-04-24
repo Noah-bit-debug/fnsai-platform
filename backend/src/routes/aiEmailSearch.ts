@@ -29,7 +29,7 @@ router.post('/search', requireAuth, async (req: Request, res: Response) => {
     ).catch(() => {});
     res.json({ emails, total: emails.length });
   } catch (err: any) {
-    res.json({ emails: [], total: 0, error: err.message ?? 'Email search unavailable â€” Microsoft Graph not configured' });
+    res.json({ emails: [], total: 0, error: err.message ?? 'Email search unavailable — Microsoft Graph not configured' });
   }
 });
 

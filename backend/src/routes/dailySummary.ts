@@ -19,7 +19,7 @@ function parseScope(v: unknown): SummaryScope {
 }
 
 // ---------------------------------------------------------------------------
-// GET / â€” list recent summaries (last 90 days). Optional filters:
+// GET / — list recent summaries (last 90 days). Optional filters:
 //   ?period=day|week|month
 //   ?scope=all|recruiting|hr|credentialing|bd|ceo
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ router.get('/', requireAuth, requirePermission('reports_view'), async (req: Requ
 });
 
 // ---------------------------------------------------------------------------
-// GET /today â€” get or generate today's summary for the requested (period, scope).
+// GET /today — get or generate today's summary for the requested (period, scope).
 // ---------------------------------------------------------------------------
 router.get('/today', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const today = new Date().toISOString().split('T')[0];
@@ -89,7 +89,7 @@ router.get('/today', requireAuth, requirePermission('reports_view'), async (req:
 });
 
 // ---------------------------------------------------------------------------
-// POST /generate â€” force regenerate.
+// POST /generate — force regenerate.
 // Body: { period?: 'day'|'week'|'month', scope?: ..., date?: 'YYYY-MM-DD' }
 // ---------------------------------------------------------------------------
 router.post('/generate', requireAuth, requirePermission('reports_view'), async (req: AuthenticatedRequest, res: Response) => {
@@ -123,7 +123,7 @@ router.post('/generate', requireAuth, requirePermission('reports_view'), async (
 });
 
 // ---------------------------------------------------------------------------
-// GET /:date â€” get summary for a specific date + optional ?period=, ?scope=
+// GET /:date — get summary for a specific date + optional ?period=, ?scope=
 // ---------------------------------------------------------------------------
 router.get('/:date', requireAuth, requirePermission('reports_view'), async (req: Request, res: Response) => {
   const { date } = req.params;
@@ -151,7 +151,7 @@ router.get('/:date', requireAuth, requirePermission('reports_view'), async (req:
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /:id/review â€” mark summary as reviewed
+// PATCH /:id/review — mark summary as reviewed
 // ---------------------------------------------------------------------------
 router.patch('/:id/review', requireAuth, requirePermission('reports_view'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;

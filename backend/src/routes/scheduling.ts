@@ -1,14 +1,14 @@
 /**
- * Phase 4.4 â€” Workforce Scheduling
+ * Phase 4.4 — Workforce Scheduling
  *
- * Shift CRUD. Shifts live at the (staff Ã— facility Ã— time-window) level.
+ * Shift CRUD. Shifts live at the (staff × facility × time-window) level.
  * Mounted at /api/v1/scheduling.
  *
  * Query conventions:
- *   * GET /shifts?staff_id=â€¦          â€” all shifts for one staffer
- *   * GET /shifts?facility_id=â€¦       â€” all shifts at one facility
- *   * GET /shifts?from=â€¦&to=â€¦         â€” date-range filter (inclusive)
- *   * GET /shifts?status=scheduled    â€” single-status filter
+ *   * GET /shifts?staff_id=…          — all shifts for one staffer
+ *   * GET /shifts?facility_id=…       — all shifts at one facility
+ *   * GET /shifts?from=…&to=…         — date-range filter (inclusive)
+ *   * GET /shifts?status=scheduled    — single-status filter
  * Filters combine with AND.
  *
  * The calendar view on the frontend uses from/to. A week-view requests
@@ -35,7 +35,7 @@ const shiftSchema = z.object({
 });
 const shiftUpdate = shiftSchema.partial();
 
-// GET /shifts â€” list w/ filters
+// GET /shifts — list w/ filters
 router.get('/shifts', requireAuth, async (req: Request, res: Response) => {
   const { staff_id, facility_id, status, from, to } = req.query;
   const conds: string[] = [];
@@ -88,7 +88,7 @@ router.get('/shifts/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /shifts â€” create
+// POST /shifts — create
 router.post('/shifts', requireAuth, async (req: Request, res: Response) => {
   const parse = shiftSchema.safeParse(req.body);
   if (!parse.success) { res.status(400).json({ error: 'Validation error', details: parse.error.flatten() }); return; }
@@ -144,7 +144,7 @@ router.delete('/shifts/:id', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// GET /coverage â€” count of scheduled shifts per day across a range. Used
+// GET /coverage — count of scheduled shifts per day across a range. Used
 // by the week-view header to show at-a-glance coverage numbers.
 router.get('/coverage', requireAuth, async (req: Request, res: Response) => {
   const { from, to, facility_id } = req.query;

@@ -9,7 +9,7 @@ const router = Router();
 // Knowledge Sources
 // ---------------------------------------------------------------------------
 
-// GET /sources â€” list knowledge sources
+// GET /sources — list knowledge sources
 router.get('/sources', requireAuth, requirePermission('knowledge_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -29,7 +29,7 @@ router.get('/sources', requireAuth, requirePermission('knowledge_view'), async (
   }
 });
 
-// POST /sources â€” create knowledge source
+// POST /sources — create knowledge source
 router.post('/sources', requireAuth, requirePermission('knowledge_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { name, type, config, permissions } = req.body;
   const auth = getAuth(req);
@@ -56,7 +56,7 @@ router.post('/sources', requireAuth, requirePermission('knowledge_manage'), asyn
   }
 });
 
-// GET /sources/:id â€” get source + stats
+// GET /sources/:id — get source + stats
 router.get('/sources/:id', requireAuth, requirePermission('knowledge_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -87,7 +87,7 @@ router.get('/sources/:id', requireAuth, requirePermission('knowledge_view'), asy
   }
 });
 
-// PATCH /sources/:id â€” update source (toggle enabled, update config)
+// PATCH /sources/:id — update source (toggle enabled, update config)
 router.patch('/sources/:id', requireAuth, requirePermission('knowledge_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { name, config, permissions, enabled, status } = req.body;
@@ -126,7 +126,7 @@ router.patch('/sources/:id', requireAuth, requirePermission('knowledge_manage'),
   }
 });
 
-// DELETE /sources/:id â€” delete source
+// DELETE /sources/:id — delete source
 router.delete('/sources/:id', requireAuth, requirePermission('knowledge_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -148,7 +148,7 @@ router.delete('/sources/:id', requireAuth, requirePermission('knowledge_manage')
   }
 });
 
-// POST /sources/:id/index â€” trigger indexing of a source
+// POST /sources/:id/index — trigger indexing of a source
 router.post('/sources/:id/index', requireAuth, requirePermission('knowledge_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -196,7 +196,7 @@ router.post('/sources/:id/index', requireAuth, requirePermission('knowledge_mana
   }
 });
 
-// GET /sources/:id/items â€” list items from a knowledge source (paginated)
+// GET /sources/:id/items — list items from a knowledge source (paginated)
 router.get('/sources/:id/items', requireAuth, requirePermission('knowledge_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 50);
@@ -229,7 +229,7 @@ router.get('/sources/:id/items', requireAuth, requirePermission('knowledge_view'
 // Knowledge Items
 // ---------------------------------------------------------------------------
 
-// GET /items/search â€” search knowledge items
+// GET /items/search — search knowledge items
 router.get('/items/search', requireAuth, requirePermission('knowledge_view'), async (req: Request, res: Response) => {
   const q = (req.query.q as string | undefined)?.trim();
   if (!q || q.length < 2) {
@@ -265,7 +265,7 @@ router.get('/items/search', requireAuth, requirePermission('knowledge_view'), as
   }
 });
 
-// DELETE /items/:id â€” remove a knowledge item
+// DELETE /items/:id — remove a knowledge item
 router.delete('/items/:id', requireAuth, requirePermission('knowledge_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);

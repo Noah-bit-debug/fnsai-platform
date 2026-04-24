@@ -5,7 +5,7 @@ import { pool } from '../db/client';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET /overview â€” overall compliance dashboard data
+// GET /overview — overall compliance dashboard data
 // ---------------------------------------------------------------------------
 
 router.get('/overview', requireAuth, async (_req: Request, res: Response) => {
@@ -96,7 +96,7 @@ router.get('/overview', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /users â€” per-user completion stats
+// GET /users — per-user completion stats
 // ---------------------------------------------------------------------------
 
 router.get('/users', requireAuth, async (_req: Request, res: Response) => {
@@ -140,7 +140,7 @@ router.get('/users', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /content â€” per-content-item completion rates
+// GET /content — per-content-item completion rates
 // ---------------------------------------------------------------------------
 
 router.get('/content', requireAuth, async (_req: Request, res: Response) => {
@@ -183,7 +183,7 @@ router.get('/content', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /expiring â€” items expiring in next N days (default 30, ?days=N)
+// GET /expiring — items expiring in next N days (default 30, ?days=N)
 // ---------------------------------------------------------------------------
 
 router.get('/expiring', requireAuth, async (req: Request, res: Response) => {
@@ -207,7 +207,7 @@ router.get('/expiring', requireAuth, async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /overdue â€” past due, not completed
+// GET /overdue — past due, not completed
 // ---------------------------------------------------------------------------
 
 router.get('/overdue', requireAuth, async (_req: Request, res: Response) => {
@@ -229,7 +229,7 @@ router.get('/overdue', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /notifications â€” recent notification log (last 100)
+// GET /notifications — recent notification log (last 100)
 // ---------------------------------------------------------------------------
 
 router.get('/notifications', requireAuth, async (_req: Request, res: Response) => {
@@ -249,7 +249,7 @@ router.get('/notifications', requireAuth, async (_req: Request, res: Response) =
 });
 
 // ---------------------------------------------------------------------------
-// GET /user/:userId â€” Full compliance report for a specific user.
+// GET /user/:userId — Full compliance report for a specific user.
 // ---------------------------------------------------------------------------
 
 router.get('/user/:userId', requireAuth, async (req: Request, res: Response) => {
@@ -319,7 +319,7 @@ router.get('/user/:userId', requireAuth, async (req: Request, res: Response) => 
 });
 
 // ---------------------------------------------------------------------------
-// GET /exam/:examId â€” Exam analytics.
+// GET /exam/:examId — Exam analytics.
 // ---------------------------------------------------------------------------
 
 router.get('/exam/:examId', requireAuth, async (req: Request, res: Response) => {
@@ -396,7 +396,7 @@ router.get('/exam/:examId', requireAuth, async (req: Request, res: Response) => 
 });
 
 // ---------------------------------------------------------------------------
-// GET /trends â€” Completion trends last 30 days.
+// GET /trends — Completion trends last 30 days.
 // ---------------------------------------------------------------------------
 
 router.get('/trends', requireAuth, async (_req: Request, res: Response) => {
@@ -433,7 +433,7 @@ router.get('/trends', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /export/records â€” CSV export of competency records.
+// GET /export/records — CSV export of competency records.
 // ---------------------------------------------------------------------------
 
 router.get('/export/records', requireAuth, async (req: Request, res: Response) => {
@@ -509,7 +509,7 @@ router.get('/export/records', requireAuth, async (req: Request, res: Response) =
 });
 
 // ---------------------------------------------------------------------------
-// GET /export/certificates â€” CSV export of all certificates.
+// GET /export/certificates — CSV export of all certificates.
 // ---------------------------------------------------------------------------
 
 router.get('/export/certificates', requireAuth, async (_req: Request, res: Response) => {

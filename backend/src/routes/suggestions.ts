@@ -7,7 +7,7 @@ import { generateDailySuggestions } from '../services/intelligenceEngine';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET / â€” list suggestions
+// GET / — list suggestions
 // ---------------------------------------------------------------------------
 router.get('/', requireAuth, requirePermission('suggestions_view'), async (req: Request, res: Response) => {
   const { status, type, priority } = req.query;
@@ -45,7 +45,7 @@ router.get('/', requireAuth, requirePermission('suggestions_view'), async (req: 
 });
 
 // ---------------------------------------------------------------------------
-// POST /generate â€” generate new AI suggestions
+// POST /generate — generate new AI suggestions
 // ---------------------------------------------------------------------------
 router.post('/generate', requireAuth, requirePermission('suggestions_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const auth = getAuth(req);
@@ -71,7 +71,7 @@ router.post('/generate', requireAuth, requirePermission('suggestions_manage'), a
 });
 
 // ---------------------------------------------------------------------------
-// GET /daily â€” today's pending suggestions (dashboard widget)
+// GET /daily — today's pending suggestions (dashboard widget)
 // ---------------------------------------------------------------------------
 router.get('/daily', requireAuth, requirePermission('suggestions_view'), async (_req: Request, res: Response) => {
   try {
@@ -92,7 +92,7 @@ router.get('/daily', requireAuth, requirePermission('suggestions_view'), async (
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id â€” get one suggestion
+// GET /:id — get one suggestion
 // ---------------------------------------------------------------------------
 router.get('/:id', requireAuth, requirePermission('suggestions_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -116,7 +116,7 @@ router.get('/:id', requireAuth, requirePermission('suggestions_view'), async (re
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /:id/approve â€” approve suggestion
+// PATCH /:id/approve — approve suggestion
 // ---------------------------------------------------------------------------
 router.patch('/:id/approve', requireAuth, requirePermission('suggestions_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
@@ -150,7 +150,7 @@ router.patch('/:id/approve', requireAuth, requirePermission('suggestions_manage'
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /:id/reject â€” reject suggestion
+// PATCH /:id/reject — reject suggestion
 // ---------------------------------------------------------------------------
 router.patch('/:id/reject', requireAuth, requirePermission('suggestions_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
@@ -183,7 +183,7 @@ router.patch('/:id/reject', requireAuth, requirePermission('suggestions_manage')
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /:id/save â€” save for later
+// PATCH /:id/save — save for later
 // ---------------------------------------------------------------------------
 router.patch('/:id/save', requireAuth, requirePermission('suggestions_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
@@ -211,7 +211,7 @@ router.patch('/:id/save', requireAuth, requirePermission('suggestions_manage'), 
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /:id â€” delete suggestion
+// DELETE /:id — delete suggestion
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireAuth, requirePermission('suggestions_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;

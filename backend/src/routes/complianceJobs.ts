@@ -35,7 +35,7 @@ async function completeJobLog(
 }
 
 // ---------------------------------------------------------------------------
-// GET /settings â€” fetch all notification settings
+// GET /settings — fetch all notification settings
 router.get('/settings', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query('SELECT setting_key, setting_value FROM comp_notification_settings ORDER BY setting_key');
@@ -47,7 +47,7 @@ router.get('/settings', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// PATCH /settings â€” update a single notification setting
+// PATCH /settings — update a single notification setting
 router.patch('/settings', requireAuth, async (req: Request, res: Response) => {
   const { key, value } = req.body;
   if (!key || value === undefined) return res.status(400).json({ error: 'key and value required' }) as any;
@@ -64,7 +64,7 @@ router.patch('/settings', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /status â€” last run info for each job + notification counts
+// GET /status — last run info for each job + notification counts
 // ---------------------------------------------------------------------------
 
 router.get('/status', requireAuth, async (_req: Request, res: Response) => {
@@ -104,7 +104,7 @@ router.get('/status', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /expire â€” expire records and optionally auto-renew
+// POST /expire — expire records and optionally auto-renew
 // ---------------------------------------------------------------------------
 
 router.post('/expire', requireAuth, async (_req: Request, res: Response) => {
@@ -159,7 +159,7 @@ router.post('/expire', requireAuth, async (_req: Request, res: Response) => {
       }
     }
 
-    // Count overdue records (not_started/in_progress past due_date) â€” log only, no status change
+    // Count overdue records (not_started/in_progress past due_date) — log only, no status change
     const overdueResult = await pool.query(`
       SELECT COUNT(*) as count
       FROM comp_competency_records
@@ -178,7 +178,7 @@ router.post('/expire', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /notify-due-soon â€” queue due-soon notifications
+// POST /notify-due-soon — queue due-soon notifications
 // ---------------------------------------------------------------------------
 
 router.post('/notify-due-soon', requireAuth, async (_req: Request, res: Response) => {
@@ -205,14 +205,14 @@ router.post('/notify-due-soon', requireAuth, async (_req: Request, res: Response
     let queuedCount = 0;
 
     for (const record of records.rows) {
-      // No email stored in DB â€” log as pending (skipped). Admin configures sending separately.
+      // No email stored in DB — log as pending (skipped). Admin configures sending separately.
       await sendNotification({
         user_clerk_id: record.user_clerk_id,
         notification_type: 'due_soon',
         competency_record_id: record.id,
         subject: `Compliance item due in ${record.days_until_due} days: ${record.title}`,
         body: `Your compliance item "${record.title}" is due on ${new Date(record.due_date).toLocaleDateString()}. Please complete it before the due date.`,
-        // No recipient_email â€” will be logged as 'skipped'
+        // No recipient_email — will be logged as 'skipped'
       });
       queuedCount++;
     }
@@ -227,7 +227,7 @@ router.post('/notify-due-soon', requireAuth, async (_req: Request, res: Response
 });
 
 // ---------------------------------------------------------------------------
-// POST /notify-expiring â€” queue expiring-soon notifications
+// POST /notify-expiring — queue expiring-soon notifications
 // ---------------------------------------------------------------------------
 
 router.post('/notify-expiring', requireAuth, async (_req: Request, res: Response) => {
@@ -259,7 +259,7 @@ router.post('/notify-expiring', requireAuth, async (_req: Request, res: Response
         competency_record_id: record.id,
         subject: `Compliance certification expiring in ${record.days_until_expiry} days: ${record.title}`,
         body: `Your completion of "${record.title}" expires on ${new Date(record.expiration_date).toLocaleDateString()} (${record.days_until_expiry} days from now). You may need to retake this item to maintain compliance.`,
-        // No recipient_email â€” logged as 'skipped'
+        // No recipient_email — logged as 'skipped'
       });
       queuedCount++;
     }
@@ -274,7 +274,7 @@ router.post('/notify-expiring', requireAuth, async (_req: Request, res: Response
 });
 
 // ---------------------------------------------------------------------------
-// POST /process-notifications â€” attempt to send pending notifications
+// POST /process-notifications — attempt to send pending notifications
 // ---------------------------------------------------------------------------
 
 router.post('/process-notifications', requireAuth, async (_req: Request, res: Response) => {
@@ -328,7 +328,7 @@ router.post('/process-notifications', requireAuth, async (_req: Request, res: Re
 });
 
 // ---------------------------------------------------------------------------
-// POST /auto-assign â€” evaluate rules and create missing competency records
+// POST /auto-assign — evaluate rules and create missing competency records
 // ---------------------------------------------------------------------------
 
 router.post('/auto-assign', requireAuth, async (_req: Request, res: Response) => {
@@ -366,7 +366,7 @@ router.post('/auto-assign', requireAuth, async (_req: Request, res: Response) =>
 
     // Fetch all org users from our DB (auth middleware keeps it in sync
     // with Azure on every authenticated request). The `clerk_user_id`
-    // column now stores Azure `oid` values â€” name is legacy.
+    // column now stores Azure `oid` values — name is legacy.
     const usersResponse = await pool.query<{ id: string; role: string | null }>(
       `SELECT clerk_user_id AS id, role FROM users WHERE clerk_user_id IS NOT NULL`
     );
@@ -446,7 +446,7 @@ router.post('/auto-assign', requireAuth, async (_req: Request, res: Response) =>
 });
 
 // ---------------------------------------------------------------------------
-// POST /run-all â€” run all 4 jobs in sequence
+// POST /run-all — run all 4 jobs in sequence
 // ---------------------------------------------------------------------------
 
 router.post('/run-all', requireAuth, async (req: Request, res: Response) => {

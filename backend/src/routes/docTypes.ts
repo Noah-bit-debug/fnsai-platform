@@ -5,7 +5,7 @@ import { query } from '../db/client';
 import { getAuth } from '../middleware/auth';
 
 /**
- * Phase 2.2 â€” Admin-defined document types.
+ * Phase 2.2 — Admin-defined document types.
  *
  * CRUD over doc_types so admins can add/edit/remove document types that the
  * AI document reviewer recognizes. When a recruiter uploads a new type on a
@@ -14,7 +14,7 @@ import { getAuth } from '../middleware/auth';
  *
  * Read: any authenticated user (they need the list to populate the doc type
  *       picker when adding a credential to a candidate).
- * Write: admin/ceo only â€” these rules drive company-wide compliance review.
+ * Write: admin/ceo only — these rules drive company-wide compliance review.
  */
 
 const router = Router();
@@ -32,7 +32,7 @@ const docTypeSchema = z.object({
   active: z.boolean().optional(),
 });
 
-// GET / â€” list all doc types. Any auth'd user â€” frontend picker needs this.
+// GET / — list all doc types. Any auth'd user — frontend picker needs this.
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   const { active, category } = req.query;
   const conditions: string[] = [];
@@ -57,7 +57,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /:key â€” single type by key (used by the reviewer service)
+// GET /:key — single type by key (used by the reviewer service)
 router.get('/:key', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await query(`SELECT * FROM doc_types WHERE key = $1`, [req.params.key]);
@@ -69,7 +69,7 @@ router.get('/:key', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST / â€” admin creates new doc type
+// POST / — admin creates new doc type
 router.post('/', requireAuth, requirePermission('admin_manage'), async (req: Request, res: Response) => {
   const parsed = docTypeSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
@@ -101,7 +101,7 @@ router.post('/', requireAuth, requirePermission('admin_manage'), async (req: Req
   }
 });
 
-// PUT /:id â€” update
+// PUT /:id — update
 router.put('/:id', requireAuth, requirePermission('admin_manage'), async (req: Request, res: Response) => {
   const parsed = docTypeSchema.partial().safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
@@ -125,7 +125,7 @@ router.put('/:id', requireAuth, requirePermission('admin_manage'), async (req: R
   }
 });
 
-// DELETE /:id â€” soft-delete by flipping active=false. Avoids orphaning
+// DELETE /:id — soft-delete by flipping active=false. Avoids orphaning
 // existing candidate_documents that reference this type's key.
 router.delete('/:id', requireAuth, requirePermission('admin_manage'), async (req: Request, res: Response) => {
   const auth = getAuth(req);

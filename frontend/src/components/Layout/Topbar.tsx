@@ -39,7 +39,7 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
     refetchInterval: 60000,
   });
 
-  // Real integration status â€” replaces the hardcoded pills
+  // Real integration status — replaces the hardcoded pills
   const { data: intgData } = useQuery({
     queryKey: ['integration-status'],
     queryFn: () => integrationsStatusApi.status(),
@@ -63,7 +63,7 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
         zIndex: 100,
       } : undefined}
     >
-      {/* Hamburger menu button â€” mobile only */}
+      {/* Hamburger menu button — mobile only */}
       {showMenuButton && (
         <button
           onClick={onMenuClick}
@@ -81,7 +81,7 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
           }}
           aria-label="Toggle menu"
         >
-          â˜°
+          ☰
         </button>
       )}
 
@@ -94,7 +94,7 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
       {/* Global search */}
       <GlobalSearch />
 
-      {/* Integration pills â€” click any to jump to Integration Settings */}
+      {/* Integration pills — click any to jump to Integration Settings */}
       <div
         className="topbar-integrations"
         style={{ cursor: 'pointer' }}
@@ -105,7 +105,7 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
           <span
             key={intg.key}
             className={`integration-pill ${intg.connected ? 'connected' : 'disconnected'}`}
-            title={intg.connected ? `${intg.name} connected â€” click for details` : `${intg.name} not configured â€” click to see setup`}
+            title={intg.connected ? `${intg.name} connected — click for details` : `${intg.name} not configured — click to see setup`}
           >
             <span className="dot" />
             {intg.name}
@@ -180,7 +180,7 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
           }}
           title="Sign out"
         >
-          âœ•
+          ✕
         </button>
       </div>
     </header>

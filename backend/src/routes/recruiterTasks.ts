@@ -24,7 +24,7 @@ const taskSchema = z.object({
   client_id: z.string().uuid().optional().nullable(),
 });
 
-// GET / â€” list with overdue flag computed in SELECT
+// GET / — list with overdue flag computed in SELECT
 router.get('/', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   const { assigned_to, candidate_id, job_id, submission_id, client_id, status, overdue, due_today } = req.query;
   const conditions: string[] = [];
@@ -73,7 +73,7 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
   }
 });
 
-// POST / â€” create
+// POST / — create
 router.post('/', requireAuth, requirePermission('reminders_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = taskSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -147,7 +147,7 @@ router.post('/:id/complete', requireAuth, requirePermission('reminders_manage'),
   }
 });
 
-// DELETE /:id â€” cancel
+// DELETE /:id — cancel
 router.delete('/:id', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   try {
     const result = await query(

@@ -5,7 +5,7 @@ import { pool } from '../db/client';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET / â€” requireAuth. List MY certificates.
+// GET / — requireAuth. List MY certificates.
 // ---------------------------------------------------------------------------
 
 router.get('/', requireAuth, async (req: Request, res: Response) => {
@@ -30,7 +30,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /all â€” requireAuth. Admin: all certificates.
+// GET /all — requireAuth. Admin: all certificates.
 // ---------------------------------------------------------------------------
 
 router.get('/all', requireAuth, async (_req: Request, res: Response) => {
@@ -51,7 +51,7 @@ router.get('/all', requireAuth, async (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /verify/:number â€” NO auth. Public certificate verification.
+// GET /verify/:number — NO auth. Public certificate verification.
 // ---------------------------------------------------------------------------
 
 router.get('/verify/:number', async (req: Request, res: Response) => {
@@ -78,7 +78,7 @@ router.get('/verify/:number', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id â€” requireAuth. Single certificate by ID.
+// GET /:id — requireAuth. Single certificate by ID.
 // ---------------------------------------------------------------------------
 
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
@@ -105,7 +105,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /:id/print â€” requireAuth. Print-ready HTML certificate page.
+// GET /:id/print — requireAuth. Print-ready HTML certificate page.
 // ---------------------------------------------------------------------------
 
 router.get('/:id/print', requireAuth, async (req: Request, res: Response) => {
@@ -150,7 +150,7 @@ router.get('/:id/print', requireAuth, async (req: Request, res: Response) => {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Certificate â€” ${cert.title ?? 'Certificate of Completion'}</title>
+  <title>Certificate — ${cert.title ?? 'Certificate of Completion'}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 

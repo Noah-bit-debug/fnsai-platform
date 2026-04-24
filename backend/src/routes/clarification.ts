@@ -6,7 +6,7 @@ import { generateClarificationQuestions } from '../services/intelligenceEngine';
 
 const router = Router();
 
-// GET /pending/count â€” count of pending questions (must be before /:id)
+// GET /pending/count — count of pending questions (must be before /:id)
 router.get('/pending/count', requireAuth, requirePermission('clarification_view'), async (_req: Request, res: Response) => {
   try {
     const result = await query(
@@ -19,7 +19,7 @@ router.get('/pending/count', requireAuth, requirePermission('clarification_view'
   }
 });
 
-// GET / â€” list clarification questions (filter by status, default: pending)
+// GET / — list clarification questions (filter by status, default: pending)
 router.get('/', requireAuth, requirePermission('clarification_view'), async (req: Request, res: Response) => {
   const status = (req.query.status as string) || 'pending';
 
@@ -53,7 +53,7 @@ router.get('/', requireAuth, requirePermission('clarification_view'), async (req
   }
 });
 
-// POST / â€” create a question manually
+// POST / — create a question manually
 router.post('/', requireAuth, requirePermission('clarification_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { question, why_asked, priority, options, context } = req.body;
   const auth = getAuth(req);
@@ -94,7 +94,7 @@ router.post('/', requireAuth, requirePermission('clarification_manage'), async (
   }
 });
 
-// POST /generate â€” AI generates questions for a context
+// POST /generate — AI generates questions for a context
 router.post('/generate', requireAuth, requirePermission('clarification_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { context, contextData } = req.body;
   const auth = getAuth(req);
@@ -127,7 +127,7 @@ router.post('/generate', requireAuth, requirePermission('clarification_manage'),
   }
 });
 
-// GET /:id â€” get one question
+// GET /:id — get one question
 router.get('/:id', requireAuth, requirePermission('clarification_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -150,7 +150,7 @@ router.get('/:id', requireAuth, requirePermission('clarification_view'), async (
   }
 });
 
-// PATCH /:id/answer â€” answer a question
+// PATCH /:id/answer — answer a question
 router.patch('/:id/answer', requireAuth, requirePermission('clarification_view'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { answer, notes } = req.body;
@@ -195,7 +195,7 @@ router.patch('/:id/answer', requireAuth, requirePermission('clarification_view')
   }
 });
 
-// PATCH /:id/dismiss â€” dismiss a question
+// PATCH /:id/dismiss — dismiss a question
 router.patch('/:id/dismiss', requireAuth, requirePermission('clarification_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -231,7 +231,7 @@ router.patch('/:id/dismiss', requireAuth, requirePermission('clarification_manag
   }
 });
 
-// DELETE /:id â€” delete a question
+// DELETE /:id — delete a question
 router.delete('/:id', requireAuth, requirePermission('clarification_manage'), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);

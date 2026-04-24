@@ -6,8 +6,8 @@ import { getAuth } from '../middleware/auth';
 
 const router = Router();
 
-// Phase 4.4 QA fix â€” facility_id became optional to match the Incidents
-// pattern (some timesheet submissions are general, not facility-bound â€”
+// Phase 4.4 QA fix — facility_id became optional to match the Incidents
+// pattern (some timesheet submissions are general, not facility-bound —
 // e.g. travel nurse orientation hours). DB still NOT NULL on facility_id
 // historically, so we need the migration below to loosen it.
 const timesheetSchema = z.object({

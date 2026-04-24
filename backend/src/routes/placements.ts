@@ -208,7 +208,7 @@ router.post('/:id/send-contract', requireAuth, async (req: Request, res: Respons
     }
 
     const fullName = [placement.first_name, placement.last_name].filter(Boolean).join(' ') || 'Staff member';
-    const docTitle = `Placement Contract â€” ${fullName} Â· ${placement.facility_name ?? 'Facility'}`;
+    const docTitle = `Placement Contract — ${fullName} · ${placement.facility_name ?? 'Facility'}`;
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
