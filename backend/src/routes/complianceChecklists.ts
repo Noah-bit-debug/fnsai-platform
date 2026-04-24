@@ -7,7 +7,7 @@ import { MODEL_FOR } from '../services/aiModels';
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// â”€â”€â”€ GET / â€” list checklists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET / — list checklists ──────────────────────────────────────────────────
 router.get('/', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
@@ -29,7 +29,7 @@ router.get('/', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /stats ───────────────────────────────────────────────────────────────
 router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
@@ -54,7 +54,7 @@ router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST / â€” create checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST / — create checklist ────────────────────────────────────────────────
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -81,7 +81,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /:id â€” get checklist with sections and skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id — get checklist with sections and skills ────────────────────────
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -125,7 +125,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ PUT /:id â€” update checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id — update checklist ──────────────────────────────────────────────
 router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -163,7 +163,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ DELETE /:id â€” archive checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id — archive checklist ─────────────────────────────────────────
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -181,11 +181,11 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ Phase 2.5 â€” POST /:id/ai-generate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Phase 2.5 — POST /:id/ai-generate ──────────────────────────────────────
 //
 // AI-assisted skills-checklist generation. Given a role / specialty /
 // topic, Claude builds sections + skills. Output is structured JSON for
-// admin review â€” does NOT persist. Admin edits the output in the UI and
+// admin review — does NOT persist. Admin edits the output in the UI and
 // commits via /bulk-import or the existing /sections + /skills endpoints.
 router.post('/:id/ai-generate', requireAuth, async (req: Request, res: Response) => {
   const { topic, role, sections_count = 4, skills_per_section = 6 } = req.body as {
@@ -260,11 +260,11 @@ Generate ${sections_count} section(s), each with ~${skills_per_section} skills.`
   }
 });
 
-// â”€â”€â”€ Phase 2.5 â€” POST /:id/bulk-import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Phase 2.5 — POST /:id/bulk-import ──────────────────────────────────────
 //
 // Bulk-insert sections + skills from a parsed Excel/CSV or AI output. Accepts:
 //   { sections: [{ title, skills: [{ skill_name, description }] }] }
-// Transactional â€” all-or-nothing. Frontend handles Excel parsing (SheetJS).
+// Transactional — all-or-nothing. Frontend handles Excel parsing (SheetJS).
 router.post('/:id/bulk-import', requireAuth, async (req: Request, res: Response) => {
   const { id } = req.params;
   const { sections } = req.body as {
@@ -335,7 +335,7 @@ router.post('/:id/bulk-import', requireAuth, async (req: Request, res: Response)
   }
 });
 
-// â”€â”€â”€ POST /:id/sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/sections ───────────────────────────────────────────────────────
 router.post('/:id/sections', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -354,7 +354,7 @@ router.post('/:id/sections', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// â”€â”€â”€ PUT /:id/sections/:sid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id/sections/:sid ───────────────────────────────────────────────────
 router.put('/:id/sections/:sid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sid } = req.params;
@@ -378,7 +378,7 @@ router.put('/:id/sections/:sid', requireAuth, async (req: Request, res: Response
   }
 });
 
-// â”€â”€â”€ DELETE /:id/sections/:sid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id/sections/:sid ────────────────────────────────────────────────
 router.delete('/:id/sections/:sid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sid } = req.params;
@@ -390,7 +390,7 @@ router.delete('/:id/sections/:sid', requireAuth, async (req: Request, res: Respo
   }
 });
 
-// â”€â”€â”€ POST /:id/sections/:sid/skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/sections/:sid/skills ──────────────────────────────────────────
 router.post('/:id/sections/:sid/skills', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sid } = req.params;
@@ -410,7 +410,7 @@ router.post('/:id/sections/:sid/skills', requireAuth, async (req: Request, res: 
   }
 });
 
-// â”€â”€â”€ PUT /:id/sections/:sid/skills/:kid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id/sections/:sid/skills/:kid ──────────────────────────────────────
 router.put('/:id/sections/:sid/skills/:kid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { kid } = req.params;
@@ -436,7 +436,7 @@ router.put('/:id/sections/:sid/skills/:kid', requireAuth, async (req: Request, r
   }
 });
 
-// â”€â”€â”€ DELETE /:id/sections/:sid/skills/:kid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id/sections/:sid/skills/:kid ────────────────────────────────────
 router.delete('/:id/sections/:sid/skills/:kid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { kid } = req.params;
@@ -448,7 +448,7 @@ router.delete('/:id/sections/:sid/skills/:kid', requireAuth, async (req: Request
   }
 });
 
-// â”€â”€â”€ POST /:id/submit â€” submit checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/submit — submit checklist ─────────────────────────────────────
 router.post('/:id/submit', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
@@ -558,7 +558,7 @@ router.post('/:id/submit', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /:id/my-submission â€” get my latest submission â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id/my-submission — get my latest submission ───────────────────────
 router.get('/:id/my-submission', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -589,7 +589,7 @@ router.get('/:id/my-submission', requireAuth, async (req: Request, res: Response
   }
 });
 
-// â”€â”€â”€ GET /:id/submissions â€” all submissions (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id/submissions — all submissions (admin) ───────────────────────────
 router.get('/:id/submissions', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

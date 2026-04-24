@@ -11,7 +11,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // When the user is looking at a specific record (candidate, job, client,
 // placement, submission), pull that record's full shape + its related
 // records and inject them into the prompt. This is what "AI knows what
-// you're looking at" actually means â€” instead of the AI asking "which
+// you're looking at" actually means — instead of the AI asking "which
 // candidate?", the AI already has the candidate's name, role, skills,
 // compliance status, submissions, etc.
 async function buildEntityContext(
@@ -27,7 +27,7 @@ async function buildEntityContext(
         // PII redaction: we deliberately DO NOT select email, phone, street
         // address, or zip. Names, professional info, and operational status
         // only. If the user needs contact details, they view the candidate
-        // profile in-app â€” those details never leave our server for Anthropic.
+        // profile in-app — those details never leave our server for Anthropic.
         const c = await pool.query(
           `SELECT id, first_name, last_name, role, specialties, skills,
                   certifications, licenses, years_experience, stage, status,
@@ -49,12 +49,12 @@ async function buildEntityContext(
             `- Certifications: ${(r.certifications ?? []).join(', ') || 'none'}\n` +
             `- Licenses: ${(r.licenses ?? []).join(', ') || 'none'}\n` +
             `- Years experience: ${r.years_experience ?? 'unknown'}\n` +
-            `- Desired pay: ${r.desired_pay_rate ? `$${r.desired_pay_rate}` : 'â€”'} | Offered: ${r.offered_pay_rate ? `$${r.offered_pay_rate}` : 'â€”'}\n` +
+            `- Desired pay: ${r.desired_pay_rate ? `$${r.desired_pay_rate}` : '—'} | Offered: ${r.offered_pay_rate ? `$${r.offered_pay_rate}` : '—'}\n` +
             `- Available start: ${r.availability_start ?? '?'} (${r.availability_type ?? 'any'})\n` +
             `- Available shifts: ${(r.available_shifts ?? []).join(', ') || 'not specified'}\n` +
             `- Recruiter notes: ${(r.recruiter_notes ?? '').slice(0, 400) || '(none)'}\n` +
             `- Source: ${r.source ?? 'unknown'} | Added: ${new Date(r.created_at).toLocaleDateString()} | Updated: ${new Date(r.updated_at ?? r.created_at).toLocaleDateString()}\n` +
-            `- [Contact info (email/phone/street address) redacted â€” visible only in the app]`
+            `- [Contact info (email/phone/street address) redacted — visible only in the app]`
           );
 
           // Credentialing checklist: every doc row with type, status, expiry.
@@ -75,13 +75,13 @@ async function buildEntityContext(
                   const expiry = d.expiry_date ? ` exp:${new Date(d.expiry_date).toISOString().slice(0, 10)}` : '';
                   const uploaded = d.uploaded_at ? ' (uploaded)' : '';
                   const req = d.required ? '[required]' : '[optional]';
-                  return `- ${d.label} (${d.document_type}) â€” ${d.status}${expiry}${uploaded} ${req}`;
+                  return `- ${d.label} (${d.document_type}) — ${d.status}${expiry}${uploaded} ${req}`;
                 }).join('\n')
               );
             }
           } catch { /* table may not exist yet */ }
 
-          // Submissions this candidate is in â€” include interview notes,
+          // Submissions this candidate is in — include interview notes,
           // schedule, gate status, and AI summary so the assistant can
           // answer "how did her Mercy interview go?" without asking.
           const subs = await pool.query(
@@ -97,7 +97,7 @@ async function buildEntityContext(
             sections.push(
               `CANDIDATE SUBMISSIONS:\n` +
               subs.rows.map(s => {
-                const header = `- ${s.job_title ?? 'Unknown job'} (${s.job_code ?? 'â€”'}) @ ${s.stage_key ?? 'no stage'}${s.ai_score ? ` Â· AI fit: ${s.ai_fit_label ?? s.ai_score}` : ''}${s.gate_status ? ` Â· gate:${s.gate_status}` : ''}`;
+                const header = `- ${s.job_title ?? 'Unknown job'} (${s.job_code ?? '—'}) @ ${s.stage_key ?? 'no stage'}${s.ai_score ? ` · AI fit: ${s.ai_fit_label ?? s.ai_score}` : ''}${s.gate_status ? ` · gate:${s.gate_status}` : ''}`;
                 const loc = s.job_city || s.job_state ? `\n    location: ${[s.job_city, s.job_state].filter(Boolean).join(', ')}` : '';
                 const interview = s.interview_scheduled_at
                   ? `\n    interview: ${new Date(s.interview_scheduled_at).toISOString().slice(0, 16).replace('T', ' ')}`
@@ -125,8 +125,8 @@ async function buildEntityContext(
           const r = j.rows[0];
           sections.push(
             `CURRENT JOB (the user is viewing this requisition):\n` +
-            `- ${r.title} (${r.job_code}) â€” ${r.status} Â· priority: ${r.priority}\n` +
-            `- Profession: ${r.profession} | Specialty: ${r.specialty ?? 'â€”'}\n` +
+            `- ${r.title} (${r.job_code}) — ${r.status} · priority: ${r.priority}\n` +
+            `- Profession: ${r.profession} | Specialty: ${r.specialty ?? '—'}\n` +
             `- Location: ${r.city ?? '?'}, ${r.state ?? '?'}\n` +
             `- Type: ${r.job_type ?? '?'} | Shift: ${r.shift ?? '?'} | Hours/wk: ${r.hours_per_week ?? '?'}\n` +
             `- Pay rate: ${r.pay_rate ? `$${r.pay_rate}` : '?'} | Bill rate: ${r.bill_rate ? `$${r.bill_rate}` : '?'}\n` +
@@ -143,7 +143,7 @@ async function buildEntityContext(
           if (subs.rows.length > 0) {
             sections.push(
               `EXISTING SUBMISSIONS FOR THIS JOB:\n` +
-              subs.rows.map(s => `- ${s.first_name} ${s.last_name} (${s.role ?? '?'}) @ ${s.stage_key ?? '?'}${s.ai_score ? ` Â· AI: ${s.ai_fit_label ?? s.ai_score}` : ''}`).join('\n')
+              subs.rows.map(s => `- ${s.first_name} ${s.last_name} (${s.role ?? '?'}) @ ${s.stage_key ?? '?'}${s.ai_score ? ` · AI: ${s.ai_fit_label ?? s.ai_score}` : ''}`).join('\n')
             );
           }
         }
@@ -175,7 +175,7 @@ async function buildEntityContext(
           if (jobs.rows.length > 0) {
             sections.push(
               `CLIENT'S JOBS:\n` +
-              jobs.rows.map(j => `- ${j.title} (${j.job_code}) â€” ${j.profession} Â· ${j.status}`).join('\n')
+              jobs.rows.map(j => `- ${j.title} (${j.job_code}) — ${j.profession} · ${j.status}`).join('\n')
             );
           }
         }
@@ -266,13 +266,13 @@ async function buildCompanyContext(userQuery: string): Promise<string> {
     sections.push(`CANDIDATES IN SYSTEM: ${cands.rows[0].total}`);
   } catch {}
 
-  // Candidate directory â€” names + role + stage only, no PII. Gives the AI
+  // Candidate directory — names + role + stage only, no PII. Gives the AI
   // enough info to answer "what's Belinda looking like?" by recognizing
   // names in the query without us having to ship every candidate's email,
   // phone, or address to Anthropic.
   try {
     // If the user's query mentions a name-looking token (capitalized word
-    // â‰¥3 chars), pull that candidate with fuzzy match. Otherwise include
+    // ≥3 chars), pull that candidate with fuzzy match. Otherwise include
     // the 30 most-recently-updated for general awareness.
     const nameTokens = userQuery.match(/\b[A-Z][a-z]{2,}\b/g) ?? [];
     let cands: { rows: Array<Record<string, unknown>> } = { rows: [] };
@@ -300,9 +300,9 @@ async function buildCompanyContext(userQuery: string): Promise<string> {
     }
     if (cands.rows.length > 0) {
       sections.push(
-        `CANDIDATE DIRECTORY (${nameTokens.length > 0 ? 'name-matched' : 'top 30 most recent'} â€” no PII):\n` +
+        `CANDIDATE DIRECTORY (${nameTokens.length > 0 ? 'name-matched' : 'top 30 most recent'} — no PII):\n` +
         cands.rows.map(r =>
-          `- ${r.first_name} ${r.last_name} Â· ${r.role ?? 'role?'} Â· stage: ${r.stage ?? '?'}${r.years_experience ? ` Â· ${r.years_experience}yr` : ''}${(r as any).certs?.length ? ` Â· certs: ${(r as any).certs.join(',')}` : ''}`
+          `- ${r.first_name} ${r.last_name} · ${r.role ?? 'role?'} · stage: ${r.stage ?? '?'}${r.years_experience ? ` · ${r.years_experience}yr` : ''}${(r as any).certs?.length ? ` · certs: ${(r as any).certs.join(',')}` : ''}`
         ).join('\n')
       );
     }
@@ -318,7 +318,7 @@ async function buildCompanyContext(userQuery: string): Promise<string> {
         params
       );
       if (ki.rows.length > 0) {
-        sections.push(`RELEVANT KNOWLEDGE BASE ITEMS:\n${ki.rows.map((r: any) => `â€¢ ${r.title}: ${(r.content_preview ?? '').slice(0, 200)}`).join('\n')}`);
+        sections.push(`RELEVANT KNOWLEDGE BASE ITEMS:\n${ki.rows.map((r: any) => `• ${r.title}: ${(r.content_preview ?? '').slice(0, 200)}`).join('\n')}`);
       }
     }
   } catch {}
@@ -343,14 +343,14 @@ async function buildCompanyContext(userQuery: string): Promise<string> {
       ORDER BY c.expiration_date ASC LIMIT 5
     `);
     if (expiring.rows.length > 0) {
-      sections.push(`CREDENTIALS EXPIRING WITHIN 30 DAYS:\n${expiring.rows.map((r: any) => `â€¢ ${r.full_name} â€” ${r.credential_type} expires ${new Date(r.expiration_date).toLocaleDateString()}`).join('\n')}`);
+      sections.push(`CREDENTIALS EXPIRING WITHIN 30 DAYS:\n${expiring.rows.map((r: any) => `• ${r.full_name} — ${r.credential_type} expires ${new Date(r.expiration_date).toLocaleDateString()}`).join('\n')}`);
     }
   } catch {}
 
   return sections.length > 0 ? sections.join('\n\n') : 'No live context available.';
 }
 
-const BRAIN_SYSTEM_PROMPT = `You are the FNS AI Brain â€” an internal operational intelligence assistant for Frontline Healthcare Staffing (FNS), a healthcare staffing agency in Texas.
+const BRAIN_SYSTEM_PROMPT = `You are the FNS AI Brain — an internal operational intelligence assistant for Frontline Healthcare Staffing (FNS), a healthcare staffing agency in Texas.
 
 You are NOT a generic AI. You are specifically trained on FNS operations, workflows, and company knowledge.
 
@@ -361,17 +361,17 @@ COMPANY PROFILE:
 - Joint Commission accreditation is a priority
 
 ONEDRIVE FOLDER STRUCTURE:
-- /Joint Commission â€” JC policies, audit documents, accreditation files
-- /Candidate Credentials â€” individual clinician credential files
-- /Onboarding Documents â€” new hire paperwork
-- /Compliance Files â€” compliance records
-- /Credentialing â€” license verifications, background checks
-- /BLS & Certifications â€” BLS cards, ACLS, PALS certificates
-- /Policies & Procedures â€” company policies, SOPs
-- /HR Documents â€” employment agreements, tax forms
-- /Facility Contracts â€” client facility agreements
-- /Training Materials â€” training content
-- /Incident Reports â€” workplace incidents
+- /Joint Commission — JC policies, audit documents, accreditation files
+- /Candidate Credentials — individual clinician credential files
+- /Onboarding Documents — new hire paperwork
+- /Compliance Files — compliance records
+- /Credentialing — license verifications, background checks
+- /BLS & Certifications — BLS cards, ACLS, PALS certificates
+- /Policies & Procedures — company policies, SOPs
+- /HR Documents — employment agreements, tax forms
+- /Facility Contracts — client facility agreements
+- /Training Materials — training content
+- /Incident Reports — workplace incidents
 
 CREDENTIAL REQUIREMENTS BY ROLE:
 - RN: State license, BLS (AHA/ARC), TB test, background check, drug screen
@@ -382,7 +382,7 @@ CREDENTIAL REQUIREMENTS BY ROLE:
 
 BEHAVIORAL RULES:
 1. Always answer based on live company context provided
-2. If unsure about company-specific policies, say: "I need clarification â€” [your question]"
+2. If unsure about company-specific policies, say: "I need clarification — [your question]"
 3. When you detect a clarification is needed, end your response with JSON: {"needs_clarification": true, "clarification_question": "...", "source_type": "policy|workflow|file_routing|email"}
 4. Be direct, specific, and operational
 5. Format with headers and bullet points
@@ -391,7 +391,7 @@ BEHAVIORAL RULES:
 PRIVACY RULES (STRICT):
 - Candidate and staff contact details (email, phone, address) are INTENTIONALLY
   redacted from the context you receive. If the user asks for someone's email
-  or phone, tell them to view the profile page in the app â€” do NOT invent or
+  or phone, tell them to view the profile page in the app — do NOT invent or
   guess values. Never claim to have seen a value that wasn't in the context.
 - You may reference names, roles, stages, skills, certifications, licenses,
   years of experience, and general location (city/state). That's it.
@@ -664,7 +664,7 @@ router.get('/refresh-log', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/v1/ai-brain/suggestions â€” live action suggestions based on current company state
+// GET /api/v1/ai-brain/suggestions — live action suggestions based on current company state
 router.get('/suggestions', requireAuth, async (req: Request, res: Response) => {
   const suggestions: Array<{
     id: string; icon: string; priority: string; title: string;
@@ -676,7 +676,7 @@ router.get('/suggestions', requireAuth, async (req: Request, res: Response) => {
     const n = c.rows[0].n;
     if (n > 0) {
       suggestions.push({
-        id: 'clarifications', icon: 'â“', priority: 'high',
+        id: 'clarifications', icon: '❓', priority: 'high',
         title: `${n} question${n > 1 ? 's' : ''} waiting in the review queue`,
         desc: 'The AI Brain has policy questions that need your answers to improve accuracy and inform future responses.',
         action: 'Review Questions', nav_section: 'clarifications', color: '#dc2626',
@@ -694,14 +694,14 @@ router.get('/suggestions', requireAuth, async (req: Request, res: Response) => {
     const soon = e.rows[0].soon ?? 0;
     if (expired > 0) {
       suggestions.push({
-        id: 'expired_creds', icon: 'ðŸš¨', priority: 'high',
+        id: 'expired_creds', icon: '🚨', priority: 'high',
         title: `${expired} expired credential${expired > 1 ? 's' : ''} need immediate attention`,
         desc: 'Staff with expired credentials may not be eligible for placement. Renew to restore placement eligibility.',
         action: 'Fix Credentials', nav_path: '/credentialing', color: '#dc2626',
       });
     } else if (soon > 0) {
       suggestions.push({
-        id: 'expiring_creds', icon: 'âš ï¸', priority: 'medium',
+        id: 'expiring_creds', icon: '⚠️', priority: 'medium',
         title: `${soon} credential${soon > 1 ? 's' : ''} expiring within 14 days`,
         desc: 'Proactively renew these credentials to avoid placement disruptions.',
         action: 'View Credentials', nav_path: '/credentialing', color: '#d97706',
@@ -717,7 +717,7 @@ router.get('/suggestions', requireAuth, async (req: Request, res: Response) => {
     const n = co.rows[0].n;
     if (n > 0) {
       suggestions.push({
-        id: 'overdue_compliance', icon: 'âœ…', priority: 'medium',
+        id: 'overdue_compliance', icon: '✅', priority: 'medium',
         title: `${n} overdue compliance item${n > 1 ? 's' : ''}`,
         desc: 'Staff members have compliance assignments that are past their due date.',
         action: 'View Compliance', nav_path: '/compliance', color: '#d97706',
@@ -732,7 +732,7 @@ router.get('/suggestions', requireAuth, async (req: Request, res: Response) => {
     if (!last || new Date(last) < sevenDaysAgo) {
       const daysSince = last ? Math.floor((Date.now() - new Date(last).getTime()) / 86400000) : null;
       suggestions.push({
-        id: 'stale_knowledge', icon: 'ðŸ”„', priority: 'low',
+        id: 'stale_knowledge', icon: '🔄', priority: 'low',
         title: 'Microsoft 365 knowledge sources may be stale',
         desc: last ? `Sources were last refreshed ${daysSince} days ago. Refresh to keep email and file intelligence current.` : 'Knowledge sources have never been refreshed. Refresh to enable email and OneDrive intelligence.',
         action: 'Refresh Sources', nav_section: 'knowledge', color: '#2563eb',
@@ -745,7 +745,7 @@ router.get('/suggestions', requireAuth, async (req: Request, res: Response) => {
     const n = pending.rows[0].n;
     if (n > 0) {
       suggestions.push({
-        id: 'onboarding_pending', icon: 'ðŸŽ“', priority: 'low',
+        id: 'onboarding_pending', icon: '🎓', priority: 'low',
         title: `${n} staff member${n > 1 ? 's' : ''} still in onboarding`,
         desc: 'Complete onboarding to make staff placement-eligible.',
         action: 'View Onboarding', nav_path: '/onboarding', color: '#2563eb',

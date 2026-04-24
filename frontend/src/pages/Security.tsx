@@ -63,9 +63,9 @@ export default function Security() {
   ];
 
   const sessionRows = [
-    { ts: 'Apr 9, 9:02 AM', device: 'Chrome on Windows', location: 'Texas, US', status: 'âœ“ Verified' },
-    { ts: 'Apr 8, 4:15 PM', device: 'Chrome on Windows', location: 'Texas, US', status: 'âœ“ Verified' },
-    { ts: 'Apr 6, 4:10 PM', device: 'Chrome on Windows', location: 'Texas, US', status: 'âœ“ Verified' },
+    { ts: 'Apr 9, 9:02 AM', device: 'Chrome on Windows', location: 'Texas, US', status: '✓ Verified' },
+    { ts: 'Apr 8, 4:15 PM', device: 'Chrome on Windows', location: 'Texas, US', status: '✓ Verified' },
+    { ts: 'Apr 6, 4:10 PM', device: 'Chrome on Windows', location: 'Texas, US', status: '✓ Verified' },
   ];
 
   const backupCodes = [
@@ -79,23 +79,23 @@ export default function Security() {
     <div>
       {/* Page Header */}
       <div className="ph">
-        <h1 className="pt">ðŸ” Security &amp; MFA</h1>
+        <h1 className="pt">🔐 Security &amp; MFA</h1>
         <p className="ps">Manage account security and two-factor authentication for your team</p>
       </div>
 
       {/* 2-column layout */}
       <div className="cg2" style={{ marginBottom: 20 }}>
 
-        {/* LEFT â€” Two-Factor Authentication */}
+        {/* LEFT — Two-Factor Authentication */}
         <div className="pn">
           <div className="pnh">
             <h3 className="pnt">Two-Factor Authentication</h3>
-            <span className="tag tg">Active âœ“</span>
+            <span className="tag tg">Active ✓</span>
           </div>
           <div className="pnb" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
             <div className="ab ab-g">
-              âœ“ Your account is protected with an authenticator app (TOTP). You&apos;ll need your phone to log in.
+              ✓ Your account is protected with an authenticator app (TOTP). You&apos;ll need your phone to log in.
             </div>
 
             <div className="fg">
@@ -225,7 +225,7 @@ export default function Security() {
           </div>
         </div>
 
-        {/* RIGHT â€” Team Access */}
+        {/* RIGHT — Team Access */}
         <div className="pn">
           <div className="pnh">
             <h3 className="pnt">Team Access</h3>
@@ -271,7 +271,7 @@ export default function Security() {
 
             <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div className="ab ab-w">
-                âš¡ Marcus has not set up MFA. All users must have MFA active.
+                ⚡ Marcus has not set up MFA. All users must have MFA active.
               </div>
 
               {reminderMsg ? (

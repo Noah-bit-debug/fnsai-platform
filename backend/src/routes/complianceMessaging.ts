@@ -4,7 +4,7 @@ import { pool } from '../db/client';
 
 const router = Router();
 
-// â”€â”€â”€ GET / â€” inbox (received messages) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET / — inbox (received messages) ───────────────────────────────────────
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -29,7 +29,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /sent â€” sent messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /sent — sent messages ────────────────────────────────────────────────
 router.get('/sent', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -49,7 +49,7 @@ router.get('/sent', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /unread-count â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /unread-count ────────────────────────────────────────────────────────
 router.get('/unread-count', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -68,7 +68,7 @@ router.get('/unread-count', requireAuth, async (req: Request, res: Response) => 
   }
 });
 
-// â”€â”€â”€ POST / â€” send a message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST / — send a message ──────────────────────────────────────────────────
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -122,7 +122,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /:id â€” get a message with its replies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id — get a message with its replies ────────────────────────────────
 // NOTE: This route must come AFTER named sub-routes (/sent, /unread-count)
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
@@ -155,7 +155,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST /:id/reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/reply ──────────────────────────────────────────────────────────
 router.post('/:id/reply', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -208,7 +208,7 @@ router.post('/:id/reply', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST /:id/read â€” mark as read â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/read — mark as read ────────────────────────────────────────────
 router.post('/:id/read', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -230,7 +230,7 @@ router.post('/:id/read', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ DELETE /:id â€” archive (soft delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id — archive (soft delete) ─────────────────────────────────────
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);

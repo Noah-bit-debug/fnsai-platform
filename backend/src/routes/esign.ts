@@ -10,9 +10,9 @@ import { SYSTEM_TEMPLATES, generateSignedPDF } from '../services/esignService';
 
 const router = Router();
 
-// â”€â”€â”€ Multer file upload config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Multer file upload config ────────────────────────────────────────────────
 // Uploads go to ESIGN_UPLOAD_DIR if set (pointing at a Railway volume mount
-// or similar persistent storage) â€” otherwise fall back to cwd/uploads which
+// or similar persistent storage) — otherwise fall back to cwd/uploads which
 // is ephemeral on Railway and wipes on every deploy.
 // Set ESIGN_UPLOAD_DIR=/app/persistent/esign on Railway after creating a
 // volume mounted at /app/persistent to keep uploaded PDFs between deploys.
@@ -24,7 +24,7 @@ const signedDir = uploadRootOverride
   ? path.join(uploadRootOverride, 'signed')
   : path.join(process.cwd(), 'uploads', 'esign', 'signed');
 [uploadDir, signedDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
-console.log(`[esign] Upload dir: ${uploadDir}${uploadRootOverride ? ' (persistent)' : ' (EPHEMERAL â€” files wipe on deploy. Set ESIGN_UPLOAD_DIR env var to use persistent storage.)'}`);
+console.log(`[esign] Upload dir: ${uploadDir}${uploadRootOverride ? ' (persistent)' : ' (EPHEMERAL — files wipe on deploy. Set ESIGN_UPLOAD_DIR env var to use persistent storage.)'}`);
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
@@ -53,7 +53,7 @@ const upload = multer({
   },
 });
 
-// â”€â”€â”€ DB Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DB Init ──────────────────────────────────────────────────────────────────
 async function initEsignTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS esign_templates (
@@ -212,7 +212,7 @@ async function initEsignTables() {
 }
 initEsignTables().catch(console.error);
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getClientIp(req: Request): string {
   return (
@@ -296,9 +296,9 @@ function buildSigningUrl(token: string): string {
   return `${base}/sign/${token}`;
 }
 
-// â”€â”€â”€ TEMPLATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── TEMPLATES ────────────────────────────────────────────────────────────────
 
-// GET /esign/templates â€” list all (system + custom from DB)
+// GET /esign/templates — list all (system + custom from DB)
 router.get('/templates', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows: customTemplates } = await pool.query(
@@ -326,7 +326,7 @@ router.get('/templates', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /esign/templates/:id â€” get single with content
+// GET /esign/templates/:id — get single with content
 router.get('/templates/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -342,7 +342,7 @@ router.get('/templates/:id', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// POST /esign/templates â€” create custom template
+// POST /esign/templates — create custom template
 router.post('/templates', requireAuth, async (req: Request, res: Response) => {
   try {
     const { name, category, description, content, fields } = req.body;
@@ -361,7 +361,7 @@ router.post('/templates', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /esign/templates/:id â€” update custom (block system)
+// PUT /esign/templates/:id — update custom (block system)
 router.put('/templates/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -385,7 +385,7 @@ router.put('/templates/:id', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// DELETE /esign/templates/:id â€” soft delete custom
+// DELETE /esign/templates/:id — soft delete custom
 router.delete('/templates/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -404,7 +404,7 @@ router.delete('/templates/:id', requireAuth, async (req: Request, res: Response)
   }
 });
 
-// POST /esign/templates/:id/duplicate â€” clone a template
+// POST /esign/templates/:id/duplicate — clone a template
 router.post('/templates/:id/duplicate', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -436,9 +436,9 @@ router.post('/templates/:id/duplicate', requireAuth, async (req: Request, res: R
   }
 });
 
-// â”€â”€â”€ DOCUMENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DOCUMENTS ────────────────────────────────────────────────────────────────
 
-// POST /esign/documents/upload â€” upload file, create draft document record
+// POST /esign/documents/upload — upload file, create draft document record
 // NOTE: must be defined BEFORE /documents/:id to avoid route conflict
 router.post(
   '/documents/upload',
@@ -479,7 +479,7 @@ router.post(
   }
 );
 
-// GET /esign/documents â€” list with signers joined (filter: status, staff_id, search)
+// GET /esign/documents — list with signers joined (filter: status, staff_id, search)
 router.get('/documents', requireAuth, async (req: Request, res: Response) => {
   try {
     const { status, staff_id, search } = req.query;
@@ -518,7 +518,7 @@ router.get('/documents', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/documents â€” create document (with signers array, fields optional)
+// POST /esign/documents — create document (with signers array, fields optional)
 router.post('/documents', requireAuth, async (req: Request, res: Response) => {
   try {
     const {
@@ -619,7 +619,7 @@ router.post('/documents', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /esign/documents/:id â€” get single with signers + fields + audit (last 20)
+// GET /esign/documents/:id — get single with signers + fields + audit (last 20)
 router.get('/documents/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -659,7 +659,7 @@ router.get('/documents/:id', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// PUT /esign/documents/:id â€” update title/message/expires/status/correction_reason
+// PUT /esign/documents/:id — update title/message/expires/status/correction_reason
 router.put('/documents/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -707,7 +707,7 @@ router.put('/documents/:id', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// POST /esign/documents/:id/send â€” change status to 'sent', return signing URLs
+// POST /esign/documents/:id/send — change status to 'sent', return signing URLs
 router.post('/documents/:id/send', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -747,7 +747,7 @@ router.post('/documents/:id/send', requireAuth, async (req: Request, res: Respon
   }
 });
 
-// POST /esign/documents/:id/void â€” void with reason
+// POST /esign/documents/:id/void — void with reason
 router.post('/documents/:id/void', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -771,7 +771,7 @@ router.post('/documents/:id/void', requireAuth, async (req: Request, res: Respon
   }
 });
 
-// POST /esign/documents/:id/remind-all â€” return signing URLs for all pending signers
+// POST /esign/documents/:id/remind-all — return signing URLs for all pending signers
 router.post('/documents/:id/remind-all', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -812,7 +812,7 @@ router.post('/documents/:id/remind-all', requireAuth, async (req: Request, res: 
   }
 });
 
-// GET /esign/documents/:id/audit â€” full audit trail
+// GET /esign/documents/:id/audit — full audit trail
 router.get('/documents/:id/audit', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows } = await pool.query(
@@ -829,7 +829,7 @@ router.get('/documents/:id/audit', requireAuth, async (req: Request, res: Respon
   }
 });
 
-// GET /esign/documents/:id/download â€” download signed PDF
+// GET /esign/documents/:id/download — download signed PDF
 router.get('/documents/:id/download', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows: [doc] } = await pool.query(
@@ -852,7 +852,7 @@ router.get('/documents/:id/download', requireAuth, async (req: Request, res: Res
   }
 });
 
-// GET /esign/documents/:id/file â€” serve original uploaded file (for field editor)
+// GET /esign/documents/:id/file — serve original uploaded file (for field editor)
 router.get('/documents/:id/file', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows: [doc] } = await pool.query(
@@ -895,7 +895,7 @@ router.get('/documents/:id/file', requireAuth, async (req: Request, res: Respons
   }
 });
 
-// POST /esign/documents/:id/fields â€” bulk replace all fields
+// POST /esign/documents/:id/fields — bulk replace all fields
 router.post('/documents/:id/fields', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -948,7 +948,7 @@ router.post('/documents/:id/fields', requireAuth, async (req: Request, res: Resp
   }
 });
 
-// GET /esign/documents/:id/fields â€” get all fields
+// GET /esign/documents/:id/fields — get all fields
 router.get('/documents/:id/fields', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows } = await pool.query(
@@ -974,9 +974,9 @@ router.get('/documents/:id/fields', requireAuth, async (req: Request, res: Respo
   }
 });
 
-// â”€â”€â”€ SIGNERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SIGNERS ──────────────────────────────────────────────────────────────────
 
-// POST /esign/documents/:id/signers â€” add signer
+// POST /esign/documents/:id/signers — add signer
 router.post('/documents/:id/signers', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -1000,7 +1000,7 @@ router.post('/documents/:id/signers', requireAuth, async (req: Request, res: Res
   }
 });
 
-// PUT /esign/documents/:id/signers/:sid â€” update signer
+// PUT /esign/documents/:id/signers/:sid — update signer
 router.put('/documents/:id/signers/:sid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id, sid } = req.params;
@@ -1020,7 +1020,7 @@ router.put('/documents/:id/signers/:sid', requireAuth, async (req: Request, res:
   }
 });
 
-// DELETE /esign/documents/:id/signers/:sid â€” remove signer (only if not signed)
+// DELETE /esign/documents/:id/signers/:sid — remove signer (only if not signed)
 router.delete('/documents/:id/signers/:sid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id, sid } = req.params;
@@ -1041,7 +1041,7 @@ router.delete('/documents/:id/signers/:sid', requireAuth, async (req: Request, r
   }
 });
 
-// POST /esign/documents/:id/signers/:sid/remind â€” return signing link for specific signer
+// POST /esign/documents/:id/signers/:sid/remind — return signing link for specific signer
 router.post('/documents/:id/signers/:sid/remind', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id, sid } = req.params;
@@ -1072,7 +1072,7 @@ router.post('/documents/:id/signers/:sid/remind', requireAuth, async (req: Reque
   }
 });
 
-// â”€â”€â”€ DOCUMENT FINALIZATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DOCUMENT FINALIZATION ────────────────────────────────────────────────────
 
 async function finalizeDocument(docId: string, lastSignerId: string, ip: string): Promise<void> {
   const { rows: [doc] } = await pool.query(
@@ -1134,9 +1134,9 @@ async function finalizeDocument(docId: string, lastSignerId: string, ip: string)
   });
 }
 
-// â”€â”€â”€ PUBLIC SIGNING ENDPOINTS (no requireAuth) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUBLIC SIGNING ENDPOINTS (no requireAuth) ────────────────────────────────
 
-// GET /esign/sign/:token â€” get signing page data
+// GET /esign/sign/:token — get signing page data
 router.get('/sign/:token', async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
@@ -1212,7 +1212,7 @@ router.get('/sign/:token', async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/sign/:token/consent â€” record consent accepted
+// POST /esign/sign/:token/consent — record consent accepted
 router.post('/sign/:token/consent', async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
@@ -1234,7 +1234,7 @@ router.post('/sign/:token/consent', async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/sign/:token/field/:fieldId â€” save field value (incremental)
+// POST /esign/sign/:token/field/:fieldId — save field value (incremental)
 router.post('/sign/:token/field/:fieldId', async (req: Request, res: Response) => {
   try {
     const { token, fieldId } = req.params;
@@ -1267,7 +1267,7 @@ router.post('/sign/:token/field/:fieldId', async (req: Request, res: Response) =
   }
 });
 
-// POST /esign/sign/:token/sign â€” submit all signatures, finalize if last signer
+// POST /esign/sign/:token/sign — submit all signatures, finalize if last signer
 router.post('/sign/:token/sign', async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
@@ -1340,7 +1340,7 @@ router.post('/sign/:token/sign', async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/sign/:token/decline â€” decline with reason
+// POST /esign/sign/:token/decline — decline with reason
 router.post('/sign/:token/decline', async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
@@ -1354,7 +1354,7 @@ router.post('/sign/:token/decline', async (req: Request, res: Response) => {
     );
 
     if (!signer) return res.status(404).json({ error: 'Invalid signing link' });
-    if (signer.status === 'signed') return res.status(400).json({ error: 'Already signed â€” cannot decline' });
+    if (signer.status === 'signed') return res.status(400).json({ error: 'Already signed — cannot decline' });
     if (signer.status === 'declined') return res.status(400).json({ error: 'Already declined' });
     if (signer.doc_status === 'voided') return res.status(400).json({ error: 'Document has been voided' });
 
@@ -1384,9 +1384,9 @@ router.post('/sign/:token/decline', async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ ONLINE FORMS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── ONLINE FORMS ─────────────────────────────────────────────────────────────
 
-// GET /esign/forms â€” list company forms
+// GET /esign/forms — list company forms
 router.get('/forms', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -1405,7 +1405,7 @@ router.get('/forms', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/forms â€” create form
+// POST /esign/forms — create form
 router.post('/forms', requireAuth, async (req: Request, res: Response) => {
   try {
     const {
@@ -1441,7 +1441,7 @@ router.post('/forms', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /esign/forms/:id â€” get form
+// GET /esign/forms/:id — get form
 router.get('/forms/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows: [form] } = await pool.query(
@@ -1457,7 +1457,7 @@ router.get('/forms/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /esign/forms/:id â€” update form
+// PUT /esign/forms/:id — update form
 router.put('/forms/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { title, kiosk_mode, requires_password, expires_at, max_submissions, is_active } = req.body;
@@ -1477,7 +1477,7 @@ router.put('/forms/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// GET /esign/forms/:id/submissions â€” list submissions
+// GET /esign/forms/:id/submissions — list submissions
 router.get('/forms/:id/submissions', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows } = await pool.query(
@@ -1491,7 +1491,7 @@ router.get('/forms/:id/submissions', requireAuth, async (req: Request, res: Resp
   }
 });
 
-// GET /esign/f/:shareToken â€” public: get form fields (no auth)
+// GET /esign/f/:shareToken — public: get form fields (no auth)
 router.get('/f/:shareToken', async (req: Request, res: Response) => {
   try {
     const { shareToken } = req.params;
@@ -1543,7 +1543,7 @@ router.get('/f/:shareToken', async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/f/:shareToken â€” public: submit form (no auth)
+// POST /esign/f/:shareToken — public: submit form (no auth)
 router.post('/f/:shareToken', async (req: Request, res: Response) => {
   try {
     const { shareToken } = req.params;
@@ -1577,7 +1577,7 @@ router.post('/f/:shareToken', async (req: Request, res: Response) => {
       const { rows: [doc] } = await pool.query(
         `INSERT INTO esign_documents (template_id, title, field_values, status, created_by, signing_order)
          VALUES ($1, $2, $3, 'draft', $4, 'parallel') RETURNING *`,
-        [form.template_id, `${form.title} â€” ${submitter_name ?? 'Anonymous'}`, JSON.stringify(field_values ?? {}), `form:${form.id}`]
+        [form.template_id, `${form.title} — ${submitter_name ?? 'Anonymous'}`, JSON.stringify(field_values ?? {}), `form:${form.id}`]
       );
       generatedDocId = doc.id;
       // Add submitter as signer
@@ -1610,12 +1610,12 @@ router.post('/f/:shareToken', async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ ANALYTICS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── ANALYTICS ────────────────────────────────────────────────────────────────
 
-// GET /esign/analytics â€” combined analytics (overview + daily + top templates + slowest)
+// GET /esign/analytics — combined analytics (overview + daily + top templates + slowest)
 router.get('/analytics', requireAuth, async (_req: Request, res: Response) => {
   try {
-    // Overview â€” field names match frontend expectations
+    // Overview — field names match frontend expectations
     const { rows: [ov] } = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE status IN ('sent','partially_signed','completed','voided','declined')) as total_sent,
@@ -1638,7 +1638,7 @@ router.get('/analytics', requireAuth, async (_req: Request, res: Response) => {
       FROM esign_documents
     `);
 
-    // Daily â€” last 30 days
+    // Daily — last 30 days
     const { rows: daily } = await pool.query(`
       WITH days AS (
         SELECT generate_series(
@@ -1689,7 +1689,7 @@ router.get('/analytics', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// GET /esign/analytics/documents â€” daily docs sent vs completed (last 30 days)
+// GET /esign/analytics/documents — daily docs sent vs completed (last 30 days)
 router.get('/analytics/documents', requireAuth, async (_req: Request, res: Response) => {
   try {
     const { rows } = await pool.query(`
@@ -1715,7 +1715,7 @@ router.get('/analytics/documents', requireAuth, async (_req: Request, res: Respo
   }
 });
 
-// GET /esign/analytics/templates â€” top templates by usage
+// GET /esign/analytics/templates — top templates by usage
 router.get('/analytics/templates', requireAuth, async (_req: Request, res: Response) => {
   try {
     const { rows } = await pool.query(`
@@ -1746,9 +1746,9 @@ router.get('/analytics/templates', requireAuth, async (_req: Request, res: Respo
   }
 });
 
-// â”€â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── STATS ────────────────────────────────────────────────────────────────────
 
-// GET /esign/stats â€” summary counts by status
+// GET /esign/stats — summary counts by status
 router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   try {
     const { rows: [docStats] } = await pool.query(`

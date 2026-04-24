@@ -4,7 +4,7 @@ import { pool } from '../db/client';
 
 const router = Router();
 
-// â”€â”€â”€ Shared readiness evaluator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Shared readiness evaluator ───────────────────────────────────────────────
 async function evaluateReadiness(
   clerkUserId: string | null,
   candidateId: string | null,
@@ -57,7 +57,7 @@ async function evaluateReadiness(
   return { is_ready, score, blocking_issues };
 }
 
-// â”€â”€â”€ POST /evaluate/staff/:staffId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /evaluate/staff/:staffId ───────────────────────────────────────────
 router.post('/evaluate/staff/:staffId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { staffId } = req.params;
@@ -102,7 +102,7 @@ router.post('/evaluate/staff/:staffId', requireAuth, async (req: Request, res: R
   }
 });
 
-// â”€â”€â”€ POST /evaluate/candidate/:candidateId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /evaluate/candidate/:candidateId ────────────────────────────────────
 router.post('/evaluate/candidate/:candidateId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { candidateId } = req.params;
@@ -146,7 +146,7 @@ router.post('/evaluate/candidate/:candidateId', requireAuth, async (req: Request
   }
 });
 
-// â”€â”€â”€ POST /evaluate-all â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /evaluate-all ───────────────────────────────────────────────────────
 router.post('/evaluate-all', requireAuth, async (_req: Request, res: Response) => {
   try {
     const staffResult = await pool.query(
@@ -210,7 +210,7 @@ router.post('/evaluate-all', requireAuth, async (_req: Request, res: Response) =
   }
 });
 
-// â”€â”€â”€ GET / â€” list all readiness records â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET / — list all readiness records ──────────────────────────────────────
 router.get('/', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
@@ -241,7 +241,7 @@ router.get('/', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /staff/:staffId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /staff/:staffId ──────────────────────────────────────────────────────
 router.get('/staff/:staffId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { staffId } = req.params;
@@ -256,7 +256,7 @@ router.get('/staff/:staffId', requireAuth, async (req: Request, res: Response) =
   }
 });
 
-// â”€â”€â”€ GET /candidate/:candidateId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /candidate/:candidateId ─────────────────────────────────────────────
 router.get('/candidate/:candidateId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { candidateId } = req.params;
@@ -271,7 +271,7 @@ router.get('/candidate/:candidateId', requireAuth, async (req: Request, res: Res
   }
 });
 
-// â”€â”€â”€ PATCH /staff/:staffId â€” manual override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PATCH /staff/:staffId — manual override ─────────────────────────────────
 router.patch('/staff/:staffId', requireAuth, async (req: Request, res: Response) => {
   try {
     const { staffId } = req.params;

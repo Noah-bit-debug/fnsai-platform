@@ -29,7 +29,7 @@ const moveStageSchema = z.object({
   note: z.string().max(2000).optional().nullable(),
 });
 
-// â”€â”€â”€ GET / â€” list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET / — list ─────────────────────────────────────────────────────────
 router.get('/', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   const { candidate_id, job_id, recruiter_id, stage_key, fit_label, gate_status } = req.query;
   const conditions: string[] = [];
@@ -76,7 +76,7 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
   }
 });
 
-// â”€â”€â”€ GET /:id â€” full record + stage history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id — full record + stage history ──────────────────────────────
 router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
     const [subRes, histRes] = await Promise.all([
@@ -120,7 +120,7 @@ router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req
   }
 });
 
-// â”€â”€â”€ POST / â€” create (auto gate + auto score) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST / — create (auto gate + auto score) ────────────────────────────
 router.post('/', requireAuth, requirePermission('candidates_create'), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = submissionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -190,7 +190,7 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
   }
 });
 
-// â”€â”€â”€ PUT /:id â€” update editable fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id — update editable fields ────────────────────────────────────
 router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = submissionSchema.partial().omit({ candidate_id: true, job_id: true }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -225,7 +225,7 @@ router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req
   }
 });
 
-// â”€â”€â”€ POST /:id/move-stage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/move-stage ─────────────────────────────────────────────────
 router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_move'), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = moveStageSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() }); return; }
@@ -251,10 +251,10 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
       [req.params.id, fromStage, stage_key, req.userRecord?.id ?? null, req.userRecord?.name ?? getAuth(req).userId ?? 'system', note ?? null]
     );
 
-    // â”€â”€â”€ Phase 5: auto-create placement when moving to 'placed' â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── Phase 5: auto-create placement when moving to 'placed' ──────────────
     // Idempotent: only creates a placement row if none exists for this
     // submission_id yet. The existing placements table is staff-oriented
-    // (staff_id FK is nullable) â€” ATS-sourced placements set candidate_id
+    // (staff_id FK is nullable) — ATS-sourced placements set candidate_id
     // instead and leave staff_id null until the candidate is converted to
     // a staff record. Onboarding/compliance downstream can watch for these.
     let placement_created = false;
@@ -348,7 +348,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
   }
 });
 
-// â”€â”€â”€ POST /:id/score â€” re-run AI scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/score — re-run AI scoring ─────────────────────────────────
 router.post('/:id/score', requireAuth, requirePermission('candidates_edit'), async (req: Request, res: Response) => {
   try {
     const loaded = await query(
@@ -408,7 +408,7 @@ router.post('/:id/score', requireAuth, requirePermission('candidates_edit'), asy
   }
 });
 
-// â”€â”€â”€ POST /:id/recheck-gate â€” re-run credential gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/recheck-gate — re-run credential gate ─────────────────────
 router.post('/:id/recheck-gate', requireAuth, requirePermission('candidates_edit'), async (req: Request, res: Response) => {
   try {
     const sub = await query(`SELECT candidate_id, job_id FROM submissions WHERE id = $1`, [req.params.id]);
@@ -426,10 +426,10 @@ router.post('/:id/recheck-gate', requireAuth, requirePermission('candidates_edit
   }
 });
 
-// â”€â”€â”€ POST /:id/pdf â€” generate submission PDF (minimal draft) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/pdf — generate submission PDF (minimal draft) ─────────────
 // Phase 2 will replace this with a styled template.
 router.post('/:id/pdf', requireAuth, requirePermission('candidates_edit'), async (_req: Request, res: Response) => {
-  // Stub for Phase 1 â€” returns a placeholder URL. Frontend should show "PDF generation coming soon" UX.
+  // Stub for Phase 1 — returns a placeholder URL. Frontend should show "PDF generation coming soon" UX.
   res.json({ pdf_url: null, status: 'not_implemented', message: 'Submission PDF generation will land in Phase 2.' });
 });
 

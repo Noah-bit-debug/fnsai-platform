@@ -3,7 +3,7 @@ import { useUser } from '../../lib/auth';
 import { useRBAC } from '../../contexts/RBACContext';
 import api from '../../lib/api';
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Types ────────────────────────────────────────────────────
 interface TeamMember {
   id: string;
   fullName: string;
@@ -14,7 +14,7 @@ interface TeamMember {
   imageUrl: string;
 }
 
-// â”€â”€â”€ Role badge config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Role badge config ────────────────────────────────────────
 const ROLE_BADGES: Record<string, { label: string; color: string; bg: string }> = {
   ceo:         { label: 'CEO',         color: '#1e40af', bg: '#dbeafe' },
   admin:       { label: 'Admin',       color: '#6b21a8', bg: '#f3e8ff' },
@@ -27,7 +27,7 @@ const ROLE_BADGES: Record<string, { label: string; color: string; bg: string }> 
 
 const ALL_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator', 'viewer'];
 
-// â”€â”€â”€ Permission matrix (for accordion) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Permission matrix (for accordion) ───────────────────────
 const ROLES_LIST = ['CEO', 'Manager', 'HR', 'Recruiter', 'Coordinator', 'Viewer'] as const;
 const PERMISSION_MATRIX = [
   { feature: 'Dashboard',              access: [true,  true,  true,  true,  true,  true]  },
@@ -43,7 +43,7 @@ const PERMISSION_MATRIX = [
   { feature: 'System Settings',        access: [true,  false, false, false, false, false] },
 ];
 
-// â”€â”€â”€ Helper: format relative time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Helper: format relative time ────────────────────────────
 function relativeTime(ts: number | null): string {
   if (!ts) return 'Never';
   const diff = Date.now() - ts;
@@ -57,7 +57,7 @@ function relativeTime(ts: number | null): string {
   return new Date(ts).toLocaleDateString();
 }
 
-// â”€â”€â”€ RoleBadge component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── RoleBadge component ──────────────────────────────────────
 function RoleBadge({ role }: { role: string }) {
   const b = ROLE_BADGES[role] ?? ROLE_BADGES.viewer;
   return (
@@ -77,7 +77,7 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-// â”€â”€â”€ Toast component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Toast component ──────────────────────────────────────────
 function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3500);
@@ -95,14 +95,14 @@ function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => 
       boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
       display: 'flex', alignItems: 'center', gap: 10,
     }}>
-      <span>{ok ? 'âœ“' : 'âœ—'}</span>
+      <span>{ok ? '✓' : '✗'}</span>
       <span>{msg}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, lineHeight: 1, padding: '0 0 0 8px' }}>Ã—</button>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, lineHeight: 1, padding: '0 0 0 8px' }}>×</button>
     </div>
   );
 }
 
-// â”€â”€â”€ Confirmation Popover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Confirmation Popover ─────────────────────────────────────
 interface ConfirmPopoverProps {
   member: TeamMember;
   newRole: string;
@@ -126,7 +126,7 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ fontSize: 28, textAlign: 'center', marginBottom: 10 }}>ðŸ”</div>
+        <div style={{ fontSize: 28, textAlign: 'center', marginBottom: 10 }}>🔐</div>
         <h3 style={{ textAlign: 'center', fontSize: 16, fontWeight: 700, color: '#1e293b', margin: '0 0 8px' }}>
           Change Role
         </h3>
@@ -155,7 +155,7 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
               fontSize: 13, opacity: saving ? 0.7 : 1,
             }}
           >
-            {saving ? 'Savingâ€¦' : 'Confirm Change'}
+            {saving ? 'Saving…' : 'Confirm Change'}
           </button>
         </div>
       </div>
@@ -163,7 +163,7 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
   );
 }
 
-// â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Main Component ───────────────────────────────────────────
 export default function UserManagement() {
   const { user } = useUser();
   const { role } = useRBAC();
@@ -181,7 +181,7 @@ export default function UserManagement() {
   const [showMatrix, setShowMatrix] = useState(false);
 
   // Fetch team members.
-  // NOTE: previously used raw axios with a bare apiBase URL â€” that
+  // NOTE: previously used raw axios with a bare apiBase URL — that
   // bypassed the Clerk Bearer-token interceptor, so the request went out
   // unauthenticated and got redirected / rejected by the backend. Using
   // the shared `api` instance (lib/api.ts) re-uses that interceptor.
@@ -248,19 +248,19 @@ export default function UserManagement() {
         <div className="pnh" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', margin: 0 }}>Team Members</h3>
           <span style={{ fontSize: 12, color: '#94a3b8' }}>
-            {loadingMembers ? 'Loadingâ€¦' : `${members.length} member${members.length !== 1 ? 's' : ''}`}
+            {loadingMembers ? 'Loading…' : `${members.length} member${members.length !== 1 ? 's' : ''}`}
           </span>
         </div>
 
         {membersError && (
           <div style={{ padding: '16px 20px', background: '#fee2e2', color: '#b91c1c', fontSize: 13, borderTop: '1px solid #fca5a5' }}>
-            âš ï¸ {membersError}
+            ⚠️ {membersError}
           </div>
         )}
 
         {loadingMembers ? (
           <div style={{ padding: '32px 20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
-            Loading team membersâ€¦
+            Loading team members…
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -416,13 +416,13 @@ export default function UserManagement() {
             display: 'flex', gap: 14, alignItems: 'flex-start',
             background: '#f0f9ff', borderRadius: 10, padding: '14px 16px',
           }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>ðŸ“©</span>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>📩</span>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#0369a1', marginBottom: 6 }}>
                 Invitations are sent through the Clerk Dashboard
               </div>
               <ol style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.7, margin: 0, paddingLeft: 18 }}>
-                <li>Go to your <strong>Clerk Dashboard</strong> â†’ <em>User Management</em></li>
+                <li>Go to your <strong>Clerk Dashboard</strong> → <em>User Management</em></li>
                 <li>Click <strong>"Invite user"</strong> and enter their email address</li>
                 <li>After they accept, return here and set their role using the <strong>Change Role</strong> dropdown above</li>
               </ol>
@@ -442,9 +442,9 @@ export default function UserManagement() {
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-            ðŸ“‹ View Role Definitions & Permission Matrix
+            📋 View Role Definitions & Permission Matrix
           </span>
-          <span style={{ fontSize: 12, color: '#94a3b8', transition: 'transform 0.2s', display: 'inline-block', transform: showMatrix ? 'rotate(180deg)' : 'none' }}>â–¼</span>
+          <span style={{ fontSize: 12, color: '#94a3b8', transition: 'transform 0.2s', display: 'inline-block', transform: showMatrix ? 'rotate(180deg)' : 'none' }}>▼</span>
         </button>
 
         {showMatrix && (
@@ -471,8 +471,8 @@ export default function UserManagement() {
                     {row.access.map((allowed, i) => (
                       <td key={i} style={{ padding: '9px 12px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
                         {allowed
-                          ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', fontSize: 11, fontWeight: 700 }}>âœ“</span>
-                          : <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: '#f1f5f9', color: '#cbd5e1', fontSize: 11 }}>â€”</span>
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', fontSize: 11, fontWeight: 700 }}>✓</span>
+                          : <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: '#f1f5f9', color: '#cbd5e1', fontSize: 11 }}>—</span>
                         }
                       </td>
                     ))}

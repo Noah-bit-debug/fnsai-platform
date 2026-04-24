@@ -4,7 +4,7 @@ import { pool } from '../db/client';
 
 const router = Router();
 
-// â”€â”€â”€ GET / â€” list bundles with item counts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET / — list bundles with item counts ────────────────────────────────────
 router.get('/', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(
@@ -29,7 +29,7 @@ router.get('/', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /stats ───────────────────────────────────────────────────────────────
 router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
@@ -57,7 +57,7 @@ router.get('/stats', requireAuth, async (_req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST / â€” create bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST / — create bundle ───────────────────────────────────────────────────
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const { userId } = getAuth(req);
@@ -85,7 +85,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /:id â€” get bundle with items and rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id — get bundle with items and rules ───────────────────────────────
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -121,7 +121,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ PUT /:id â€” update bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id — update bundle ─────────────────────────────────────────────────
 router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -160,7 +160,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ DELETE /:id â€” archive bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id — archive bundle ─────────────────────────────────────────────
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -178,7 +178,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST /:id/items â€” add item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/items — add item ───────────────────────────────────────────────
 router.post('/:id/items', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -197,7 +197,7 @@ router.post('/:id/items', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ PUT /:id/items/:iid â€” update item sort_order/required â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id/items/:iid — update item sort_order/required ───────────────────
 router.put('/:id/items/:iid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { iid } = req.params;
@@ -221,7 +221,7 @@ router.put('/:id/items/:iid', requireAuth, async (req: Request, res: Response) =
   }
 });
 
-// â”€â”€â”€ DELETE /:id/items/:iid â€” remove item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id/items/:iid — remove item ────────────────────────────────────
 router.delete('/:id/items/:iid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { iid } = req.params;
@@ -233,7 +233,7 @@ router.delete('/:id/items/:iid', requireAuth, async (req: Request, res: Response
   }
 });
 
-// â”€â”€â”€ POST /:id/rules â€” add assignment rule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/rules — add assignment rule ────────────────────────────────────
 router.post('/:id/rules', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -253,7 +253,7 @@ router.post('/:id/rules', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ DELETE /:id/rules/:rid â€” delete rule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id/rules/:rid — delete rule ────────────────────────────────────
 router.delete('/:id/rules/:rid', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rid } = req.params;
@@ -265,7 +265,7 @@ router.delete('/:id/rules/:rid', requireAuth, async (req: Request, res: Response
   }
 });
 
-// â”€â”€â”€ POST /:id/assign â€” manually assign bundle to users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/assign — manually assign bundle to users ──────────────────────
 router.post('/:id/assign', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
@@ -329,7 +329,7 @@ router.post('/:id/assign', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST /bulk-assign â€” assign bundle to many users by role/list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /bulk-assign — assign bundle to many users by role/list ─────────────
 router.post('/bulk-assign', requireAuth, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {

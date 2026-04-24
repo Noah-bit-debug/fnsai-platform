@@ -1,10 +1,10 @@
 /**
- * Phase 6.5 â€” Client Portal routes
+ * Phase 6.5 — Client Portal routes
  *
  * Two sides:
- *   Admin side  (authed) â€” generate / list / revoke share tokens per
+ *   Admin side  (authed) — generate / list / revoke share tokens per
  *                          facility or client.
- *   Public side (no auth, token in URL) â€” returns read-only facility
+ *   Public side (no auth, token in URL) — returns read-only facility
  *                          data for the token: active placements,
  *                          submissions in progress, upcoming pipeline.
  *
@@ -19,14 +19,14 @@ import { getAuth } from '../middleware/auth';
 
 const router = Router();
 
-// Cryptographically random token â€” 32 chars of hex (128 bits of entropy).
-// Unguessable in practice. NOT a JWT â€” we don't need signing because the
+// Cryptographically random token — 32 chars of hex (128 bits of entropy).
+// Unguessable in practice. NOT a JWT — we don't need signing because the
 // token IS the credential and is looked up in the DB on every request.
 function generateToken(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
-// â”€â”€â”€ Admin: token CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Admin: token CRUD ───────────────────────────────────────────────────
 // All /admin-tokens/* require auth. Public view uses /view/:token below.
 
 const createTokenSchema = z.object({
@@ -71,7 +71,7 @@ router.post('/admin-tokens', requireAuth, async (req: Request, res: Response) =>
   const d = parse.data;
   const token = generateToken();
   const userId = getAuth(req)?.userId ?? 'unknown';
-  // Phase 6.5 QA diagnostic (bug 6.5-c) â€” log exactly what was received
+  // Phase 6.5 QA diagnostic (bug 6.5-c) — log exactly what was received
   // and what's being stored so we can tell if an expires_at value is
   // being silently dropped somewhere.
   console.log('[client-portal] creating token:', {
@@ -115,7 +115,7 @@ router.delete('/admin-tokens/:id', requireAuth, async (req: Request, res: Respon
   }
 });
 
-// â”€â”€â”€ Public: /view/:token â€” read-only snapshot for the client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Public: /view/:token — read-only snapshot for the client ────────────
 // NO requireAuth. The token is the credential. Always filter results by
 // the token's facility_id / client_id so no other data leaks.
 
@@ -134,7 +134,7 @@ router.get('/view/:token', async (req: Request, res: Response) => {
       [token]
     );
     if (tRes.rows.length === 0) { res.status(404).json({ error: 'Invalid or unknown link' }); return; }
-    // Phase 6.5 QA fix (bug 6.5-c) â€” expires_at comes off the pg driver
+    // Phase 6.5 QA fix (bug 6.5-c) — expires_at comes off the pg driver
     // as a Date object for TIMESTAMPTZ columns, not a string. Previous
     // type annotation claimed `string` and the Date-on-Date roundtrip
     // was fine BUT the annotation hid whether the column was actually
@@ -159,14 +159,14 @@ router.get('/view/:token', async (req: Request, res: Response) => {
         ? tok.expires_at.getTime()
         : new Date(tok.expires_at).getTime();
       const nowMs = Date.now();
-      console.log('[client-portal] expiry check for token', token.slice(0, 8) + 'â€¦:', {
+      console.log('[client-portal] expiry check for token', token.slice(0, 8) + '…:', {
         raw: tok.expires_at,
         expiryMs, nowMs,
         diff_hours: ((expiryMs - nowMs) / 3600000).toFixed(2),
         expired: expiryMs < nowMs,
       });
       if (!Number.isFinite(expiryMs)) {
-        // Corrupt expires_at â€” fail closed, block access.
+        // Corrupt expires_at — fail closed, block access.
         res.status(500).json({ error: 'Link has an invalid expiry. Please ask admin to regenerate.' });
         return;
       }
@@ -194,7 +194,7 @@ router.get('/view/:token', async (req: Request, res: Response) => {
       );
       facilityIds = fRes.rows.map((r) => r.id as string);
     }
-    // Phase 6.5 QA fix (bug 6.5-b) â€” use the client/facility's actual
+    // Phase 6.5 QA fix (bug 6.5-b) — use the client/facility's actual
     // name for the public H1. The admin-entered display_label is an
     // internal tag for identifying the token ("QA Test Link", "Xyrene
     // Marketing Link") and shouldn't leak to the client-facing page.
@@ -203,7 +203,7 @@ router.get('/view/:token', async (req: Request, res: Response) => {
       tok.client_name ?? tok.facility_name ?? tok.display_label ?? 'Client Portal';
 
     if (facilityIds.length === 0) {
-      // Phase 6.5 QA fix (bug 6.5-a) â€” this branch was missing
+      // Phase 6.5 QA fix (bug 6.5-a) — this branch was missing
       // generated_at, which made the frontend render "Generated Invalid
       // Date". Include it (and the admin label + scope too for parity).
       res.json({
@@ -231,7 +231,7 @@ router.get('/view/:token', async (req: Request, res: Response) => {
       [facilityIds]
     );
 
-    // Upcoming submissions â€” candidates being submitted to jobs at these
+    // Upcoming submissions — candidates being submitted to jobs at these
     // facilities. Uses the jobs table to link through the facility.
     const subsRes = await query(
       `SELECT sub.id, sub.status, sub.submitted_at, sub.created_at,

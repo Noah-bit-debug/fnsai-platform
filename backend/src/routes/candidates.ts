@@ -39,7 +39,7 @@ const candidateSchema = z.object({
   source: z.string().max(200).optional().nullable(),
 });
 
-// Phase 1.4 QA fix â€” the enum previously only accepted the 7 legacy
+// Phase 1.4 QA fix — the enum previously only accepted the 7 legacy
 // stage keys. But Phase 1.4 introduced dynamic pipeline_stages rows
 // (12 default: new_lead, screening, interview, internal_review,
 // submitted, client_submitted, offer, credentialing, onboarding,
@@ -52,9 +52,9 @@ const stageSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 });
 
-// GET / â€” list candidates
+// GET / — list candidates
 router.get('/', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
-  // Phase 1.1D â€” added role + shift filters. role matches the enum column
+  // Phase 1.1D — added role + shift filters. role matches the enum column
   // directly; shift matches against available_shifts TEXT[] via ANY().
   const { stage, status, assigned_recruiter_id, search, role, shift } = req.query;
   const conditions: string[] = [];
@@ -100,7 +100,7 @@ router.get('/', requireAuth, requirePermission('candidates_view'), async (req: R
     );
     res.json({ candidates: result.rows });
   } catch (err: any) {
-    // Table not yet migrated â€” return empty list rather than 500
+    // Table not yet migrated — return empty list rather than 500
     if (err?.code === '42P01') {
       res.json({ candidates: [] });
       return;
@@ -133,7 +133,7 @@ router.get('/stats/overview', requireAuth, requirePermission('candidates_view'),
   }
 });
 
-// GET /:id â€” single candidate with history, documents, forms
+// GET /:id — single candidate with history, documents, forms
 router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -188,7 +188,7 @@ router.get('/:id', requireAuth, requirePermission('candidates_view'), async (req
   }
 });
 
-// POST / â€” create candidate
+// POST / — create candidate
 router.post('/', requireAuth, requirePermission('candidates_create'), async (req: Request, res: Response) => {
   const parse = candidateSchema.safeParse(req.body);
   if (!parse.success) {
@@ -199,7 +199,7 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
   const d = parse.data;
   try {
     // Auto-assign recruiter: if caller didn't specify one, default to the
-    // logged-in user's users.id. Per Phase 1.1A â€” recruiter creating a
+    // logged-in user's users.id. Per Phase 1.1A — recruiter creating a
     // candidate should own it by default. Manual override still works via
     // the explicit assigned_recruiter_id param.
     const result = await query(
@@ -237,7 +237,7 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
   }
 });
 
-// PUT /:id â€” update candidate
+// PUT /:id — update candidate
 router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const parse = candidateSchema.partial().safeParse(req.body);
@@ -266,7 +266,7 @@ router.put('/:id', requireAuth, requirePermission('candidates_edit'), async (req
   }
 });
 
-// DELETE /:id â€” soft delete
+// DELETE /:id — soft delete
 router.delete('/:id', requireAuth, requirePermission('candidates_delete'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -295,7 +295,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
   const auth = getAuth(req);
   const { stage, notes } = parse.data;
   try {
-    // Phase 1.4 QA fix â€” validate that the requested stage is one the
+    // Phase 1.4 QA fix — validate that the requested stage is one the
     // admin has actually configured. Falls back to the legacy 7 keys
     // if the pipeline_stages table doesn't exist (fresh DB before that
     // migration ran).
@@ -306,7 +306,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
       if (stagesRes.rows.length > 0) {
         validStageKeys = stagesRes.rows.map((r) => r.key);
       }
-    } catch { /* table missing â€” fall through to legacy list */ }
+    } catch { /* table missing — fall through to legacy list */ }
 
     if (!validStageKeys.includes(stage)) {
       res.status(400).json({
@@ -333,14 +333,14 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
     await logAudit(null, auth?.userId ?? 'unknown', 'candidate.stageMove', id,
       { from: fromStage, to: stage }, (req.ip ?? 'unknown'));
 
-    // â”€â”€â”€ Auto-create placement when candidate lands in 'placed' â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── Auto-create placement when candidate lands in 'placed' ─────────────
     // Mirrors the submission-level auto-placement. Idempotent: skips if a
     // placement for this candidate already exists. Preference order for the
     // job/submission link:
     //   1. Most-recent submission for this candidate (if ATS is in use)
     //   2. Candidate.target_facility_id (older workflow)
     //   3. Standalone placement with candidate_id only
-    // Failures are logged, never surface to the caller â€” the stage move
+    // Failures are logged, never surface to the caller — the stage move
     // itself is the primary contract of this endpoint.
     let placement_created = false;
     let placement_id: string | null = null;
@@ -350,7 +350,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
         if (existing.rows.length > 0) {
           placement_id = existing.rows[0].id as string;
         } else {
-          // Try to find a latest submission â†’ gives us job_id + facility_id + client_id
+          // Try to find a latest submission → gives us job_id + facility_id + client_id
           let jobId: string | null = null;
           let submissionId: string | null = null;
           let facilityId: string | null = targetFacilityId;
@@ -422,7 +422,7 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
   }
 });
 
-// POST /:id/parse-resume â€” AI resume parsing
+// POST /:id/parse-resume — AI resume parsing
 router.post('/:id/parse-resume', requireAuth, requirePermission('resume_upload'),
   upload.single('resume'), async (req: Request, res: Response) => {
     const { id } = req.params;
@@ -536,7 +536,7 @@ router.put('/:id/documents/:docId', requireAuth, requirePermission('credentialin
   }
 });
 
-// POST /:id/documents/:docId/review â€” Phase 1.3B credential gate AI review.
+// POST /:id/documents/:docId/review — Phase 1.3B credential gate AI review.
 // Uploads a file, runs Claude document review, saves the review into the
 // candidate_documents row (as structured notes), optionally auto-updates
 // status when confidence is 'high'. Returns the full review to the frontend.
@@ -645,7 +645,7 @@ router.get('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_v
   }
 });
 
-// POST /:id/onboarding-forms â€” send onboarding form
+// POST /:id/onboarding-forms — send onboarding form
 router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
@@ -670,9 +670,9 @@ router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// QA Phase 4: Candidate â†’ Staff conversion
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
+// QA Phase 4: Candidate → Staff conversion
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * POST /:id/convert-to-staff
@@ -732,9 +732,9 @@ router.post('/:id/convert-to-staff', requireAuth, requirePermission('staff_manag
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // ATS Phase 5: AI outreach endpoints (SMS, recruiter summary, client summary)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function loadCandidateForOutreach(candidateId: string) {
   const r = await query(
@@ -808,11 +808,11 @@ router.post('/:id/ai/client-summary', requireAuth, requirePermission('candidates
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // ATS Phase 3: Matching jobs for a given candidate
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
-// GET /:id/matching-jobs â€” ranked list of open jobs this candidate may fit
+// GET /:id/matching-jobs — ranked list of open jobs this candidate may fit
 router.get('/:id/matching-jobs', requireAuth, requirePermission('candidates_view'), async (req: Request, res: Response) => {
   try {
     const candRes = await query(
@@ -847,9 +847,9 @@ router.get('/:id/matching-jobs', requireAuth, requirePermission('candidates_view
   }
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // ATS Phase 1: Duplicate detection + saved views
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 // GET /duplicates?email=&phone=&name=&exclude_id=
 // Returns candidates matching any of the provided signals. Used by new-candidate
@@ -903,7 +903,7 @@ router.get('/duplicates', requireAuth, requirePermission('candidates_view'), asy
   }
 });
 
-// POST /:id/merge â€” Phase 1 stub. Records intent; actual merge lands in Phase 3.
+// POST /:id/merge — Phase 1 stub. Records intent; actual merge lands in Phase 3.
 router.post('/:id/merge', requireAuth, requirePermission('candidates_edit'), async (req: AuthenticatedRequest, res: Response) => {
   const { target_id, notes } = req.body as { target_id?: string; notes?: string };
   if (!target_id) { res.status(400).json({ error: 'target_id required' }); return; }
@@ -917,7 +917,7 @@ router.post('/:id/merge', requireAuth, requirePermission('candidates_edit'), asy
   res.status(202).json({ status: 'queued', message: 'Merge recorded. Manual review required until Phase 3 ships automatic merge.' });
 });
 
-// â”€â”€â”€ Saved candidate views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Saved candidate views ────────────────────────────────────────────────
 router.get('/saved-views', requireAuth, requirePermission('candidates_view'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await query(

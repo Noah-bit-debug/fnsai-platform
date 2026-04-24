@@ -4,7 +4,7 @@ import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
 
 /**
- * Phase 2.6 â€” Compliance courses (training content modules).
+ * Phase 2.6 — Compliance courses (training content modules).
  *
  * A course bundles training content (markdown body + optional video) with
  * an optional attestation and/or quiz. They're added to bundles via
@@ -35,7 +35,7 @@ const courseSchema = z.object({
   applicable_roles: z.array(z.string().max(50)).optional().default([]),
 });
 
-// â”€â”€â”€ GET / â€” list courses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET / — list courses ────────────────────────────────────────────────────
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   const { status, cat1_id } = req.query;
   const conditions: string[] = [];
@@ -65,7 +65,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ GET /:id â€” single course with completion count â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id — single course with completion count ──────────────────────────
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
@@ -87,7 +87,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST / â€” create course â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST / — create course ──────────────────────────────────────────────────
 router.post('/', requireAuth, async (req: Request, res: Response) => {
   const parsed = courseSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
@@ -103,12 +103,12 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
        RETURNING *`,
       [
         d.title,
-        // Normalize empty strings to null â€” form fields submit '' when cleared
+        // Normalize empty strings to null — form fields submit '' when cleared
         d.description?.trim() || null,
         d.content_markdown?.trim() || null,
         d.video_url?.trim() || null,
         d.estimated_minutes ?? null,
-        d.quiz_exam_id || null,  // '' â†’ null via || fallthrough
+        d.quiz_exam_id || null,  // '' → null via || fallthrough
         d.pass_threshold ?? null,
         d.require_attestation ?? true, d.status ?? 'draft',
         d.cat1_id || null, d.cat2_id || null, d.cat3_id || null,
@@ -122,7 +122,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ PUT /:id â€” update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PUT /:id — update ───────────────────────────────────────────────────────
 router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   const parsed = courseSchema.partial().safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
@@ -157,7 +157,7 @@ router.put('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ DELETE /:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── DELETE /:id ─────────────────────────────────────────────────────────────
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`DELETE FROM comp_courses WHERE id = $1 RETURNING id`, [req.params.id]);
@@ -169,7 +169,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST /:id/start â€” user starts a course â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/start — user starts a course ─────────────────────────────────
 router.post('/:id/start', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
@@ -189,7 +189,7 @@ router.post('/:id/start', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// â”€â”€â”€ POST /:id/complete â€” user finishes a course â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── POST /:id/complete — user finishes a course ────────────────────────────
 // Body: { duration_seconds, attestation_signed, signer_name, quiz_score }
 router.post('/:id/complete', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
@@ -254,7 +254,7 @@ router.post('/:id/complete', requireAuth, async (req: Request, res: Response) =>
   }
 });
 
-// â”€â”€â”€ GET /:id/my-progress â€” get current user's completion record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GET /:id/my-progress — get current user's completion record ────────────
 router.get('/:id/my-progress', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
   if (!auth?.userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
