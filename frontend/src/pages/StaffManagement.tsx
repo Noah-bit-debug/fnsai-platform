@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { staffApi, Staff } from '../lib/api';
+import PermissionGate from '../components/PermissionGate';
 
 const ROLES = ['RN', 'LPN', 'LVN', 'CNA', 'RT', 'NP', 'PA', 'Other'];
 const STATUSES = ['active', 'available', 'onboarding', 'inactive', 'terminated'];
@@ -117,13 +118,15 @@ export default function StaffManagement() {
             <button className="btn btn-ghost btn-sm" type="button" title="Export to Excel">
               📊 Export
             </button>
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={openModal}
-            >
-              + Add Staff
-            </button>
+            <PermissionGate permission="hr.edit">
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={openModal}
+              >
+                + Add Staff
+              </button>
+            </PermissionGate>
           </div>
         </div>
       </div>

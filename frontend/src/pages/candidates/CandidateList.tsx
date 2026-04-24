@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, candidateSavedViewsApi, CandidateSavedView } from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
+import PermissionGate from '../../components/PermissionGate';
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
 const CSV_TEMPLATE_HEADERS = ['first_name','last_name','email','phone','role','specialties','stage','recruiter_notes'];
@@ -314,18 +315,22 @@ export default function CandidateList() {
             <p style={{ fontSize: 14, color: '#64748b' }}>Manage your recruiting pipeline</p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setShowImport(true)}
-              style={{ background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
-            >
-              ↑ Import CSV
-            </button>
-            <button
-              onClick={() => navigate('/candidates/new')}
-              style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
-            >
-              + New Candidate
-            </button>
+            <PermissionGate permission="candidates.create">
+              <button
+                onClick={() => setShowImport(true)}
+                style={{ background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                ↑ Import CSV
+              </button>
+            </PermissionGate>
+            <PermissionGate permission="candidates.create">
+              <button
+                onClick={() => navigate('/candidates/new')}
+                style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                + New Candidate
+              </button>
+            </PermissionGate>
           </div>
         </div>
       </div>

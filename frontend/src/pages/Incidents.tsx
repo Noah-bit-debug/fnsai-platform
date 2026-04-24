@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { incidentsApi, staffApi, facilitiesApi, Incident, Staff, Facility } from '../lib/api';
 import QueryState, { EmptyCta } from '../components/QueryState';
 import AIGuidedInterview from '../components/Incidents/AIGuidedInterview';
+import PermissionGate from '../components/PermissionGate';
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—';
@@ -123,16 +124,18 @@ export default function Incidents() {
             <h1>⚠️ Incident Reports</h1>
             <p>All workplace incidents formally documented</p>
           </div>
-          <button
-            className="btn btn-danger btn-sm"
-            type="button"
-            onClick={() => {
-              const el = document.getElementById('incident-form-panel');
-              if (el) el.scrollIntoView({ behavior: 'smooth' });
-            }}
-          >
-            + Report Incident
-          </button>
+          <PermissionGate permission="hr.incidents.manage">
+            <button
+              className="btn btn-danger btn-sm"
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('incident-form-panel');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+            >
+              + Report Incident
+            </button>
+          </PermissionGate>
         </div>
       </div>
 
