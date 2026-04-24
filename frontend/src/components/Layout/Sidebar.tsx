@@ -68,6 +68,7 @@ const NAV_GROUPS: NavGroupDef[] = [
     defaultOpen: true,
     items: [
       { to: '/dashboard',            icon: '▦',   label: 'Dashboard',         roles: null },
+      { to: '/notifications',        icon: '🔔',  label: 'Notifications',     roles: null },
       { to: '/ceo-dashboard',        icon: '👔',  label: 'Executive View',    roles: ['ceo'], permissions: ['ceo.private_tasks', 'ceo.executive_strategy'] },
       { to: '/management-dashboard', icon: '📊',  label: 'Management View',   roles: ['manager', 'admin'] },
       { to: '/hr-dashboard',         icon: '🧑‍💼', label: 'HR Overview',       roles: ['hr'], permissions: ['hr.view'] },

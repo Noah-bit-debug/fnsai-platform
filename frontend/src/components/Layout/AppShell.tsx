@@ -6,6 +6,8 @@ import AIAssistantSidebar from '../AIAssistantSidebar';
 import TextingPanel from '../TextingPanel';
 import RootErrorBoundary from '../RootErrorBoundary';
 import ViewAsRoleBanner from '../admin/ViewAsRoleBanner';
+import OnboardingWalkthrough from '../Onboarding/OnboardingWalkthrough';
+import CommandPalette from '../CommandPalette';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -30,6 +32,12 @@ export default function AppShell() {
     <div className="app-shell">
       {/* Phase 8 — yellow banner when admin is simulating another role */}
       <ViewAsRoleBanner />
+
+      {/* First-time user welcome tour. Dismissable, only shows once per user. */}
+      <OnboardingWalkthrough />
+
+      {/* Cmd/Ctrl+K command palette — works everywhere, permission-aware. */}
+      <CommandPalette />
 
       <TopBar onMenuClick={() => setSidebarOpen(v => !v)} showMenuButton={isMobile} />
 
