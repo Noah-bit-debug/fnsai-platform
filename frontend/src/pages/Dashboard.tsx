@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../lib/auth';
 import { staffApi, placementsApi, credentialsApi, onboardingApi, candidatesApi } from '../lib/api';
 import AIActionPanel from '../components/AI/AIActionPanel';
+import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
+import { readWidgetPrefs, WidgetId } from '../lib/dashboardPrefs';
 
 function relativeTimeAgo(ms: number): string {
   if (!ms) return 'never';
@@ -25,6 +27,13 @@ export default function Dashboard() {
   const { user } = useUser();
   const navigate = useNavigate();
   const firstName = user?.firstName ?? 'there';
+
+  // Widget visibility prefs — user-customizable, persisted per-browser.
+  // Read once on mount + on save; re-render when prefs change.
+  const [widgets, setWidgets] = useState<Record<WidgetId, boolean>>(() => readWidgetPrefs(user?.id ?? null));
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  useEffect(() => { setWidgets(readWidgetPrefs(user?.id ?? null)); }, [user?.id]);
+  const show = useMemo(() => (id: WidgetId) => widgets[id] !== false, [widgets]);
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
@@ -142,6 +151,14 @@ export default function Dashboard() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => setCustomizeOpen(true)}
+              title="Customize which widgets appear on this dashboard"
+            >
+              ⚙️ Customize
+            </button>
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => navigate('/ai-assistant')}>
               🤖 Ask AI
             </button>
@@ -153,10 +170,8 @@ export default function Dashboard() {
       </div>
 
       {/* Phase 6.6 — Context-aware AI suggestions for the dashboard.
-          User clicks the button to see what Claude thinks they should
-          prioritize today, based on live counts of expiring credentials,
-          pending placements, onboarding backlog, etc. */}
-      <AIActionPanel
+          Toggleable via Customize. */}
+      {show('ai_suggestions') && <AIActionPanel
         subject="Today's priorities for the FNS operator"
         context={{
           active_employees: activeEmployees,
@@ -166,10 +181,10 @@ export default function Dashboard() {
           credentials_expiring_30d: expiringCreds,
           credentials_expired: expiredCreds,
         }}
-      />
+      />}
 
-      {/* Critical alert banner */}
-      {criticalAlert && (
+      {/* Critical alert banner — customizable but auto-hides if nothing critical anyway */}
+      {show('critical_alert') && criticalAlert && (
         <div className="critical-banner">
           <span>🚨</span>
           <div>
@@ -188,7 +203,7 @@ export default function Dashboard() {
       )}
 
       {/* 4 Stat cards — clickable, each routes to the filtered destination */}
-      <div className="sc-grid">
+      {show('stat_cards') && <div className="sc-grid">
         <div
           className="sc"
           style={{ borderTop: '3px solid var(--pr)', cursor: 'pointer', transition: 'box-shadow 0.15s' }}
@@ -274,12 +289,12 @@ export default function Dashboard() {
             {complianceRate == null ? 'No credential data yet' : 'Credential compliance'}
           </div>
         </div>
-      </div>
+      </div>}
 
-      {/* Row 1: Immediate Actions + Compliance Alerts */}
-      <div className="grid-2">
+      {/* Row 1: Immediate Actions + Compliance Alerts — each independently toggleable */}
+      {(show('immediate_actions') || show('compliance_alerts')) && <div className="grid-2">
         {/* Immediate Actions */}
-        <div className="pn">
+        {show('immediate_actions') && <div className="pn">
           <div className="pnh">
             <h3>⚡ Immediate Actions</h3>
             <span className="tgr" style={{ fontSize: 11 }}>Live</span>
@@ -352,10 +367,10 @@ export default function Dashboard() {
               </>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* Compliance Alerts */}
-        <div className="pn">
+        {show('compliance_alerts') && <div className="pn">
           <div className="pnh">
             <h3>🛡️ Compliance Alerts</h3>
             <button
@@ -435,12 +450,12 @@ export default function Dashboard() {
               View all in Credentialing →
             </div>
           </div>
-        </div>
-      </div>
+        </div>}
+      </div>}
 
-      {/* Row 2: Workforce Overview */}
-      <div className="grid-2" style={{ marginTop: 20 }}>
-        <div className="pn">
+      {/* Row 2: Workforce Overview + Quick Access — each toggleable independently */}
+      {(show('workforce_overview') || show('quick_access')) && <div className="grid-2" style={{ marginTop: 20 }}>
+        {show('workforce_overview') && <div className="pn">
           <div className="pnh">
             <h3>📊 Workforce Overview</h3>
           </div>
@@ -470,10 +485,10 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* Quick Links */}
-        <div className="pn">
+        {show('quick_access') && <div className="pn">
           <div className="pnh">
             <h3>🔗 Quick Access</h3>
           </div>
@@ -501,8 +516,16 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-        </div>
-      </div>
+        </div>}
+      </div>}
+
+      {/* Customize modal */}
+      <DashboardCustomizeModal
+        userId={user?.id ?? null}
+        open={customizeOpen}
+        onClose={() => setCustomizeOpen(false)}
+        onSaved={(prefs) => setWidgets(prefs)}
+      />
     </div>
   );
 }
