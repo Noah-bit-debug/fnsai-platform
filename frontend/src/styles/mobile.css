@@ -1,0 +1,201 @@
+/*
+ * Mobile responsive overrides.
+ *
+ * Targeted fixes for pages that break on small screens. The general app
+ * layout is already responsive (AppShell handles sidebar collapse), but
+ * several admin pages use inline-style flex layouts with fixed widths
+ * that overflow on phones. This file patches those spots without
+ * touching the component source.
+ *
+ * Breakpoints:
+ *   ≤ 768px — phone
+ *   ≤ 1024px — tablet (narrow laptop)
+ *
+ * Strategy:
+ *   1. Force two-pane admin layouts (Roles, User Access, User Audit)
+ *      to stack vertically.
+ *   2. Wrap wide tables in horizontally-scrolling containers.
+ *   3. Make modals full-width on narrow screens.
+ *   4. Pipeline/Kanban boards scroll horizontally on phone.
+ *   5. Dashboard KPI cards stack to 2x2 grid on phone.
+ */
+
+/* ─── Phone (≤ 768px) ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+
+  /* ─── Admin two-pane layouts stack vertically ──────────────────── */
+
+  /* Selector targets any page using the common flex+gap admin layout.
+     Includes: RolesPermissions, UserAccess, UserAuditDetail */
+  main [style*="display: flex"][style*="gap: 20px"]:has(> aside),
+  main [style*="display: flex"][style*="gap: 20px"]:has(> [style*="width: 280"]),
+  main [style*="display: flex"][style*="gap: 20px"]:has(> [style*="width: 320"]) {
+    flex-direction: column !important;
+  }
+
+  /* Sidebar panes inside those layouts become full-width */
+  main aside,
+  main [style*="width: 280"],
+  main [style*="width: 320"] {
+    width: 100% !important;
+    max-height: none !important;
+    position: static !important;
+  }
+
+  /* ─── Tables become horizontally scrollable ─────────────────────── */
+  main table {
+    min-width: 600px;
+  }
+  /* Wrap tables in a scroll container — works on the SecurityAuditLog
+     + any other table that overflows. The inline overflow-x on the
+     parent div already helps but this adds visual cue. */
+  main [style*="overflowX: auto"] {
+    -webkit-overflow-scrolling: touch;
+    border-radius: 10px;
+  }
+
+  /* ─── Modals go full-width with edge margins ────────────────────── */
+  /* Match the common modal pattern: fixed position, centered, with
+     max-width prop. Force to nearly full-width on phone. */
+  div[role="dialog"],
+  div[style*="maxWidth: 460"],
+  div[style*="maxWidth: 520"],
+  div[style*="maxWidth: 560"],
+  div[style*="maxWidth: 500"] {
+    max-width: calc(100vw - 24px) !important;
+    width: calc(100vw - 24px) !important;
+  }
+
+  /* ─── Dashboard grid collapses ──────────────────────────────────── */
+  .sc-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ─── Help Center sidebar compresses ───────────────────────────── */
+  /* The help center uses a flex layout with a fixed 280px sidebar.
+     On phone, collapse to sidebar-on-top, content below. */
+  main > div[style*="display: flex"][style*="minHeight"] {
+    flex-direction: column !important;
+  }
+  main > div[style*="display: flex"][style*="minHeight"] > aside {
+    width: 100% !important;
+    max-height: 40vh !important;
+    position: static !important;
+    border-right: none !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  /* ─── Command palette — full-screen on phone ───────────────────── */
+  div[style*="zIndex: 2100"] > div {
+    max-height: 80vh !important;
+  }
+
+  /* ─── Pipeline columns scroll horizontally ─────────────────────── */
+  .pipeline-board,
+  .kanban-board {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  .pipeline-board > .col,
+  .kanban-board > .col {
+    min-width: 280px;
+    scroll-snap-align: start;
+  }
+
+  /* ─── Stat rows (stats-row, similar grids) ─────────────────────── */
+  /* Help Center's stats row: grid-template-columns: repeat(4, 1fr) → 2 cols on phone */
+  main div[style*="gridTemplateColumns: 'repeat(4, 1fr)'"],
+  main div[style*="gridTemplateColumns: 'repeat(3, 1fr)'"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  main div[style*="gridTemplateColumns: 'repeat(5, 1fr)'"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ─── Header buttons wrap on narrow screens ────────────────────── */
+  .page-header-row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* ─── Onboarding modal on phone ────────────────────────────────── */
+  /* Already full-width via role="dialog" rule above. Just ensure body
+     text is readable. */
+  main p, .onboarding-body p {
+    line-height: 1.5;
+  }
+
+  /* ─── Reduce page padding on phone ─────────────────────────────── */
+  main > div[style*="padding: '24px 32px'"],
+  main > div[style*="padding: 24px 32px"] {
+    padding: 16px 14px !important;
+  }
+
+  /* ─── Sticky save bars become fixed at bottom ──────────────────── */
+  div[style*="position: 'sticky'"][style*="bottom"] {
+    position: fixed !important;
+    bottom: 12px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    z-index: 100;
+  }
+
+  /* ─── Larger touch targets ──────────────────────────────────────── */
+  button, a.btn, .sb-item {
+    min-height: 36px; /* Apple recommends 44; 36 balances density */
+  }
+
+  /* ─── Floating View-as-Role button gets out of the way ─────────── */
+  /* It's bottom-left fixed — the TextingPanel + AIAssistantSidebar
+     also have bottom-right fixed buttons. On phone, the View-as-Role
+     button stacks above them. Already OK but verify zIndex ordering.
+     No change needed here. */
+}
+
+/* ─── Tablet (769px – 1024px) ──────────────────────────────────────── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* Slightly reduce admin sidebar widths to give content more room */
+  main aside[style*="width: 280"] {
+    width: 240px !important;
+  }
+
+  /* Dashboard grid stays 4-wide but cards get tighter */
+  .sc-grid {
+    gap: 10px !important;
+  }
+
+  /* Help center sidebar narrower */
+  main > div[style*="display: flex"][style*="minHeight"] > aside {
+    width: 230px !important;
+  }
+}
+
+/* ─── Landscape phone (short + wide) ───────────────────────────────── */
+@media (max-width: 768px) and (orientation: landscape) {
+  /* Onboarding modal overlay — taller content, scroll */
+  div[role="dialog"] {
+    max-height: 90vh !important;
+    overflow-y: auto;
+  }
+}
+
+/* ─── Print — all the fixed/sticky/floating elements gone ─────────── */
+@media print {
+  .sidebar, .topbar, aside, [class*="banner"] {
+    display: none !important;
+  }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  /* Hide all floating action buttons */
+  div[style*="position: fixed"] {
+    display: none !important;
+  }
+}
