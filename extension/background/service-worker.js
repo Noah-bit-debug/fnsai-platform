@@ -169,6 +169,9 @@ async function startNewSession() {
   };
 
   const result = await startSession(body);
+  if (result?.authFailed) {
+    return { error: 'Sign-in expired. Please sign in again from Settings.' };
+  }
   const serverId = result?.session?.id;
   const sessionId = serverId ?? `local_${now}`;
 
@@ -263,10 +266,10 @@ async function handleSyncAlarm() {
 
   const buffer = await getActivityBuffer();
   if (buffer.length > 0) {
-    // Either succeeds and is persisted, or fails and is captured in the
-    // offline queue — either way the local buffer's job is done.
-    await batchActivityLogs(session.id, buffer);
-    await saveActivityBuffer([]);
+    const result = await batchActivityLogs(session.id, buffer);
+    // Clear when persisted server-side OR captured by the offline queue.
+    // Keep on auth failure so the data is re-sent after re-sign-in.
+    if (!result.authFailed) await saveActivityBuffer([]);
   }
 
   const unsent = session.unsent || { active: 0, idle: 0, break: 0 };
@@ -276,7 +279,11 @@ async function handleSyncAlarm() {
       idle_seconds_delta: unsent.idle,
       break_seconds_delta: unsent.break,
     });
-    if (!result.offline) {
+    // Reset on success OR on offline (queue captured the same payload —
+    // keeping these locally would re-send them on the next heartbeat
+    // and double-count when the queue replays).
+    // Keep on authFailed: nothing was sent, nothing was queued.
+    if (!result.authFailed) {
       session.unsent = { active: 0, idle: 0, break: 0 };
       await saveSession(session);
     }

@@ -182,6 +182,27 @@ export async function getCurrentUser() {
 }
 
 /**
+ * Refresh against Microsoft's token endpoint and persist the result.
+ * Throws on refresh failure; caller decides whether to clear stored state.
+ */
+async function refreshAndStore(stored) {
+  const fresh = await refreshTokens({
+    tenantId: stored.tenantId,
+    clientId: stored.clientId,
+    refreshToken: stored.refreshToken,
+  });
+  const next = {
+    ...stored,
+    idToken: fresh.id_token ?? stored.idToken,
+    accessToken: fresh.access_token ?? stored.accessToken,
+    refreshToken: fresh.refresh_token ?? stored.refreshToken,
+    expiresAt: Date.now() + Math.max(0, (fresh.expires_in ?? 3600) - 60) * 1000,
+  };
+  await setStored(next);
+  return next.idToken;
+}
+
+/**
  * Returns a non-expired id_token, refreshing silently via refresh_token
  * if needed. Returns null if not signed in or if refresh failed (e.g.
  * refresh token revoked or expired) — caller should prompt re-sign-in.
@@ -198,22 +219,32 @@ export async function getValidIdToken() {
   }
 
   try {
-    const fresh = await refreshTokens({
-      tenantId: stored.tenantId,
-      clientId: stored.clientId,
-      refreshToken: stored.refreshToken,
-    });
-    const next = {
-      ...stored,
-      idToken: fresh.id_token ?? stored.idToken,
-      accessToken: fresh.access_token ?? stored.accessToken,
-      refreshToken: fresh.refresh_token ?? stored.refreshToken,
-      expiresAt: Date.now() + Math.max(0, (fresh.expires_in ?? 3600) - 60) * 1000,
-    };
-    await setStored(next);
-    return next.idToken;
+    return await refreshAndStore(stored);
   } catch (e) {
     console.warn('[SentrixAI] Token refresh failed:', e.message);
+    await clearStored();
+    return null;
+  }
+}
+
+/**
+ * Force-refresh the id_token regardless of local expiry. Use this when
+ * the server returns 401 even though our local clock thinks the token
+ * is still valid (clock drift, JWKS rotation, revocation).
+ *
+ * Returns the new id_token on success, or null if refresh failed (in
+ * which case stored tokens are cleared and the user must re-sign-in).
+ */
+export async function forceRefreshIdToken() {
+  const stored = await getStored();
+  if (!stored?.refreshToken) {
+    await clearStored();
+    return null;
+  }
+  try {
+    return await refreshAndStore(stored);
+  } catch (e) {
+    console.warn('[SentrixAI] Forced token refresh failed:', e.message);
     await clearStored();
     return null;
   }

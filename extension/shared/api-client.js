@@ -8,7 +8,7 @@ import {
   OFFLINE_QUEUE_KEY,
   SETTINGS_KEY,
 } from './constants.js';
-import { getValidIdToken } from './auth.js';
+import { getValidIdToken, forceRefreshIdToken } from './auth.js';
 import { storageGet, storageSet } from './storage.js';
 
 // ---------------------------------------------------------------------------
@@ -39,12 +39,32 @@ async function buildHeaders() {
 async function request(method, path, body, opts = {}) {
   const apiBase = await getApiBase();
   const url = `${apiBase}${path}`;
+  const doFetch = async () => fetch(url, {
+    method,
+    headers: await buildHeaders(),
+    body: body == null ? undefined : JSON.stringify(body),
+  });
   try {
-    const resp = await fetch(url, {
-      method,
-      headers: await buildHeaders(),
-      body: body == null ? undefined : JSON.stringify(body),
-    });
+    let resp = await doFetch();
+
+    // 401 → the server rejected our token. Force a refresh once and
+    // retry. Possible causes: clock drift, JWKS rotation, revocation.
+    if (resp.status === 401) {
+      const refreshed = await forceRefreshIdToken();
+      if (refreshed) {
+        resp = await doFetch();
+      }
+      if (resp.status === 401) {
+        // For normal callers, signal auth failure cleanly so the popup
+        // can surface "please sign in again". For the offline queue
+        // replay (queue: false), throw so the entry stays in the queue
+        // with incremented retries — gives the user grace to re-sign-in
+        // before data is dropped at the 10-retry ceiling.
+        if (opts.queue === false) throw new Error('HTTP 401: auth failed');
+        return { authFailed: true, status: 401 };
+      }
+    }
+
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`HTTP ${resp.status}: ${text}`);
