@@ -8,8 +8,8 @@ import {
   signOut,
   getCurrentUser,
   getRedirectUrl,
-  isSignedIn,
 } from '../shared/auth.js';
+import { storageGet, storageSet } from '../shared/storage.js';
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -47,17 +47,6 @@ const btnSave              = $('btnSave');
 const btnReset             = $('btnReset');
 const saveStatus           = $('saveStatus');
 const statusBar            = $('statusBar');
-
-// ---------------------------------------------------------------------------
-// Storage helpers
-// ---------------------------------------------------------------------------
-
-function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
-}
-function storageSet(data) {
-  return new Promise((resolve) => chrome.storage.local.set(data, resolve));
-}
 
 // ---------------------------------------------------------------------------
 // Load settings into the form

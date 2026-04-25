@@ -19,17 +19,13 @@ To update after code changes: click the **↺ refresh** icon on the extension ca
 
 ## 2. Load in Microsoft Edge (Developer Mode)
 
-Edge uses the same Chromium engine and supports Chrome extensions natively.
-**You load from the same `extension/` folder** — no separate build needed.
+Edge uses the same Chromium engine and runs the same `manifest.json` —
+no separate build, no separate file.
 
 1. Open Edge and navigate to `edge://extensions`
 2. Enable **Developer mode** (toggle in the bottom-left sidebar)
 3. Click **Load unpacked**
 4. Select the `extension/` folder
-
-> If you want Edge to show a different name in its extension manager,
-> rename `manifest-edge.json` to `manifest.json` before loading.
-> The code is identical — only the `"name"` field differs.
 
 ---
 
@@ -149,15 +145,18 @@ You will not lose tracked time due to temporary network outages.
 
 ```
 extension/
-├── manifest.json              # Chrome manifest (MV3)
-├── manifest-edge.json         # Edge manifest (identical, different name)
+├── manifest.json              # MV3 manifest (Chrome and Edge)
 ├── icons/
 │   ├── icon16.png
 │   ├── icon48.png
 │   └── icon128.png
 ├── shared/
 │   ├── constants.js           # Shared constants & defaults
+│   ├── storage.js             # chrome.storage.local Promise wrappers
+│   ├── auth.js                # Microsoft Entra ID OAuth (PKCE)
 │   └── api-client.js          # API wrapper + offline queue
+├── scripts/
+│   └── package.mjs            # Builds a Web Store-ready zip
 ├── background/
 │   └── service-worker.js      # MV3 service worker (all tracking logic)
 ├── content/
@@ -189,7 +188,23 @@ Generate them from the SentrixAI logo using any image editor or a tool like
 
 ---
 
-## 10. Development Tips
+## 10. Packaging for the Web Store
+
+To produce a signed-ready `.zip` for the Chrome Web Store or Edge Add-ons:
+
+```bash
+cd extension
+node scripts/package.mjs
+```
+
+The script reads the version from `manifest.json`, validates that the icon
+files exist, and writes `dist/sentrixai-time-tracker-v<version>.zip`
+containing only the files that need to ship. Bump the `version` field in
+`manifest.json` before each store submission.
+
+---
+
+## 11. Development Tips
 
 - After editing any file, go to `chrome://extensions` and click the **↺** refresh button on the SentrixAI card
 - To inspect the **service worker**, click the "service worker" link on the extension card in `chrome://extensions`

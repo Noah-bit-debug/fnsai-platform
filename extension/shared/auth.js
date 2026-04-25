@@ -21,6 +21,7 @@
 //   isSignedIn()                → boolean
 
 import { MS_AUTH_KEY } from './constants.js';
+import { storageGet, storageSet, storageRemove } from './storage.js';
 
 const SCOPES = 'openid profile email offline_access User.Read';
 
@@ -63,22 +64,17 @@ function decodeJwt(jwt) {
 // Storage
 // ---------------------------------------------------------------------------
 
-function getStored() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([MS_AUTH_KEY], (r) => resolve(r[MS_AUTH_KEY] || null));
-  });
+async function getStored() {
+  const r = await storageGet([MS_AUTH_KEY]);
+  return r[MS_AUTH_KEY] || null;
 }
 
 function setStored(value) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [MS_AUTH_KEY]: value }, resolve);
-  });
+  return storageSet({ [MS_AUTH_KEY]: value });
 }
 
 function clearStored() {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(MS_AUTH_KEY, resolve);
-  });
+  return storageRemove(MS_AUTH_KEY);
 }
 
 // ---------------------------------------------------------------------------

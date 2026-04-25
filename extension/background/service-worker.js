@@ -27,18 +27,11 @@ import {
 } from '../shared/api-client.js';
 
 import { isSignedIn } from '../shared/auth.js';
+import { storageGet, storageSet, storageRemove } from '../shared/storage.js';
 
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
-
-function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
-}
-
-function storageSet(data) {
-  return new Promise((resolve) => chrome.storage.local.set(data, resolve));
-}
 
 async function getSession() {
   const result = await storageGet([SESSION_KEY]);
@@ -499,7 +492,7 @@ async function handleMessage(message) {
         });
       }
 
-      await chrome.storage.local.remove(SESSION_KEY);
+      await storageRemove(SESSION_KEY);
       return { success: true, offline: !!result.offline };
     }
 

@@ -9,18 +9,15 @@ import {
   SETTINGS_KEY,
 } from './constants.js';
 import { getValidIdToken } from './auth.js';
+import { storageGet, storageSet } from './storage.js';
 
 // ---------------------------------------------------------------------------
 // Settings + headers
 // ---------------------------------------------------------------------------
 
 async function getApiBase() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([SETTINGS_KEY], (result) => {
-      const settings = result[SETTINGS_KEY] || {};
-      resolve(settings.apiBase || DEFAULT_API_BASE);
-    });
-  });
+  const result = await storageGet([SETTINGS_KEY]);
+  return result[SETTINGS_KEY]?.apiBase || DEFAULT_API_BASE;
 }
 
 async function buildHeaders() {
@@ -69,13 +66,10 @@ async function request(method, path, body, opts = {}) {
 // ---------------------------------------------------------------------------
 
 async function addToOfflineQueue(entry) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([OFFLINE_QUEUE_KEY], (result) => {
-      const queue = result[OFFLINE_QUEUE_KEY] || [];
-      queue.push({ ...entry, queuedAt: Date.now(), retries: 0 });
-      chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: queue }, resolve);
-    });
-  });
+  const result = await storageGet([OFFLINE_QUEUE_KEY]);
+  const queue = result[OFFLINE_QUEUE_KEY] || [];
+  queue.push({ ...entry, queuedAt: Date.now(), retries: 0 });
+  await storageSet({ [OFFLINE_QUEUE_KEY]: queue });
 }
 
 /**
@@ -83,22 +77,20 @@ async function addToOfflineQueue(entry) {
  * with retries+1; entries past 10 retries are discarded.
  */
 export async function processOfflineQueue() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([OFFLINE_QUEUE_KEY], async (result) => {
-      const queue = result[OFFLINE_QUEUE_KEY] || [];
-      if (queue.length === 0) return resolve();
-      const remaining = [];
-      for (const entry of queue) {
-        if (entry.retries > 10) continue;
-        try {
-          await request(entry.method, entry.path, entry.body, { queue: false });
-        } catch (_) {
-          remaining.push({ ...entry, retries: entry.retries + 1 });
-        }
-      }
-      chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: remaining }, resolve);
-    });
-  });
+  const result = await storageGet([OFFLINE_QUEUE_KEY]);
+  const queue = result[OFFLINE_QUEUE_KEY] || [];
+  if (queue.length === 0) return;
+
+  const remaining = [];
+  for (const entry of queue) {
+    if (entry.retries > 10) continue;
+    try {
+      await request(entry.method, entry.path, entry.body, { queue: false });
+    } catch (_) {
+      remaining.push({ ...entry, retries: entry.retries + 1 });
+    }
+  }
+  await storageSet({ [OFFLINE_QUEUE_KEY]: remaining });
 }
 
 // ---------------------------------------------------------------------------
