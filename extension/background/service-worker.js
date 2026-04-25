@@ -26,6 +26,8 @@ import {
   processOfflineQueue,
 } from '../shared/api-client.js';
 
+import { isSignedIn } from '../shared/auth.js';
+
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
@@ -430,8 +432,8 @@ async function handleMessage(message) {
 
     case 'START_SESSION': {
       const settings = await getSettings();
-      if (!settings.authToken) {
-        return { error: 'No auth token configured. Please open Settings.' };
+      if (!(await isSignedIn())) {
+        return { error: 'Not signed in. Open Settings and click Sign in with Microsoft.' };
       }
 
       const now = Date.now();

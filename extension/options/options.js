@@ -3,6 +3,13 @@
 
 import { DEFAULT_SETTINGS, SETTINGS_KEY, DEFAULT_APPROVED_DOMAINS } from '../shared/constants.js';
 import { testConnection } from '../shared/api-client.js';
+import {
+  signIn,
+  signOut,
+  getCurrentUser,
+  getRedirectUrl,
+  isSignedIn,
+} from '../shared/auth.js';
 
 // ---------------------------------------------------------------------------
 // DOM references
@@ -10,8 +17,12 @@ import { testConnection } from '../shared/api-client.js';
 const $ = (id) => document.getElementById(id);
 
 const apiBaseInput         = $('apiBase');
-const authTokenInput       = $('authToken');
-const btnToggleToken       = $('btnToggleToken');
+const azureTenantInput     = $('azureTenantId');
+const azureClientInput     = $('azureClientId');
+const redirectUriEl        = $('redirectUri');
+const btnSignIn            = $('btnSignIn');
+const btnSignOut           = $('btnSignOut');
+const signedInAs           = $('signedInAs');
 const btnTestConnection    = $('btnTestConnection');
 const connectionStatus     = $('connectionStatus');
 
@@ -44,7 +55,6 @@ const statusBar            = $('statusBar');
 function storageGet(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
 }
-
 function storageSet(data) {
   return new Promise((resolve) => chrome.storage.local.set(data, resolve));
 }
@@ -58,7 +68,8 @@ async function loadSettings() {
   const s = { ...DEFAULT_SETTINGS, ...(result[SETTINGS_KEY] || {}) };
 
   apiBaseInput.value     = s.apiBase === DEFAULT_SETTINGS.apiBase ? '' : (s.apiBase || '');
-  authTokenInput.value   = s.authToken || '';
+  azureTenantInput.value = s.azureTenantId || '';
+  azureClientInput.value = s.azureClientId || '';
 
   if (s.trackingMode === 'scheduled') {
     modeScheduled.checked = true;
@@ -94,14 +105,12 @@ function readFormValues() {
   const trackingMode = modeScheduled.checked ? 'scheduled' : 'browser_profile';
 
   const parseLines = (el) =>
-    el.value
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+    el.value.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
 
   return {
     apiBase: apiBaseVal || DEFAULT_SETTINGS.apiBase,
-    authToken: authTokenInput.value.trim(),
+    azureTenantId: azureTenantInput.value.trim(),
+    azureClientId: azureClientInput.value.trim(),
     trackingMode,
     scheduledStart: scheduledStart.value || '09:00',
     scheduledEnd: scheduledEnd.value || '17:00',
@@ -115,10 +124,6 @@ function readFormValues() {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Save settings
-// ---------------------------------------------------------------------------
-
 async function saveSettings() {
   const settings = readFormValues();
 
@@ -130,26 +135,17 @@ async function saveSettings() {
   try {
     await storageSet({ [SETTINGS_KEY]: settings });
 
-    // Notify service worker so it can update its idle detection interval live
-    chrome.runtime.sendMessage(
-      { type: 'SAVE_SETTINGS', settings },
-      (_response) => {
-        if (chrome.runtime.lastError) { /* service worker may not be running — that's ok */ }
-      }
-    );
-
+    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings }, () => {
+      if (chrome.runtime.lastError) { /* worker may be asleep — that's fine */ }
+    });
     showSaveStatus('Settings saved!', 'ok');
   } catch (err) {
     showSaveStatus(`Failed to save: ${err.message}`, 'fail');
   }
 }
 
-// ---------------------------------------------------------------------------
-// Reset to defaults
-// ---------------------------------------------------------------------------
-
 async function resetToDefaults() {
-  if (!confirm('Reset all settings to defaults? Your auth token will also be cleared.')) return;
+  if (!confirm('Reset all settings to defaults? Your sign-in is preserved.')) return;
   await storageSet({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   await loadSettings();
   showSaveStatus('Settings reset to defaults.', 'ok');
@@ -161,20 +157,17 @@ async function resetToDefaults() {
 
 async function runTestConnection() {
   const settings = readFormValues();
-  const apiBase  = settings.apiBase;
-  const token    = settings.authToken;
-
   connectionStatus.textContent = 'Testing…';
   connectionStatus.className   = 'connection-status testing';
   btnTestConnection.disabled   = true;
 
   try {
-    const result = await testConnection(apiBase, token);
+    const result = await testConnection(settings.apiBase);
     if (result.ok) {
       connectionStatus.textContent = '✓ Connected successfully';
       connectionStatus.className   = 'connection-status ok';
     } else if (result.status === 401) {
-      connectionStatus.textContent = '✗ Invalid auth token (401)';
+      connectionStatus.textContent = '✗ Not signed in or token expired (401)';
       connectionStatus.className   = 'connection-status fail';
     } else if (result.status === 403) {
       connectionStatus.textContent = '✗ Token lacks time_tracking_view_own permission (403)';
@@ -195,6 +188,59 @@ async function runTestConnection() {
   } finally {
     btnTestConnection.disabled = false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Sign-in flow
+// ---------------------------------------------------------------------------
+
+async function refreshAuthUi() {
+  const user = await getCurrentUser();
+  if (user) {
+    btnSignIn.classList.add('hidden');
+    btnSignOut.classList.remove('hidden');
+    const label = user.email || user.preferred_username || user.name || 'Signed in';
+    signedInAs.textContent = `✓ ${label}`;
+    signedInAs.className = 'connection-status ok';
+  } else {
+    btnSignIn.classList.remove('hidden');
+    btnSignOut.classList.add('hidden');
+    signedInAs.textContent = 'Not signed in';
+    signedInAs.className = 'connection-status';
+  }
+}
+
+async function handleSignIn() {
+  // Persist current tenant/client before launching the OAuth flow so the
+  // service worker reads consistent values if the user kicks off a session
+  // immediately after.
+  const settings = readFormValues();
+  await storageSet({ [SETTINGS_KEY]: settings });
+
+  if (!settings.azureTenantId || !settings.azureClientId) {
+    signedInAs.textContent = '✗ Set tenant ID and client ID first';
+    signedInAs.className = 'connection-status fail';
+    return;
+  }
+
+  signedInAs.textContent = 'Opening Microsoft sign-in…';
+  signedInAs.className = 'connection-status testing';
+  btnSignIn.disabled = true;
+
+  try {
+    await signIn(settings.azureTenantId, settings.azureClientId);
+    await refreshAuthUi();
+  } catch (err) {
+    signedInAs.textContent = `✗ ${err.message}`;
+    signedInAs.className = 'connection-status fail';
+  } finally {
+    btnSignIn.disabled = false;
+  }
+}
+
+async function handleSignOut() {
+  await signOut();
+  await refreshAuthUi();
 }
 
 // ---------------------------------------------------------------------------
@@ -246,41 +292,20 @@ function initScrollSpy() {
 // Event listeners
 // ---------------------------------------------------------------------------
 
-// Toggle token visibility
-btnToggleToken.addEventListener('click', () => {
-  if (authTokenInput.type === 'password') {
-    authTokenInput.type = 'text';
-    btnToggleToken.textContent = '🙈';
-  } else {
-    authTokenInput.type = 'password';
-    btnToggleToken.textContent = '👁';
-  }
-});
+modeBrowserProfile.addEventListener('change', () => scheduleFields.classList.add('hidden'));
+modeScheduled.addEventListener('change', () => scheduleFields.classList.remove('hidden'));
 
-// Show/hide schedule fields when mode changes
-modeBrowserProfile.addEventListener('change', () => {
-  scheduleFields.classList.add('hidden');
-});
-modeScheduled.addEventListener('change', () => {
-  scheduleFields.classList.remove('hidden');
-});
-
-// Live idle threshold display
 idleThreshold.addEventListener('input', () => {
   const val = parseInt(idleThreshold.value, 10);
   idleThresholdDisplay.textContent = `${val} minute${val === 1 ? '' : 's'}`;
 });
 
-// Test connection
 btnTestConnection.addEventListener('click', runTestConnection);
-
-// Save
+btnSignIn.addEventListener('click', handleSignIn);
+btnSignOut.addEventListener('click', handleSignOut);
 btnSave.addEventListener('click', saveSettings);
-
-// Reset
 btnReset.addEventListener('click', resetToDefaults);
 
-// Allow Cmd/Ctrl+S to save
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') {
     e.preventDefault();
@@ -295,4 +320,6 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   initScrollSpy();
+  if (redirectUriEl) redirectUriEl.textContent = getRedirectUrl();
+  await refreshAuthUi();
 });

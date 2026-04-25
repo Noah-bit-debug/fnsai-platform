@@ -33,17 +33,47 @@ Edge uses the same Chromium engine and supports Chrome extensions natively.
 
 ---
 
-## 3. Get Your Auth Token from SentrixAI
+## 3. Sign in with Microsoft
 
-The extension needs a Bearer token to communicate with the SentrixAI backend.
+The extension authenticates against the same Azure Entra ID tenant that the
+SentrixAI web app uses. Tokens are obtained via the OAuth 2.0 Authorization
+Code + PKCE flow run inside `chrome.identity.launchWebAuthFlow` — the same
+shape as the SPA's MSAL flow, just with the extension's chromiumapp.org URL
+as the redirect.
 
-1. Log in to the SentrixAI web app at `https://frontend-five-alpha-51.vercel.app`
-2. Click your **Profile / Avatar** in the top-right
-3. Go to **Settings → API Access** (or **Account → Developer**)
-4. Click **Generate Token** or **Copy Token**
-5. Paste the token into the extension Settings page (see step 4 below)
+### One-time Azure App Registration step
 
-Tokens do not expire automatically, but you can revoke and regenerate them at any time from the same screen.
+Before users can sign in, an admin must add the extension's redirect URI
+to the App Registration in the Azure portal:
+
+1. Load the extension in Chrome/Edge (steps 1–2 above) so it has an ID.
+2. Open the extension's Settings page. Under **Authentication** you'll see
+   the **Redirect URI** displayed — it looks like
+   `https://abcdefghijklmnopqrstuvwxyz123456.chromiumapp.org/`.
+3. In the Azure portal: **Microsoft Entra ID → App registrations →** your
+   SPA app **→ Authentication → Add a platform → Single-page application**.
+4. Paste the redirect URI from step 2 and **Save**. Repeat for each browser
+   profile / installation that needs to sign in (extension IDs differ per
+   install of an unpacked extension).
+
+### Per-user sign-in
+
+In the extension's **Settings → Authentication** section:
+
+| Field | Description |
+|---|---|
+| API Base URL | Leave blank to use the default Railway backend. |
+| Azure Tenant ID | Your tenant's directory ID (GUID). |
+| Azure Client ID | The SPA App Registration's Application (client) ID. |
+
+Click **Sign in with Microsoft**. A Microsoft login window opens; after
+selecting an account you'll see your email next to the button.
+
+The extension stores `id_token` + `refresh_token` in `chrome.storage.local`
+and automatically refreshes the id_token before expiry. Click **Sign out**
+to clear stored tokens.
+
+Click **Test Connection** to verify the API URL + your current sign-in.
 
 ---
 
@@ -51,14 +81,6 @@ Tokens do not expire automatically, but you can revoke and regenerate them at an
 
 After installing, the Settings page opens automatically on first install.
 You can reopen it at any time by clicking **⚙ Settings** in the popup.
-
-### Authentication
-| Field | Description |
-|---|---|
-| API Base URL | Leave blank to use the default Railway backend. Override only if self-hosting. |
-| Auth Token | Paste the Bearer token from step 3. Click 👁 to reveal. |
-
-Click **Test Connection** to verify your credentials before saving.
 
 ### Tracking Mode
 - **Browser Profile** — counts time whenever you have an active browser session. Best for flexible/remote work.

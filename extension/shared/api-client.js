@@ -8,26 +8,25 @@ import {
   OFFLINE_QUEUE_KEY,
   SETTINGS_KEY,
 } from './constants.js';
+import { getValidIdToken } from './auth.js';
 
 // ---------------------------------------------------------------------------
 // Settings + headers
 // ---------------------------------------------------------------------------
 
-async function getSettings() {
+async function getApiBase() {
   return new Promise((resolve) => {
     chrome.storage.local.get([SETTINGS_KEY], (result) => {
       const settings = result[SETTINGS_KEY] || {};
-      resolve({
-        apiBase: settings.apiBase || DEFAULT_API_BASE,
-        authToken: settings.authToken || '',
-      });
+      resolve(settings.apiBase || DEFAULT_API_BASE);
     });
   });
 }
 
-function buildHeaders(authToken) {
+async function buildHeaders() {
   const headers = { 'Content-Type': 'application/json' };
-  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  const token = await getValidIdToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   return headers;
 }
 
@@ -41,12 +40,12 @@ function buildHeaders(authToken) {
  * { queue: false } is passed (used by the queue replay loop to avoid loops).
  */
 async function request(method, path, body, opts = {}) {
-  const { apiBase, authToken } = await getSettings();
+  const apiBase = await getApiBase();
   const url = `${apiBase}${path}`;
   try {
     const resp = await fetch(url, {
       method,
-      headers: buildHeaders(authToken),
+      headers: await buildHeaders(),
       body: body == null ? undefined : JSON.stringify(body),
     });
     if (!resp.ok) {
@@ -162,14 +161,16 @@ export async function getPolicy() {
 }
 
 /**
- * Verify apiBase + authToken by hitting an authenticated endpoint.
- * 200 = ok, 401 = bad token, 404 = bad URL, network error = unreachable.
+ * Verify apiBase + current Microsoft session by hitting an authenticated
+ * endpoint. 200 = ok, 401 = not signed in / token expired,
+ * 403 = signed in but missing permission, 404 = bad URL, network error =
+ * unreachable.
  */
-export async function testConnection(apiBase, authToken) {
+export async function testConnection(apiBase) {
   try {
     const resp = await fetch(`${apiBase}/time-tracking/sessions/active`, {
       method: 'GET',
-      headers: buildHeaders(authToken),
+      headers: await buildHeaders(),
     });
     return { ok: resp.ok, status: resp.status };
   } catch (e) {

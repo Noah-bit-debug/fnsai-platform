@@ -10,6 +10,13 @@ export const OFFLINE_QUEUE_KEY = 'offlineQueue';
 export const SESSION_KEY = 'currentSession';
 export const SETTINGS_KEY = 'settings';
 export const ACTIVITY_BUFFER_KEY = 'activityBuffer';
+export const MS_AUTH_KEY = 'msAuthTokens';
+
+// Azure App Registration defaults — leave blank to require user
+// configuration via the options page. Filling these in makes single-tenant
+// deployments easier (users don't have to paste IDs).
+export const DEFAULT_AZURE_TENANT_ID = '';
+export const DEFAULT_AZURE_CLIENT_ID = '';
 
 export const TRACKING_MODES = {
   SCHEDULED: 'scheduled',
@@ -51,7 +58,8 @@ export const DEFAULT_APPROVED_DOMAINS = [
 
 export const DEFAULT_SETTINGS = {
   apiBase: DEFAULT_API_BASE,
-  authToken: '',
+  azureTenantId: DEFAULT_AZURE_TENANT_ID,
+  azureClientId: DEFAULT_AZURE_CLIENT_ID,
   idleThresholdMinutes: IDLE_THRESHOLD_MINUTES,
   trackingMode: TRACKING_MODES.BROWSER_PROFILE,
   scheduledStart: '09:00',

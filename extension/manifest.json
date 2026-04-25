@@ -30,7 +30,8 @@
     "storage",
     "alarms",
     "notifications",
-    "activeTab"
+    "activeTab",
+    "identity"
   ],
   "host_permissions": ["<all_urls>"],
   "options_ui": {
