@@ -122,6 +122,11 @@ function readFormValues() {
 async function saveSettings() {
   const settings = readFormValues();
 
+  if (settings.trackingMode === 'scheduled' && settings.scheduledStart === settings.scheduledEnd) {
+    showSaveStatus('Work start and end times cannot be identical.', 'fail');
+    return;
+  }
+
   try {
     await storageSet({ [SETTINGS_KEY]: settings });
 
@@ -170,6 +175,9 @@ async function runTestConnection() {
       connectionStatus.className   = 'connection-status ok';
     } else if (result.status === 401) {
       connectionStatus.textContent = '✗ Invalid auth token (401)';
+      connectionStatus.className   = 'connection-status fail';
+    } else if (result.status === 403) {
+      connectionStatus.textContent = '✗ Token lacks time_tracking_view_own permission (403)';
       connectionStatus.className   = 'connection-status fail';
     } else if (result.status === 404) {
       connectionStatus.textContent = '✗ API URL not found (404) — check the base URL';

@@ -1,4 +1,7 @@
 // shared/api-client.js — API client for SentrixAI Time Tracker extension
+//
+// All write operations queue automatically on network failure. Reads do not.
+// Endpoints are relative to apiBase, which already includes the /api/v1 prefix.
 
 import {
   DEFAULT_API_BASE,
@@ -7,13 +10,9 @@ import {
 } from './constants.js';
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Settings + headers
 // ---------------------------------------------------------------------------
 
-/**
- * Read apiBase and authToken from chrome.storage.local.
- * Falls back to the default Railway backend URL.
- */
 async function getSettings() {
   return new Promise((resolve) => {
     chrome.storage.local.get([SETTINGS_KEY], (result) => {
@@ -26,114 +25,78 @@ async function getSettings() {
   });
 }
 
-/**
- * Build common request headers.
- */
 function buildHeaders(authToken) {
   const headers = { 'Content-Type': 'application/json' };
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
-  }
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
   return headers;
 }
 
+// ---------------------------------------------------------------------------
+// Core fetch
+// ---------------------------------------------------------------------------
+
 /**
- * Core fetch wrapper. Returns parsed JSON on success, throws on HTTP error.
+ * Make a request against the SentrixAI API.
+ * On failure: queues the request and returns { offline: true } unless
+ * { queue: false } is passed (used by the queue replay loop to avoid loops).
  */
-async function apiFetch(url, options) {
-  const resp = await fetch(url, options);
-  if (!resp.ok) {
-    let body = '';
-    try { body = await resp.text(); } catch (_) { /* ignore */ }
-    throw new Error(`HTTP ${resp.status}: ${body}`);
+async function request(method, path, body, opts = {}) {
+  const { apiBase, authToken } = await getSettings();
+  const url = `${apiBase}${path}`;
+  try {
+    const resp = await fetch(url, {
+      method,
+      headers: buildHeaders(authToken),
+      body: body == null ? undefined : JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}: ${text}`);
+    }
+    if (resp.status === 204) return { success: true };
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) return { success: true };
+    return await resp.json();
+  } catch (e) {
+    if (opts.queue === false) throw e;
+    console.warn(`[SentrixAI] ${method} ${path} offline:`, e.message);
+    await addToOfflineQueue({ method, path, body });
+    return { offline: true, error: e.message };
   }
-  // Some endpoints return 204 No Content
-  const contentType = resp.headers.get('content-type') || '';
-  if (resp.status === 204 || !contentType.includes('application/json')) {
-    return { success: true };
-  }
-  return resp.json();
 }
 
 // ---------------------------------------------------------------------------
-// Offline queue helpers
+// Offline queue
 // ---------------------------------------------------------------------------
 
-/**
- * Add a failed request to the offline retry queue in chrome.storage.local.
- */
-export async function addToOfflineQueue(type, data) {
+async function addToOfflineQueue(entry) {
   return new Promise((resolve) => {
     chrome.storage.local.get([OFFLINE_QUEUE_KEY], (result) => {
       const queue = result[OFFLINE_QUEUE_KEY] || [];
-      queue.push({ type, data, queuedAt: Date.now(), retries: 0 });
+      queue.push({ ...entry, queuedAt: Date.now(), retries: 0 });
       chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: queue }, resolve);
     });
   });
 }
 
 /**
- * Replay all queued requests. Successfully replayed entries are removed.
- * Entries that still fail are kept with incremented retry count.
- * Entries with more than 10 retries are discarded to prevent indefinite growth.
+ * Replay queued requests. Successes drop out of the queue; failures stay
+ * with retries+1; entries past 10 retries are discarded.
  */
 export async function processOfflineQueue() {
   return new Promise((resolve) => {
     chrome.storage.local.get([OFFLINE_QUEUE_KEY], async (result) => {
       const queue = result[OFFLINE_QUEUE_KEY] || [];
-      if (queue.length === 0) {
-        resolve();
-        return;
-      }
-
+      if (queue.length === 0) return resolve();
       const remaining = [];
-
       for (const entry of queue) {
-        if (entry.retries > 10) {
-          // Discard stale entries
-          continue;
-        }
-
+        if (entry.retries > 10) continue;
         try {
-          let success = false;
-          switch (entry.type) {
-            case 'startSession':
-              await startSession(entry.data);
-              success = true;
-              break;
-            case 'heartbeat':
-              await heartbeat(entry.data.sessionId, entry.data);
-              success = true;
-              break;
-            case 'endSession':
-              await endSession(entry.data.sessionId, entry.data);
-              success = true;
-              break;
-            case 'batchActivityLogs':
-              await batchActivityLogs(entry.data);
-              success = true;
-              break;
-            case 'postIdleEvent':
-              await postIdleEvent(entry.data);
-              success = true;
-              break;
-            case 'postBreakEvent':
-              await postBreakEvent(entry.data);
-              success = true;
-              break;
-            default:
-              // Unknown type — discard
-              success = true;
-          }
-
-          if (!success) {
-            remaining.push({ ...entry, retries: entry.retries + 1 });
-          }
+          await request(entry.method, entry.path, entry.body, { queue: false });
         } catch (_) {
           remaining.push({ ...entry, retries: entry.retries + 1 });
         }
       }
-
       chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: remaining }, resolve);
     });
   });
@@ -143,145 +106,68 @@ export async function processOfflineQueue() {
 // API methods
 // ---------------------------------------------------------------------------
 
-/**
- * Start a new tracking session.
- * POST /time-tracking/sessions/start
- */
-export async function startSession(data) {
-  const { apiBase, authToken } = await getSettings();
-  try {
-    return await apiFetch(`${apiBase}/time-tracking/sessions/start`, {
-      method: 'POST',
-      headers: buildHeaders(authToken),
-      body: JSON.stringify(data),
-    });
-  } catch (e) {
-    console.warn('[SentrixAI] startSession offline:', e.message);
-    await addToOfflineQueue('startSession', data);
-    return { offline: true };
-  }
+/** POST /time-tracking/sessions/start  →  { session: { id, ... } } */
+export function startSession(body) {
+  return request('POST', '/time-tracking/sessions/start', body);
 }
 
-/**
- * Send a heartbeat ping for an active session.
- * POST /time-tracking/sessions/:sessionId/heartbeat
- */
-export async function heartbeat(sessionId, data) {
-  const { apiBase, authToken } = await getSettings();
-  try {
-    return await apiFetch(`${apiBase}/time-tracking/sessions/${sessionId}/heartbeat`, {
-      method: 'POST',
-      headers: buildHeaders(authToken),
-      body: JSON.stringify(data),
-    });
-  } catch (e) {
-    console.warn('[SentrixAI] heartbeat offline:', e.message);
-    await addToOfflineQueue('heartbeat', { sessionId, ...data });
-    return { offline: true };
-  }
+/** POST /time-tracking/sessions/:id/heartbeat — body deltas */
+export function heartbeat(sessionId, body) {
+  return request('POST', `/time-tracking/sessions/${sessionId}/heartbeat`, body);
 }
 
-/**
- * End an active session.
- * POST /time-tracking/sessions/:sessionId/end
- */
-export async function endSession(sessionId, data) {
-  const { apiBase, authToken } = await getSettings();
-  try {
-    return await apiFetch(`${apiBase}/time-tracking/sessions/${sessionId}/end`, {
-      method: 'POST',
-      headers: buildHeaders(authToken),
-      body: JSON.stringify(data),
-    });
-  } catch (e) {
-    console.warn('[SentrixAI] endSession offline:', e.message);
-    await addToOfflineQueue('endSession', { sessionId, ...data });
-    return { offline: true };
-  }
+/** POST /time-tracking/sessions/:id/end */
+export function endSession(sessionId, body) {
+  return request('POST', `/time-tracking/sessions/${sessionId}/end`, body);
 }
 
-/**
- * Upload a batch of activity log entries.
- * POST /time-tracking/activity/batch
- */
-export async function batchActivityLogs(logs) {
-  if (!logs || logs.length === 0) return { success: true };
-  const { apiBase, authToken } = await getSettings();
-  try {
-    return await apiFetch(`${apiBase}/time-tracking/activity/batch`, {
-      method: 'POST',
-      headers: buildHeaders(authToken),
-      body: JSON.stringify({ logs }),
-    });
-  } catch (e) {
-    console.warn('[SentrixAI] batchActivityLogs offline:', e.message);
-    await addToOfflineQueue('batchActivityLogs', logs);
-    return { offline: true };
+/** POST /time-tracking/activity/batch — { session_id, logs } */
+export function batchActivityLogs(sessionId, logs) {
+  if (!sessionId || !logs || logs.length === 0) {
+    return Promise.resolve({ success: true });
   }
+  return request('POST', '/time-tracking/activity/batch', {
+    session_id: sessionId,
+    logs,
+  });
 }
 
-/**
- * Record an idle event.
- * POST /time-tracking/events/idle
- */
-export async function postIdleEvent(data) {
-  const { apiBase, authToken } = await getSettings();
-  try {
-    return await apiFetch(`${apiBase}/time-tracking/events/idle`, {
-      method: 'POST',
-      headers: buildHeaders(authToken),
-      body: JSON.stringify(data),
-    });
-  } catch (e) {
-    console.warn('[SentrixAI] postIdleEvent offline:', e.message);
-    await addToOfflineQueue('postIdleEvent', data);
-    return { offline: true };
-  }
+/** POST /time-tracking/idle-events  →  { idle_event: { id, ... } } */
+export function postIdleEvent(body) {
+  return request('POST', '/time-tracking/idle-events', body);
 }
 
-/**
- * Record a break event (start or end).
- * POST /time-tracking/events/break
- */
-export async function postBreakEvent(data) {
-  const { apiBase, authToken } = await getSettings();
-  try {
-    return await apiFetch(`${apiBase}/time-tracking/events/break`, {
-      method: 'POST',
-      headers: buildHeaders(authToken),
-      body: JSON.stringify(data),
-    });
-  } catch (e) {
-    console.warn('[SentrixAI] postBreakEvent offline:', e.message);
-    await addToOfflineQueue('postBreakEvent', data);
-    return { offline: true };
-  }
+/** PATCH /time-tracking/idle-events/:id/respond — { user_response, notes? } */
+export function respondIdleEvent(idleEventId, body) {
+  return request('PATCH', `/time-tracking/idle-events/${idleEventId}/respond`, body);
 }
 
-/**
- * Fetch the tracking policy for this account (approved domains, schedule, etc.).
- * GET /time-tracking/policy
- */
+/** POST /time-tracking/breaks  →  { break_event: { id, ... } } */
+export function startBreakEvent(body) {
+  return request('POST', '/time-tracking/breaks', body);
+}
+
+/** PATCH /time-tracking/breaks/:id/end — { end_time } */
+export function endBreakEvent(breakId, body) {
+  return request('PATCH', `/time-tracking/breaks/${breakId}/end`, body);
+}
+
+/** GET /time-tracking/policy */
 export async function getPolicy() {
-  const { apiBase, authToken } = await getSettings();
   try {
-    return await apiFetch(`${apiBase}/time-tracking/policy`, {
-      method: 'GET',
-      headers: buildHeaders(authToken),
-    });
+    return await request('GET', '/time-tracking/policy', null, { queue: false });
   } catch (e) {
-    console.warn('[SentrixAI] getPolicy offline:', e.message);
-    return { offline: true };
+    return { offline: true, error: e.message };
   }
 }
 
 /**
- * Test that the API base URL and auth token are valid.
- * GET /health or /auth/me
+ * Verify apiBase + authToken by hitting an authenticated endpoint.
+ * 200 = ok, 401 = bad token, 404 = bad URL, network error = unreachable.
  */
 export async function testConnection(apiBase, authToken) {
   try {
-    const resp = await fetch(`${apiBase}/health`, {
+    const resp = await fetch(`${apiBase}/time-tracking/sessions/active`, {
       method: 'GET',
       headers: buildHeaders(authToken),
     });

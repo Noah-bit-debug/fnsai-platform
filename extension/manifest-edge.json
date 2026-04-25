@@ -1,7 +1,3 @@
-// Edge manifest — identical to manifest.json except for the name field.
-// Microsoft Edge supports Chrome extensions natively via the same Chromium engine.
-// To load in Edge: go to edge://extensions → enable Developer mode → Load unpacked → select this folder.
-// NOTE: JSON does not support comments; strip this line before validating with a JSON linter.
 {
   "manifest_version": 3,
   "name": "SentrixAI Time Tracker (Edge)",

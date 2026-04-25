@@ -7,10 +7,8 @@ import {
   SESSION_KEY,
   SETTINGS_KEY,
   ACTIVITY_BUFFER_KEY,
-  OFFLINE_QUEUE_KEY,
   HEARTBEAT_INTERVAL_SECONDS,
   SYNC_INTERVAL_SECONDS,
-  IDLE_THRESHOLD_MINUTES,
   TRACKING_MODES,
   ACTIVITY_TYPES,
   DEFAULT_APPROVED_DOMAINS,
@@ -22,7 +20,9 @@ import {
   endSession,
   batchActivityLogs,
   postIdleEvent,
-  postBreakEvent,
+  respondIdleEvent,
+  startBreakEvent,
+  endBreakEvent,
   processOfflineQueue,
 } from '../shared/api-client.js';
 
@@ -61,9 +61,23 @@ async function saveActivityBuffer(buffer) {
   await storageSet({ [ACTIVITY_BUFFER_KEY]: buffer });
 }
 
+const iso = (ms) => new Date(ms).toISOString();
+
 // ---------------------------------------------------------------------------
 // Domain classification
 // ---------------------------------------------------------------------------
+
+/**
+ * Match a hostname against a list of patterns. A pattern starting with
+ * "*." matches any subdomain (and the bare domain). A bare domain matches
+ * itself plus its subdomains.
+ */
+function matchesPattern(domain, list) {
+  return list.some((raw) => {
+    const pattern = raw.replace(/^\*\./, '');
+    return domain === pattern || domain.endsWith('.' + pattern);
+  });
+}
 
 /**
  * Classify a hostname against approved/excluded domain lists.
@@ -74,19 +88,8 @@ function classifyDomain(domain, settings) {
   const approved = settings.approvedDomains || DEFAULT_APPROVED_DOMAINS;
   const excluded = settings.excludedDomains || [];
 
-  if (excluded.some((d) => domain === d || domain.endsWith('.' + d))) {
-    return 'excluded';
-  }
-
-  if (
-    approved.some((d) => {
-      const pattern = d.replace('*.', '');
-      return domain === pattern || domain.endsWith('.' + pattern);
-    })
-  ) {
-    return 'work';
-  }
-
+  if (matchesPattern(domain, excluded)) return 'excluded';
+  if (matchesPattern(domain, approved)) return 'work';
   return 'non_work';
 }
 
@@ -96,7 +99,8 @@ function classifyDomain(domain, settings) {
 
 /**
  * Check whether the current local time falls within the scheduled window.
- * scheduledStart / scheduledEnd are HH:MM strings (24-hour).
+ * scheduledStart / scheduledEnd are HH:MM strings (24-hour). Overnight
+ * windows (start > end, e.g. 22:00–06:00) are supported.
  */
 function isWithinSchedule(settings) {
   if (settings.trackingMode !== TRACKING_MODES.SCHEDULED) return true;
@@ -105,11 +109,16 @@ function isWithinSchedule(settings) {
   const now = new Date();
   const [sh, sm] = settings.scheduledStart.split(':').map(Number);
   const [eh, em] = settings.scheduledEnd.split(':').map(Number);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const startMinutes = sh * 60 + sm;
-  const endMinutes = eh * 60 + em;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const startMin = sh * 60 + sm;
+  const endMin = eh * 60 + em;
 
-  return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  if (startMin === endMin) return false;
+  if (startMin < endMin) {
+    return nowMin >= startMin && nowMin < endMin;
+  }
+  // Overnight window: in-range if after start OR before end
+  return nowMin >= startMin || nowMin < endMin;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +126,6 @@ function isWithinSchedule(settings) {
 // ---------------------------------------------------------------------------
 
 async function createAlarms() {
-  // Remove any existing alarms first (safe to call even if they don't exist)
   await chrome.alarms.clearAll();
 
   chrome.alarms.create('heartbeat', {
@@ -155,7 +163,7 @@ function showIdleNotification(idleMinutes) {
 }
 
 // ---------------------------------------------------------------------------
-// Heartbeat alarm handler
+// Heartbeat alarm — accumulate seconds locally; the sync alarm flushes to API.
 // ---------------------------------------------------------------------------
 
 async function handleHeartbeatAlarm() {
@@ -163,87 +171,96 @@ async function handleHeartbeatAlarm() {
   if (!session || !session.id) return;
 
   const settings = await getSettings();
-
-  // Only count time if within schedule
   if (!isWithinSchedule(settings)) return;
 
   const now = Date.now();
+  session.unsent ||= { active: 0, idle: 0, break: 0 };
 
-  if (!session.isIdle && !session.isBreak) {
-    session.activeSeconds = (session.activeSeconds || 0) + HEARTBEAT_INTERVAL_SECONDS;
-    session.lastActiveAt = now;
-
-    // Record activity log entry
-    const buffer = await getActivityBuffer();
-    buffer.push({
-      sessionId: session.id,
-      type: ACTIVITY_TYPES.ACTIVE,
-      domain: session.currentDomain || null,
-      domainClass: classifyDomain(session.currentDomain, settings),
-      durationSeconds: HEARTBEAT_INTERVAL_SECONDS,
-      timestamp: now,
-    });
-    await saveActivityBuffer(buffer);
+  if (session.isBreak) {
+    session.breakSeconds = (session.breakSeconds || 0) + HEARTBEAT_INTERVAL_SECONDS;
+    session.unsent.break += HEARTBEAT_INTERVAL_SECONDS;
   } else if (session.isIdle) {
     session.idleSeconds = (session.idleSeconds || 0) + HEARTBEAT_INTERVAL_SECONDS;
-  } else if (session.isBreak) {
-    session.breakSeconds = (session.breakSeconds || 0) + HEARTBEAT_INTERVAL_SECONDS;
+    session.unsent.idle += HEARTBEAT_INTERVAL_SECONDS;
+  } else {
+    session.activeSeconds = (session.activeSeconds || 0) + HEARTBEAT_INTERVAL_SECONDS;
+    session.unsent.active += HEARTBEAT_INTERVAL_SECONDS;
+    session.lastActiveAt = now;
+
+    // Per-tick activity log entry
+    const buffer = await getActivityBuffer();
+    buffer.push({
+      timestamp_start: iso(now - HEARTBEAT_INTERVAL_SECONDS * 1000),
+      timestamp_end: iso(now),
+      domain: session.currentDomain || null,
+      page_title: settings.allowTitleTracking ? (session.currentPageTitle || null) : null,
+      activity_type: ACTIVITY_TYPES.ACTIVE,
+      duration_seconds: HEARTBEAT_INTERVAL_SECONDS,
+    });
+    await saveActivityBuffer(buffer);
   }
 
   await saveSession(session);
 }
 
 // ---------------------------------------------------------------------------
-// Sync alarm handler
+// Sync alarm — flush activity batch + heartbeat deltas + offline queue.
 // ---------------------------------------------------------------------------
 
 async function handleSyncAlarm() {
   const session = await getSession();
-  const buffer = await getActivityBuffer();
+  if (!session || !session.id || isLocalSessionId(session.id)) {
+    // Without a real server-side session id, batch/heartbeat would 404.
+    // Try to replay the offline queue so the start-session call lands and
+    // assign the real id on the next message round-trip from the popup.
+    await processOfflineQueue();
+    return;
+  }
 
-  // Batch upload activity logs
+  const buffer = await getActivityBuffer();
   if (buffer.length > 0) {
-    const result = await batchActivityLogs(buffer);
+    // Either succeeds and is persisted, or fails and is captured in the
+    // offline queue — either way the local buffer's job is done.
+    await batchActivityLogs(session.id, buffer);
+    await saveActivityBuffer([]);
+  }
+
+  const unsent = session.unsent || { active: 0, idle: 0, break: 0 };
+  if (unsent.active > 0 || unsent.idle > 0 || unsent.break > 0) {
+    const result = await heartbeat(session.id, {
+      active_seconds_delta: unsent.active,
+      idle_seconds_delta: unsent.idle,
+      break_seconds_delta: unsent.break,
+    });
     if (!result.offline) {
-      await saveActivityBuffer([]);
+      session.unsent = { active: 0, idle: 0, break: 0 };
+      await saveSession(session);
     }
   }
 
-  // Send heartbeat to server if session is active
-  if (session && session.id) {
-    await heartbeat(session.id, {
-      activeSeconds: session.activeSeconds || 0,
-      idleSeconds: session.idleSeconds || 0,
-      breakSeconds: session.breakSeconds || 0,
-      isBreak: session.isBreak || false,
-      isIdle: session.isIdle || false,
-      currentDomain: session.currentDomain || null,
-      timestamp: Date.now(),
-    });
-  }
-
-  // Replay any queued offline requests
   await processOfflineQueue();
 }
 
+function isLocalSessionId(id) {
+  return typeof id === 'string' && id.startsWith('local_');
+}
+
 // ---------------------------------------------------------------------------
-// Idle-check alarm handler
+// Idle-check alarm — fallback for missed onStateChanged events.
 // ---------------------------------------------------------------------------
 
 async function handleIdleCheckAlarm() {
   const session = await getSession();
   if (!session || !session.id) return;
+  const settings = await getSettings();
 
-  // chrome.idle.onStateChanged covers the main detection;
-  // this alarm is a fallback to catch missed state transitions.
-  chrome.idle.queryState(
-    (await getSettings()).idleThresholdMinutes * 60,
-    async (state) => {
-      if (state === 'idle' && !session.isIdle) {
-        await handleIdleStart(session);
-      }
+  chrome.idle.queryState(settings.idleThresholdMinutes * 60, async (state) => {
+    const fresh = await getSession();
+    if (!fresh || !fresh.id) return;
+    if (state === 'idle' && !fresh.isIdle) {
+      await handleIdleStart(fresh);
     }
-  );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +269,6 @@ async function handleIdleCheckAlarm() {
 
 async function handleIdleStart(session) {
   if (!session || session.isIdle) return;
-
   const settings = await getSettings();
   session.isIdle = true;
   session.idleStartedAt = Date.now();
@@ -263,38 +279,47 @@ async function handleIdleStart(session) {
   }
 }
 
-async function handleIdleEnd(session) {
+/**
+ * End an idle period. POSTs an idle-event with the full duration; if a
+ * userResponse is given ('was_working' | 'was_idle'), follows up with PATCH.
+ *
+ * If userResponse === 'was_working', the time gets credited back as active
+ * locally too. If 'was_idle' (and policy auto_deduct is on), the heartbeat
+ * already deducts on the server, so we only adjust local state.
+ */
+async function handleIdleEnd(session, userResponse) {
   if (!session || !session.isIdle) return;
 
-  const settings = await getSettings();
   const now = Date.now();
-  const idleDurationMs = session.idleStartedAt ? now - session.idleStartedAt : 0;
-  const idleDurationSeconds = Math.round(idleDurationMs / 1000);
+  const idleStartedAt = session.idleStartedAt;
+  const idleDurationSeconds = idleStartedAt
+    ? Math.max(0, Math.round((now - idleStartedAt) / 1000))
+    : 0;
 
-  // Post idle event to API
-  const idleEventData = {
-    sessionId: session.id,
-    startedAt: session.idleStartedAt,
-    endedAt: now,
-    durationSeconds: idleDurationSeconds,
-    autoDeducted: settings.autoDeductIdle,
-  };
+  if (!isLocalSessionId(session.id) && idleDurationSeconds > 0) {
+    const result = await postIdleEvent({
+      session_id: session.id,
+      detected_at: iso(idleStartedAt),
+      idle_duration_seconds: idleDurationSeconds,
+    });
+    const idleEventId = result?.idle_event?.id;
+    if (idleEventId && userResponse) {
+      await respondIdleEvent(idleEventId, { user_response: userResponse });
+    }
+  }
 
-  await postIdleEvent(idleEventData);
-
-  // Optionally subtract idle seconds from active time
-  if (settings.autoDeductIdle && idleDurationSeconds > 0) {
-    session.activeSeconds = Math.max(0, (session.activeSeconds || 0) - idleDurationSeconds);
-    session.idleSeconds = (session.idleSeconds || 0) + idleDurationSeconds;
+  if (userResponse === 'was_working') {
+    // Credit the idle period back as active locally; the server PATCH does
+    // the same on its side.
+    session.activeSeconds = (session.activeSeconds || 0) + idleDurationSeconds;
+    session.idleSeconds = Math.max(0, (session.idleSeconds || 0) - idleDurationSeconds);
   }
 
   session.isIdle = false;
   session.idleStartedAt = null;
   session.lastActiveAt = now;
 
-  // Dismiss the idle notification if still showing
   chrome.notifications.clear('idle-warning');
-
   await saveSession(session);
 }
 
@@ -309,12 +334,14 @@ chrome.idle.onStateChanged.addListener(async (newState) => {
   if (newState === 'idle' || newState === 'locked') {
     await handleIdleStart(session);
   } else if (newState === 'active') {
-    await handleIdleEnd(session);
+    // No explicit user response — let the server's policy decide whether
+    // to deduct. Locally, idleSeconds is already accumulated from heartbeat.
+    await handleIdleEnd(session, undefined);
   }
 });
 
 // ---------------------------------------------------------------------------
-// Notification button click handler
+// Notification button click
 // ---------------------------------------------------------------------------
 
 chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
@@ -324,52 +351,7 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
   const session = await getSession();
   if (!session || !session.id) return;
 
-  if (buttonIndex === 0) {
-    // "Yes, I was working" — mark idle period as active, don't deduct
-    const now = Date.now();
-    const idleDurationMs = session.idleStartedAt ? now - session.idleStartedAt : 0;
-    const idleDurationSeconds = Math.round(idleDurationMs / 1000);
-
-    // Credit that time back as active
-    session.activeSeconds = (session.activeSeconds || 0) + idleDurationSeconds;
-    session.isIdle = false;
-    session.idleStartedAt = null;
-    session.lastActiveAt = now;
-
-    await saveSession(session);
-
-    await postIdleEvent({
-      sessionId: session.id,
-      startedAt: session.idleStartedAt,
-      endedAt: now,
-      durationSeconds: idleDurationSeconds,
-      userWasWorking: true,
-      autoDeducted: false,
-    });
-  } else if (buttonIndex === 1) {
-    // "No, deduct it" — normal idle end with deduction forced
-    const settings = await getSettings();
-    const now = Date.now();
-    const idleDurationMs = session.idleStartedAt ? now - session.idleStartedAt : 0;
-    const idleDurationSeconds = Math.round(idleDurationMs / 1000);
-
-    session.activeSeconds = Math.max(0, (session.activeSeconds || 0) - idleDurationSeconds);
-    session.idleSeconds = (session.idleSeconds || 0) + idleDurationSeconds;
-    session.isIdle = false;
-    session.idleStartedAt = null;
-    session.lastActiveAt = now;
-
-    await saveSession(session);
-
-    await postIdleEvent({
-      sessionId: session.id,
-      startedAt: session.idleStartedAt,
-      endedAt: now,
-      durationSeconds: idleDurationSeconds,
-      userWasWorking: false,
-      autoDeducted: true,
-    });
-  }
+  await handleIdleEnd(session, buttonIndex === 0 ? 'was_working' : 'was_idle');
 });
 
 // ---------------------------------------------------------------------------
@@ -379,7 +361,6 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const session = await getSession();
   if (!session || !session.id) return;
-
   try {
     const tab = await chrome.tabs.get(activeInfo.tabId);
     if (tab && tab.url) {
@@ -389,7 +370,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
       await saveSession(session);
     }
   } catch (_) {
-    // Tab may have been closed immediately — ignore
+    // Tab closed immediately — ignore
   }
 });
 
@@ -398,15 +379,9 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (!session || !session.id) return;
 
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
-    // Browser lost focus — treat as potential idle
     session.browserFocused = false;
   } else {
     session.browserFocused = true;
-    // If we were idle due to focus loss, resume
-    if (session.isIdle && session.idleReason === 'focus_lost') {
-      await handleIdleEnd(session);
-      return; // handleIdleEnd saves session
-    }
   }
   await saveSession(session);
 });
@@ -417,17 +392,10 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   switch (alarm.name) {
-    case 'heartbeat':
-      await handleHeartbeatAlarm();
-      break;
-    case 'sync':
-      await handleSyncAlarm();
-      break;
-    case 'idle-check':
-      await handleIdleCheckAlarm();
-      break;
-    default:
-      break;
+    case 'heartbeat':   await handleHeartbeatAlarm();   break;
+    case 'sync':        await handleSyncAlarm();        break;
+    case 'idle-check':  await handleIdleCheckAlarm();   break;
+    default: break;
   }
 });
 
@@ -436,7 +404,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  // Must return true to keep the message channel open for async responses
   handleMessage(message).then(sendResponse).catch((err) => {
     console.error('[SentrixAI] Message error:', err);
     sendResponse({ error: err.message });
@@ -468,15 +435,17 @@ async function handleMessage(message) {
       }
 
       const now = Date.now();
-      const sessionData = {
-        startedAt: now,
-        trackingMode: settings.trackingMode,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        ...(message.data || {}),
+      const browserType = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
+      const body = {
+        tracking_mode: settings.trackingMode,
+        browser_type: browserType,
+        scheduled_window_start: settings.trackingMode === TRACKING_MODES.SCHEDULED ? settings.scheduledStart : null,
+        scheduled_window_end:   settings.trackingMode === TRACKING_MODES.SCHEDULED ? settings.scheduledEnd : null,
       };
 
-      const result = await startSession(sessionData);
-      const sessionId = result.offline ? `local_${now}` : (result.id || result.sessionId || `local_${now}`);
+      const result = await startSession(body);
+      const serverId = result?.session?.id;
+      const sessionId = serverId ?? `local_${now}`;
 
       const newSession = {
         id: sessionId,
@@ -484,47 +453,52 @@ async function handleMessage(message) {
         activeSeconds: 0,
         idleSeconds: 0,
         breakSeconds: 0,
+        unsent: { active: 0, idle: 0, break: 0 },
         isBreak: false,
         isIdle: false,
         lastActiveAt: now,
         currentDomain: null,
+        currentPageTitle: null,
         browserFocused: true,
         idleStartedAt: null,
         breakStartedAt: null,
-        pendingIdleEventId: null,
+        breakEventId: null,
       };
 
       await saveSession(newSession);
-      return { success: true, session: newSession, offline: result.offline || false };
+      return { success: true, session: newSession, offline: !!result.offline };
     }
 
     case 'END_SESSION': {
       const session = await getSession();
-      if (!session || !session.id) {
-        return { error: 'No active session.' };
-      }
+      if (!session || !session.id) return { error: 'No active session.' };
 
-      // Flush activity buffer before ending
+      // Close any open idle period (without explicit user response)
+      if (session.isIdle && session.idleStartedAt) {
+        await handleIdleEnd(session, undefined);
+      }
+      // Reload session after handleIdleEnd mutated it
+      const fresh = await getSession();
+
+      // Flush activity buffer
       const buffer = await getActivityBuffer();
-      if (buffer.length > 0) {
-        await batchActivityLogs(buffer);
+      if (buffer.length > 0 && !isLocalSessionId(fresh.id)) {
+        await batchActivityLogs(fresh.id, buffer);
         await saveActivityBuffer([]);
       }
 
-      // Close any open idle period
-      if (session.isIdle && session.idleStartedAt) {
-        await handleIdleEnd(session);
+      // Flush any unsent heartbeat deltas via the end call (it sets totals)
+      let result = { offline: true };
+      if (!isLocalSessionId(fresh.id)) {
+        result = await endSession(fresh.id, {
+          active_seconds: fresh.activeSeconds || 0,
+          idle_seconds: fresh.idleSeconds || 0,
+          break_seconds: fresh.breakSeconds || 0,
+        });
       }
 
-      const result = await endSession(session.id, {
-        endedAt: Date.now(),
-        activeSeconds: session.activeSeconds || 0,
-        idleSeconds: session.idleSeconds || 0,
-        breakSeconds: session.breakSeconds || 0,
-      });
-
       await chrome.storage.local.remove(SESSION_KEY);
-      return { success: true, offline: result.offline || false };
+      return { success: true, offline: !!result.offline };
     }
 
     case 'START_BREAK': {
@@ -532,14 +506,18 @@ async function handleMessage(message) {
       if (!session || !session.id) return { error: 'No active session.' };
       if (session.isBreak) return { error: 'Already on break.' };
 
+      const now = Date.now();
       session.isBreak = true;
-      session.breakStartedAt = Date.now();
+      session.breakStartedAt = now;
 
-      await postBreakEvent({
-        sessionId: session.id,
-        type: 'start',
-        startedAt: session.breakStartedAt,
-      });
+      if (!isLocalSessionId(session.id)) {
+        const result = await startBreakEvent({
+          session_id: session.id,
+          start_time: iso(now),
+          source: 'manual',
+        });
+        session.breakEventId = result?.break_event?.id ?? null;
+      }
 
       await saveSession(session);
       return { success: true };
@@ -551,71 +529,47 @@ async function handleMessage(message) {
       if (!session.isBreak) return { error: 'Not on break.' };
 
       const now = Date.now();
-      const breakDurationSeconds = session.breakStartedAt
-        ? Math.round((now - session.breakStartedAt) / 1000)
-        : 0;
-
-      await postBreakEvent({
-        sessionId: session.id,
-        type: 'end',
-        startedAt: session.breakStartedAt,
-        endedAt: now,
-        durationSeconds: breakDurationSeconds,
-      });
+      if (session.breakEventId) {
+        await endBreakEvent(session.breakEventId, { end_time: iso(now) });
+      }
 
       session.isBreak = false;
       session.breakStartedAt = null;
+      session.breakEventId = null;
       session.lastActiveAt = now;
       await saveSession(session);
       return { success: true };
     }
 
     case 'GET_SETTINGS': {
-      const settings = await getSettings();
-      return { settings };
+      return { settings: await getSettings() };
     }
 
     case 'SAVE_SETTINGS': {
       const current = await getSettings();
       const updated = { ...current, ...(message.settings || {}) };
       await storageSet({ [SETTINGS_KEY]: updated });
-
-      // Re-apply idle detection interval if threshold changed
-      if (message.settings && message.settings.idleThresholdMinutes) {
+      if (message.settings?.idleThresholdMinutes) {
         chrome.idle.setDetectionInterval(message.settings.idleThresholdMinutes * 60);
       }
       return { success: true };
     }
 
     case 'USER_WAS_WORKING': {
-      // User confirmed they were working during idle period
       const session = await getSession();
       if (!session || !session.id) return { error: 'No active session.' };
-
-      const now = Date.now();
-      const idleDurationMs = session.idleStartedAt ? now - session.idleStartedAt : 0;
-      const idleDurationSeconds = Math.round(idleDurationMs / 1000);
-
-      session.activeSeconds = (session.activeSeconds || 0) + idleDurationSeconds;
-      session.isIdle = false;
-      session.idleStartedAt = null;
-      session.lastActiveAt = now;
-
-      await saveSession(session);
-      chrome.notifications.clear('idle-warning');
+      await handleIdleEnd(session, 'was_working');
       return { success: true };
     }
 
     case 'CONFIRM_IDLE_DEDUCT': {
-      // User confirmed idle time should be deducted
       const session = await getSession();
       if (!session || !session.id) return { error: 'No active session.' };
-      await handleIdleEnd(session);
+      await handleIdleEnd(session, 'was_idle');
       return { success: true };
     }
 
     case 'PAGE_VISIT': {
-      // Received from content script — update current domain on session
       const session = await getSession();
       if (!session || !session.id) return { received: true };
 
@@ -641,20 +595,15 @@ async function handleMessage(message) {
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('[SentrixAI] onInstalled:', details.reason);
 
-  // Write default settings only if not already present
   const result = await storageGet([SETTINGS_KEY]);
   if (!result[SETTINGS_KEY]) {
     await storageSet({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   }
 
-  // Set up idle detection threshold
   const settings = await getSettings();
   chrome.idle.setDetectionInterval(settings.idleThresholdMinutes * 60);
-
-  // Create recurring alarms
   await createAlarms();
 
-  // Open options page on first install so the user can enter their auth token
   if (details.reason === 'install') {
     chrome.runtime.openOptionsPage();
   }
@@ -666,15 +615,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 chrome.runtime.onStartup.addListener(async () => {
   console.log('[SentrixAI] onStartup — restoring state');
-
   const settings = await getSettings();
   chrome.idle.setDetectionInterval(settings.idleThresholdMinutes * 60);
-
-  // Recreate alarms (they are cleared when the browser restarts)
   await createAlarms();
 
-  // If there was an active session when the browser was closed,
-  // keep it in storage but mark that we resumed after a browser restart
   const session = await getSession();
   if (session && session.id) {
     session.resumedAt = Date.now();
