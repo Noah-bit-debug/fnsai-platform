@@ -11,7 +11,6 @@ import {
   SYNC_INTERVAL_SECONDS,
   TRACKING_MODES,
   ACTIVITY_TYPES,
-  DEFAULT_APPROVED_DOMAINS,
 } from '../shared/constants.js';
 
 import {
@@ -28,6 +27,13 @@ import {
 
 import { isSignedIn } from '../shared/auth.js';
 import { storageGet, storageSet, storageRemove } from '../shared/storage.js';
+import {
+  iso,
+  hasCrossedMidnight,
+  isLocalSessionId,
+  isWithinSchedule,
+  classifyDomain,
+} from '../shared/util.js';
 
 // ---------------------------------------------------------------------------
 // Storage helpers
@@ -54,66 +60,6 @@ async function getActivityBuffer() {
 
 async function saveActivityBuffer(buffer) {
   await storageSet({ [ACTIVITY_BUFFER_KEY]: buffer });
-}
-
-const iso = (ms) => new Date(ms).toISOString();
-
-// ---------------------------------------------------------------------------
-// Domain classification
-// ---------------------------------------------------------------------------
-
-/**
- * Match a hostname against a list of patterns. A pattern starting with
- * "*." matches any subdomain (and the bare domain). A bare domain matches
- * itself plus its subdomains.
- */
-function matchesPattern(domain, list) {
-  return list.some((raw) => {
-    const pattern = raw.replace(/^\*\./, '');
-    return domain === pattern || domain.endsWith('.' + pattern);
-  });
-}
-
-/**
- * Classify a hostname against approved/excluded domain lists.
- * Returns: 'excluded' | 'work' | 'non_work'
- */
-function classifyDomain(domain, settings) {
-  if (!domain) return 'non_work';
-  const approved = settings.approvedDomains || DEFAULT_APPROVED_DOMAINS;
-  const excluded = settings.excludedDomains || [];
-
-  if (matchesPattern(domain, excluded)) return 'excluded';
-  if (matchesPattern(domain, approved)) return 'work';
-  return 'non_work';
-}
-
-// ---------------------------------------------------------------------------
-// Schedule helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether the current local time falls within the scheduled window.
- * scheduledStart / scheduledEnd are HH:MM strings (24-hour). Overnight
- * windows (start > end, e.g. 22:00–06:00) are supported.
- */
-function isWithinSchedule(settings) {
-  if (settings.trackingMode !== TRACKING_MODES.SCHEDULED) return true;
-  if (!settings.scheduledStart || !settings.scheduledEnd) return true;
-
-  const now = new Date();
-  const [sh, sm] = settings.scheduledStart.split(':').map(Number);
-  const [eh, em] = settings.scheduledEnd.split(':').map(Number);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const startMin = sh * 60 + sm;
-  const endMin = eh * 60 + em;
-
-  if (startMin === endMin) return false;
-  if (startMin < endMin) {
-    return nowMin >= startMin && nowMin < endMin;
-  }
-  // Overnight window: in-range if after start OR before end
-  return nowMin >= startMin || nowMin < endMin;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,12 +104,115 @@ function showIdleNotification(idleMinutes) {
 }
 
 // ---------------------------------------------------------------------------
+// Session lifecycle (used by both message handlers and midnight rollover)
+// ---------------------------------------------------------------------------
+
+/**
+ * End the currently-active session. Closes any in-progress idle or break
+ * periods, flushes the activity buffer, and clears local session state.
+ * Returns { success, offline } or { error } when there's no active session.
+ */
+async function endActiveSession() {
+  const session = await getSession();
+  if (!session || !session.id) return { error: 'No active session.' };
+
+  // Close any open idle period (without explicit user response)
+  if (session.isIdle && session.idleStartedAt) {
+    await handleIdleEnd(session, undefined);
+  }
+  // Reload session after handleIdleEnd mutated it
+  const fresh = await getSession();
+
+  // Close any open break server-side
+  if (fresh.isBreak && fresh.breakEventId && !isLocalSessionId(fresh.id)) {
+    await endBreakEvent(fresh.breakEventId, { end_time: iso(Date.now()) });
+  }
+
+  // Flush activity buffer
+  const buffer = await getActivityBuffer();
+  if (buffer.length > 0 && !isLocalSessionId(fresh.id)) {
+    await batchActivityLogs(fresh.id, buffer);
+    await saveActivityBuffer([]);
+  }
+
+  // End on server (sets totals; supersedes any pending heartbeat deltas)
+  let result = { offline: true };
+  if (!isLocalSessionId(fresh.id)) {
+    result = await endSession(fresh.id, {
+      active_seconds: fresh.activeSeconds || 0,
+      idle_seconds: fresh.idleSeconds || 0,
+      break_seconds: fresh.breakSeconds || 0,
+    });
+  }
+
+  await storageRemove(SESSION_KEY);
+  return { success: true, offline: !!result.offline };
+}
+
+/**
+ * Start a fresh session. Reads tracking settings; refuses if not signed in.
+ * Returns { success, session, offline } or { error }.
+ */
+async function startNewSession() {
+  if (!(await isSignedIn())) {
+    return { error: 'Not signed in. Open Settings and click Sign in with Microsoft.' };
+  }
+
+  const settings = await getSettings();
+  const now = Date.now();
+  const browserType = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
+  const body = {
+    tracking_mode: settings.trackingMode,
+    browser_type: browserType,
+    scheduled_window_start: settings.trackingMode === TRACKING_MODES.SCHEDULED ? settings.scheduledStart : null,
+    scheduled_window_end:   settings.trackingMode === TRACKING_MODES.SCHEDULED ? settings.scheduledEnd : null,
+  };
+
+  const result = await startSession(body);
+  const serverId = result?.session?.id;
+  const sessionId = serverId ?? `local_${now}`;
+
+  const newSession = {
+    id: sessionId,
+    startTime: now,
+    activeSeconds: 0,
+    idleSeconds: 0,
+    breakSeconds: 0,
+    unsent: { active: 0, idle: 0, break: 0 },
+    isBreak: false,
+    isIdle: false,
+    lastActiveAt: now,
+    currentDomain: null,
+    currentPageTitle: null,
+    browserFocused: true,
+    idleStartedAt: null,
+    breakStartedAt: null,
+    breakEventId: null,
+  };
+
+  await saveSession(newSession);
+  return { success: true, session: newSession, offline: !!result.offline };
+}
+
+// ---------------------------------------------------------------------------
 // Heartbeat alarm — accumulate seconds locally; the sync alarm flushes to API.
 // ---------------------------------------------------------------------------
 
 async function handleHeartbeatAlarm() {
   const session = await getSession();
   if (!session || !session.id) return;
+
+  // Day rollover: end this session and start a fresh one so each calendar
+  // day is its own row in tracking_sessions. Done before the schedule check
+  // so an overnight scheduled window still gets a clean per-day boundary.
+  // Note: in-progress break/idle state is reset; a user on break at the
+  // moment of rollover will need to click Break again on the new session.
+  if (hasCrossedMidnight(session.startTime, Date.now())) {
+    console.log('[SentrixAI] Midnight rollover — restarting session');
+    await endActiveSession();
+    await startNewSession();
+    return;
+  }
 
   const settings = await getSettings();
   if (!isWithinSchedule(settings)) return;
@@ -234,10 +283,6 @@ async function handleSyncAlarm() {
   }
 
   await processOfflineQueue();
-}
-
-function isLocalSessionId(id) {
-  return typeof id === 'string' && id.startsWith('local_');
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +459,7 @@ async function handleMessage(message) {
       return {
         session,
         isTracking: !!(session && session.id),
+        isSignedIn: await isSignedIn(),
         withinSchedule: isWithinSchedule(settings),
         settings: {
           trackingMode: settings.trackingMode,
@@ -423,78 +469,8 @@ async function handleMessage(message) {
       };
     }
 
-    case 'START_SESSION': {
-      const settings = await getSettings();
-      if (!(await isSignedIn())) {
-        return { error: 'Not signed in. Open Settings and click Sign in with Microsoft.' };
-      }
-
-      const now = Date.now();
-      const browserType = /Edg\//.test(navigator.userAgent) ? 'edge' : 'chrome';
-      const body = {
-        tracking_mode: settings.trackingMode,
-        browser_type: browserType,
-        scheduled_window_start: settings.trackingMode === TRACKING_MODES.SCHEDULED ? settings.scheduledStart : null,
-        scheduled_window_end:   settings.trackingMode === TRACKING_MODES.SCHEDULED ? settings.scheduledEnd : null,
-      };
-
-      const result = await startSession(body);
-      const serverId = result?.session?.id;
-      const sessionId = serverId ?? `local_${now}`;
-
-      const newSession = {
-        id: sessionId,
-        startTime: now,
-        activeSeconds: 0,
-        idleSeconds: 0,
-        breakSeconds: 0,
-        unsent: { active: 0, idle: 0, break: 0 },
-        isBreak: false,
-        isIdle: false,
-        lastActiveAt: now,
-        currentDomain: null,
-        currentPageTitle: null,
-        browserFocused: true,
-        idleStartedAt: null,
-        breakStartedAt: null,
-        breakEventId: null,
-      };
-
-      await saveSession(newSession);
-      return { success: true, session: newSession, offline: !!result.offline };
-    }
-
-    case 'END_SESSION': {
-      const session = await getSession();
-      if (!session || !session.id) return { error: 'No active session.' };
-
-      // Close any open idle period (without explicit user response)
-      if (session.isIdle && session.idleStartedAt) {
-        await handleIdleEnd(session, undefined);
-      }
-      // Reload session after handleIdleEnd mutated it
-      const fresh = await getSession();
-
-      // Flush activity buffer
-      const buffer = await getActivityBuffer();
-      if (buffer.length > 0 && !isLocalSessionId(fresh.id)) {
-        await batchActivityLogs(fresh.id, buffer);
-        await saveActivityBuffer([]);
-      }
-
-      // Flush any unsent heartbeat deltas via the end call (it sets totals)
-      let result = { offline: true };
-      if (!isLocalSessionId(fresh.id)) {
-        result = await endSession(fresh.id, {
-          active_seconds: fresh.activeSeconds || 0,
-          idle_seconds: fresh.idleSeconds || 0,
-          break_seconds: fresh.breakSeconds || 0,
-        });
-      }
-
-      await storageRemove(SESSION_KEY);
-      return { success: true, offline: !!result.offline };
-    }
+    case 'START_SESSION': return startNewSession();
+    case 'END_SESSION':   return endActiveSession();
 
     case 'START_BREAK': {
       const session = await getSession();

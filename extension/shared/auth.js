@@ -22,43 +22,13 @@
 
 import { MS_AUTH_KEY } from './constants.js';
 import { storageGet, storageSet, storageRemove } from './storage.js';
+import {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  decodeJwt,
+} from './util.js';
 
 const SCOPES = 'openid profile email offline_access User.Read';
-
-// ---------------------------------------------------------------------------
-// PKCE helpers
-// ---------------------------------------------------------------------------
-
-function base64UrlEncode(bytes) {
-  let s = '';
-  const arr = new Uint8Array(bytes);
-  for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
-  return btoa(s).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
-
-function generateCodeVerifier() {
-  const buf = new Uint8Array(64);
-  crypto.getRandomValues(buf);
-  return base64UrlEncode(buf);
-}
-
-async function generateCodeChallenge(verifier) {
-  const data = new TextEncoder().encode(verifier);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return base64UrlEncode(hash);
-}
-
-function decodeJwt(jwt) {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) return null;
-    const padded = parts[1].replaceAll('-', '+').replaceAll('_', '/');
-    const json = atob(padded + '='.repeat((4 - padded.length % 4) % 4));
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Storage

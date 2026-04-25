@@ -36,6 +36,8 @@ const btnBreakText   = $('btnBreakText');
 const idleBanner     = $('idleBanner');
 const btnWasWorking  = $('btnWasWorking');
 const btnDeductIdle  = $('btnDeductIdle');
+const signinBanner   = $('signinBanner');
+const btnOpenSignIn  = $('btnOpenSignIn');
 const msgBox         = $('msgBox');
 const linkSettings   = $('linkSettings');
 const linkReports    = $('linkReports');
@@ -194,6 +196,16 @@ function renderStatus(status) {
   } else {
     idleBanner.classList.add('hidden');
   }
+
+  // ---- Sign-in banner — shows whenever the user isn't signed in.
+  // Disable the start-session button in that case so the only path forward
+  // is via Settings.
+  if (status.isSignedIn === false) {
+    signinBanner.classList.remove('hidden');
+    btnSession.disabled = true;
+  } else {
+    signinBanner.classList.add('hidden');
+  }
 }
 
 /** Update just the timer digits — called every second */
@@ -330,6 +342,12 @@ btnDeductIdle.addEventListener('click', async () => {
   } catch (err) {
     showMsg('Connection error — try again.', 'error');
   }
+});
+
+// Sign-in banner — Open Settings
+btnOpenSignIn.addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+  window.close();
 });
 
 // Footer — Settings
