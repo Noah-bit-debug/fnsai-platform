@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { query } from '../db/client';
+import {
+  requirePermission,
+  invalidateUserCache,
+  resolveDbUserIdFromOid,
+} from '../services/permissions/permissionService';
+import { logSecurityEvent } from '../services/permissions/auditLog';
 
 /**
  * User directory + role management.
@@ -73,32 +79,98 @@ router.get('/', requireAuth, async (_req: Request, res: Response) => {
 
 // ─── PATCH /api/v1/users/:userId — update role ───────────────
 // `:userId` here is the Azure oid (what we return as `id` from GET /users).
-router.patch('/:userId', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { userId } = req.params;
-    const { role } = req.body as { role: string };
+//
+// This endpoint is the legacy "set primary role" path used by the admin UI
+// dropdown. It writes to BOTH the legacy `users.role` column and the new
+// `rbac_user_roles` table — otherwise the new permission engine (which
+// reads from rbac_user_roles) would keep serving the old permission set
+// and a promotion to e.g. CEO would silently fail to take effect.
+router.patch(
+  '/:userId',
+  requireAuth,
+  requirePermission('admin.users.manage'),
+  async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body as { role: string };
 
-    const VALID_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator', 'viewer'];
-    if (!role || !VALID_ROLES.includes(role)) {
-      return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
+      if (!role || typeof role !== 'string') {
+        return res.status(400).json({ error: 'role is required' });
+      }
+
+      // Resolve target user's DB UUID from their Azure oid.
+      const target = await query<{ id: string }>(
+        `SELECT id FROM users WHERE clerk_user_id = $1`,
+        [userId]
+      );
+      if (target.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const targetDbUserId = target.rows[0].id;
+
+      // Validate role against rbac_roles (the source of truth — system
+      // roles are seeded from catalog.ts on startup, and admins may have
+      // added custom ones).
+      const roleRow = await query<{ id: string; key: string }>(
+        `SELECT id, key FROM rbac_roles WHERE key = $1`,
+        [role]
+      );
+      if (roleRow.rows.length === 0) {
+        const valid = await query<{ key: string }>(
+          `SELECT key FROM rbac_roles ORDER BY is_system DESC, key ASC`
+        );
+        return res.status(400).json({
+          error: `Invalid role '${role}'. Must be one of: ${valid.rows.map(r => r.key).join(', ')}`,
+        });
+      }
+      const newRoleId = roleRow.rows[0].id;
+      const newRoleKey = roleRow.rows[0].key;
+
+      const auth = getAuth(req);
+      const adminDbId = await resolveDbUserIdFromOid(auth?.userId);
+
+      // Sync legacy column.
+      await query(
+        `UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2`,
+        [newRoleKey, targetDbUserId]
+      );
+
+      // Replace rbac_user_roles assignments with the new single role. The
+      // dropdown represents a single primary role; multi-role assignments
+      // are managed via the dedicated /rbac/users/:userId/roles endpoints.
+      await query(`DELETE FROM rbac_user_roles WHERE user_id = $1`, [targetDbUserId]);
+      await query(
+        `INSERT INTO rbac_user_roles (user_id, role_id, assigned_by)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [targetDbUserId, newRoleId, adminDbId]
+      );
+
+      // Drop the cached permission set so the user's next request gets the
+      // new role's permissions immediately instead of waiting for the
+      // 60-second TTL.
+      invalidateUserCache(targetDbUserId);
+
+      await logSecurityEvent({
+        userId: adminDbId,
+        actorOid: auth?.userId,
+        action: 'role.assigned',
+        outcome: 'allowed',
+        reason: `Set role '${newRoleKey}' on user ${userId}`,
+        context: {
+          target_user_id: targetDbUserId,
+          target_oid: userId,
+          role_id: newRoleId,
+          role_key: newRoleKey,
+        },
+        req,
+      });
+
+      res.json({ success: true, userId, role: newRoleKey });
+    } catch (err) {
+      console.error('PATCH /users/:userId error:', err);
+      res.status(500).json({ error: 'Failed to update user role' });
     }
-
-    const result = await query(
-      `UPDATE users
-          SET role = $1, updated_at = NOW()
-        WHERE clerk_user_id = $2
-       RETURNING clerk_user_id, role`,
-      [role, userId]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json({ success: true, userId, role });
-  } catch (err) {
-    console.error('PATCH /users/:userId error:', err);
-    res.status(500).json({ error: 'Failed to update user role' });
   }
-});
+);
 
 export default router;
