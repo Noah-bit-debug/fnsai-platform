@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '../../lib/auth';
 import { useRBAC } from '../../contexts/RBACContext';
-import { useCan } from '../../contexts/PermissionsContext';
+import { useCan, usePermissions } from '../../contexts/PermissionsContext';
 import api from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
           Change <strong>{member.fullName}</strong>'s role to{' '}
           <span style={{ color: b.color, fontWeight: 700 }}>{b.label}</span>?
           <br />
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>This takes effect on their next login.</span>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>This takes effect immediately.</span>
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           <button
@@ -168,6 +168,7 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
 export default function UserManagement() {
   const { user } = useUser();
   const { role } = useRBAC();
+  const { reload: reloadPermissions } = usePermissions();
   // Permission gate: only users with admin.users.manage can change roles.
   // Other admins can view the list but the role dropdown becomes read-only.
   const canChangeRoles = useCan('admin.users.manage');
@@ -218,6 +219,13 @@ export default function UserManagement() {
           m.id === pendingChange.member.id ? { ...m, role: pendingChange.newRole } : m
         )
       );
+      // If the admin changed their OWN role (rare but possible), or if anyone
+      // changed the currently signed-in user's role, refetch the local
+      // permissions context so the sidebar/route gates re-render against the
+      // new permission set without requiring a logout.
+      if (pendingChange.member.email === user?.primaryEmailAddress?.emailAddress) {
+        await reloadPermissions();
+      }
       setToast({ msg: `Role updated for ${pendingChange.member.fullName}.`, ok: true });
     } catch (err: any) {
       setToast({

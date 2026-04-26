@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { query } from '../db/client';
+import { query, pool } from '../db/client';
+import { invalidateUserCache } from '../services/permissions/permissionService';
 
 /**
  * User directory + role management.
@@ -73,31 +74,90 @@ router.get('/', requireAuth, async (_req: Request, res: Response) => {
 
 // ─── PATCH /api/v1/users/:userId — update role ───────────────
 // `:userId` here is the Azure oid (what we return as `id` from GET /users).
+//
+// This swaps the user's PRIMARY role only. It updates the legacy users.role
+// column AND swaps the matching rbac_user_roles row inside one transaction,
+// then invalidates the per-user permission cache so the change takes effect
+// immediately without waiting for the 60s TTL.
+//
+// Any additional role assignments the user has (granted via UserAccess.tsx
+// → POST /rbac/users/:id/roles) are preserved — we only replace the row
+// that matched the OLD users.role value.
 router.patch('/:userId', requireAuth, async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  const { role } = req.body as { role: string };
+
+  const VALID_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator', 'viewer'];
+  if (!role || !VALID_ROLES.includes(role)) {
+    return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
+  }
+
+  const client = await pool.connect();
   try {
-    const { userId } = req.params;
-    const { role } = req.body as { role: string };
+    await client.query('BEGIN');
 
-    const VALID_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator', 'viewer'];
-    if (!role || !VALID_ROLES.includes(role)) {
-      return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
-    }
-
-    const result = await query(
-      `UPDATE users
-          SET role = $1, updated_at = NOW()
-        WHERE clerk_user_id = $2
-       RETURNING clerk_user_id, role`,
-      [role, userId]
+    // Resolve the target user's DB id and their current legacy role.
+    const userRow = await client.query<{ id: string; role: string | null }>(
+      `SELECT id, role FROM users WHERE clerk_user_id = $1 FOR UPDATE`,
+      [userId]
     );
-    if (result.rows.length === 0) {
+    if (userRow.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'User not found' });
     }
+    const dbUserId = userRow.rows[0].id;
+    const oldRole = userRow.rows[0].role;
+
+    // Resolve the new role's rbac_roles.id.
+    const newRoleRow = await client.query<{ id: string }>(
+      `SELECT id FROM rbac_roles WHERE key = $1 LIMIT 1`,
+      [role]
+    );
+    if (newRoleRow.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({
+        error: `Role "${role}" not found in rbac_roles. Backend may need a restart to seed the catalog.`,
+      });
+    }
+    const newRoleId = newRoleRow.rows[0].id;
+
+    // Update the legacy column.
+    await client.query(
+      `UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2`,
+      [role, dbUserId]
+    );
+
+    // Remove the rbac_user_roles row matching the OLD primary role (if any).
+    // Leaves any other role assignments intact.
+    if (oldRole) {
+      await client.query(
+        `DELETE FROM rbac_user_roles
+          WHERE user_id = $1
+            AND role_id = (SELECT id FROM rbac_roles WHERE key = $2)`,
+        [dbUserId, oldRole]
+      );
+    }
+
+    // Grant the new role.
+    await client.query(
+      `INSERT INTO rbac_user_roles (user_id, role_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id, role_id) DO NOTHING`,
+      [dbUserId, newRoleId]
+    );
+
+    await client.query('COMMIT');
+
+    // Drop the cached permission set so the next request resolves fresh.
+    invalidateUserCache(dbUserId);
 
     res.json({ success: true, userId, role });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
     console.error('PATCH /users/:userId error:', err);
     res.status(500).json({ error: 'Failed to update user role' });
+  } finally {
+    client.release();
   }
 });
 
