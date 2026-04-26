@@ -135,7 +135,7 @@ function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: Confir
           Change <strong>{member.fullName}</strong>'s role to{' '}
           <span style={{ color: b.color, fontWeight: 700 }}>{b.label}</span>?
           <br />
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>This takes effect on their next login.</span>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>They'll see the new permissions after refreshing their browser.</span>
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           <button
