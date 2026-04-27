@@ -5,12 +5,23 @@
  * references, every key is unique, every role's permission list points
  * at real catalog entries, risk levels are valid, etc.
  *
+ * Plus the role-isolation matrix that pins the RBAC spec:
+ *   CEO       — full access
+ *   Admin    — full access EXCEPT admin.ceo_role.manage
+ *   Manager  — broad ops, no admin.* / system-level
+ *   HR        — superset of Recruiter + Coordinator + HR-specific
+ *   Recruiter — recruiting workflow only
+ *   Coordinator — limited operational support
+ *
  * Run with: npm test
  */
 
 import { test, describe } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { PERMISSIONS, SYSTEM_ROLES, CATEGORY_ORDER, CATEGORY_LABELS } from '../catalog';
+import {
+  PERMISSIONS, SYSTEM_ROLES, CATEGORY_ORDER, CATEGORY_LABELS,
+  CEO_TIER_PERMISSIONS, isCeoTierPermission,
+} from '../catalog';
 
 describe('PERMISSIONS catalog', () => {
 
@@ -68,22 +79,30 @@ describe('PERMISSIONS catalog', () => {
 
   test('CEO-private + finance + admin permissions are critical risk', () => {
     const criticalCategories = ['ceo'];
-    const criticalPatterns = ['admin.roles.manage', 'admin.overrides.grant', 'finance.margins.view'];
+    const criticalPatterns = ['admin.roles.manage', 'admin.overrides.grant', 'finance.margins.view', 'admin.ceo_role.manage'];
     for (const p of PERMISSIONS) {
       if (criticalCategories.includes(p.category) || criticalPatterns.includes(p.key)) {
         assert.equal(p.risk, 'critical', `Expected ${p.key} to be critical risk`);
       }
     }
   });
+
+  test('admin.ceo_role.manage exists and is critical', () => {
+    const def = PERMISSIONS.find(p => p.key === 'admin.ceo_role.manage');
+    assert.ok(def, 'admin.ceo_role.manage must exist — it is the CEO-protection meta-permission');
+    assert.equal(def!.risk, 'critical');
+  });
 });
 
-describe('SYSTEM_ROLES', () => {
+describe('SYSTEM_ROLES — the six default roles', () => {
 
-  test('CEO / admin / manager / hr / recruiter / credentialing / compliance / bd / staff all exist', () => {
-    const expected = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'credentialing', 'compliance', 'bd', 'staff'];
-    for (const e of expected) {
-      assert.ok(SYSTEM_ROLES.find(r => r.key === e), `Missing system role: ${e}`);
-    }
+  test('exactly the six spec roles exist (ceo, admin, manager, hr, recruiter, coordinator)', () => {
+    const expected = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator'];
+    assert.deepEqual(
+      SYSTEM_ROLES.map(r => r.key).sort(),
+      expected.slice().sort(),
+      'SYSTEM_ROLES should be exactly the six default roles per the RBAC spec'
+    );
   });
 
   test('every role references only real permission keys', () => {
@@ -99,225 +118,284 @@ describe('SYSTEM_ROLES', () => {
   });
 
   test('CEO has all permissions', () => {
-    const ceo = SYSTEM_ROLES.find(r => r.key === 'ceo');
-    assert.ok(ceo);
-    assert.equal(ceo!.permissions.length, PERMISSIONS.length,
-      `CEO should have all ${PERMISSIONS.length} permissions, has ${ceo!.permissions.length}`);
+    const ceo = SYSTEM_ROLES.find(r => r.key === 'ceo')!;
+    assert.equal(ceo.permissions.length, PERMISSIONS.length,
+      `CEO should have all ${PERMISSIONS.length} permissions, has ${ceo.permissions.length}`);
   });
 
-  test('Recruiter does NOT have finance permissions', () => {
-    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter');
-    assert.ok(recruiter);
-    const financePerms = recruiter!.permissions.filter(p => p.startsWith('finance.'));
-    assert.equal(financePerms.length, 0, `Recruiter has finance perms: ${financePerms.join(', ')}`);
+  test('Admin has every permission EXCEPT admin.ceo_role.manage', () => {
+    const admin = SYSTEM_ROLES.find(r => r.key === 'admin')!;
+    // Admin should be exactly PERMISSIONS minus admin.ceo_role.manage.
+    const expected = PERMISSIONS.map(p => p.key)
+      .filter(k => k !== 'admin.ceo_role.manage')
+      .sort();
+    assert.deepEqual(admin.permissions.slice().sort(), expected,
+      'Admin should hold every permission except admin.ceo_role.manage');
   });
 
-  test('Recruiter does NOT have CEO permissions', () => {
-    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter');
-    assert.ok(recruiter);
-    const ceoPerms = recruiter!.permissions.filter(p => p.startsWith('ceo.'));
-    assert.equal(ceoPerms.length, 0, `Recruiter has CEO perms: ${ceoPerms.join(', ')}`);
+  test('Admin does NOT have admin.ceo_role.manage (the CEO-protection meta-perm)', () => {
+    const admin = SYSTEM_ROLES.find(r => r.key === 'admin')!;
+    assert.ok(!admin.permissions.includes('admin.ceo_role.manage'),
+      'Admin must not have admin.ceo_role.manage — only CEO does');
   });
 
-  test('Recruiter does NOT have bids permissions', () => {
-    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter');
-    assert.ok(recruiter);
-    const bdPerms = recruiter!.permissions.filter(p => p.startsWith('bd.'));
-    assert.equal(bdPerms.length, 0, `Recruiter has BD perms: ${bdPerms.join(', ')}`);
+  test('Only CEO has admin.ceo_role.manage', () => {
+    for (const role of SYSTEM_ROLES) {
+      if (role.key === 'ceo') {
+        assert.ok(role.permissions.includes('admin.ceo_role.manage'));
+      } else {
+        assert.ok(!role.permissions.includes('admin.ceo_role.manage'),
+          `Role "${role.key}" must not hold admin.ceo_role.manage`);
+      }
+    }
   });
 
-  test('Recruiter does NOT have admin permissions', () => {
-    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter');
-    assert.ok(recruiter);
-    const adminPerms = recruiter!.permissions.filter(p => p.startsWith('admin.'));
-    assert.equal(adminPerms.length, 0, `Recruiter has admin perms: ${adminPerms.join(', ')}`);
+  test('Manager has broad operational perms but no admin.* / no CEO-tier', () => {
+    const mgr = SYSTEM_ROLES.find(r => r.key === 'manager')!;
+    // Operational: candidates, jobs, AI chat
+    assert.ok(mgr.permissions.includes('candidates.view'));
+    assert.ok(mgr.permissions.includes('jobs.view'));
+    assert.ok(mgr.permissions.includes('jobs.edit'));
+    assert.ok(mgr.permissions.includes('ai.chat.use'));
+    assert.ok(mgr.permissions.includes('assignments.manage'));
+    // No admin.* — manager should not be able to edit roles/permissions or
+    // see security logs.
+    const adminPerms = mgr.permissions.filter(p => p.startsWith('admin.'));
+    assert.equal(adminPerms.length, 0, `Manager has admin perms: ${adminPerms.join(', ')}`);
+    // No CEO-tier
+    for (const perm of CEO_TIER_PERMISSIONS) {
+      assert.ok(!mgr.permissions.includes(perm),
+        `Manager must not hold CEO-tier permission: ${perm}`);
+    }
   });
 
-  test('Recruiter does NOT have HR employee_files permission', () => {
-    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter');
-    assert.ok(recruiter);
-    assert.ok(!recruiter!.permissions.includes('hr.employee_files'));
+  test('HR is a superset of Recruiter + Coordinator', () => {
+    const hr = new Set(SYSTEM_ROLES.find(r => r.key === 'hr')!.permissions);
+    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter')!.permissions;
+    const coordinator = SYSTEM_ROLES.find(r => r.key === 'coordinator')!.permissions;
+    for (const p of recruiter) {
+      assert.ok(hr.has(p), `HR is missing recruiter permission: ${p}`);
+    }
+    for (const p of coordinator) {
+      assert.ok(hr.has(p), `HR is missing coordinator permission: ${p}`);
+    }
   });
 
-  test('Recruiter does NOT have AI finance topic', () => {
-    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter');
-    assert.ok(recruiter);
-    assert.ok(!recruiter!.permissions.includes('ai.topic.finance'));
+  test('HR has HR-specific perms (employee files, incidents, onboarding manage, full credentialing/compliance)', () => {
+    const hr = SYSTEM_ROLES.find(r => r.key === 'hr')!;
+    assert.ok(hr.permissions.includes('hr.employee_files'));
+    assert.ok(hr.permissions.includes('hr.incidents.manage'));
+    assert.ok(hr.permissions.includes('onboarding.manage'));
+    assert.ok(hr.permissions.includes('credentialing.edit'));
+    assert.ok(hr.permissions.includes('credentialing.approve_docs'));
+    assert.ok(hr.permissions.includes('compliance.policies.manage'));
   });
 
-  test('HR does NOT have CEO permissions', () => {
-    const hr = SYSTEM_ROLES.find(r => r.key === 'hr');
-    assert.ok(hr);
-    const ceoPerms = hr!.permissions.filter(p => p.startsWith('ceo.'));
-    assert.equal(ceoPerms.length, 0);
+  test('HR does NOT have admin.* / CEO-tier / BD bids', () => {
+    const hr = SYSTEM_ROLES.find(r => r.key === 'hr')!;
+    const adminPerms = hr.permissions.filter(p => p.startsWith('admin.'));
+    assert.equal(adminPerms.length, 0, `HR has admin perms: ${adminPerms.join(', ')}`);
+    for (const perm of CEO_TIER_PERMISSIONS) {
+      assert.ok(!hr.permissions.includes(perm),
+        `HR must not hold CEO-tier permission: ${perm}`);
+    }
+    assert.ok(!hr.permissions.includes('bd.bids.view'),
+      'HR should not see BD bids by default');
   });
 
-  test('HR does NOT have bids permissions', () => {
-    const hr = SYSTEM_ROLES.find(r => r.key === 'hr');
-    assert.ok(hr);
-    const bdPerms = hr!.permissions.filter(p => p.startsWith('bd.'));
-    assert.equal(bdPerms.length, 0);
-  });
-
-  test('HR does NOT have finance margins', () => {
-    const hr = SYSTEM_ROLES.find(r => r.key === 'hr');
-    assert.ok(hr);
-    assert.ok(!hr!.permissions.includes('finance.margins.view'));
-  });
-
-  test('HR has employee_files + onboarding + HR incidents', () => {
-    const hr = SYSTEM_ROLES.find(r => r.key === 'hr');
-    assert.ok(hr);
-    assert.ok(hr!.permissions.includes('hr.employee_files'));
-    assert.ok(hr!.permissions.includes('onboarding.manage'));
-    assert.ok(hr!.permissions.includes('hr.incidents.manage'));
-  });
-
-  test('Credentialing has candidate medical + credential edit', () => {
-    const cred = SYSTEM_ROLES.find(r => r.key === 'credentialing');
-    assert.ok(cred);
-    assert.ok(cred!.permissions.includes('candidates.view.medical'));
-    assert.ok(cred!.permissions.includes('credentialing.edit'));
-    assert.ok(cred!.permissions.includes('credentialing.approve_docs'));
-  });
-
-  test('Credentialing does NOT have finance permissions', () => {
-    const cred = SYSTEM_ROLES.find(r => r.key === 'credentialing');
-    assert.ok(cred);
-    const fin = cred!.permissions.filter(p => p.startsWith('finance.'));
-    assert.equal(fin.length, 0);
-  });
-
-  test('BD has bid/lead/contact permissions but NOT CEO-sensitive bid notes', () => {
-    const bd = SYSTEM_ROLES.find(r => r.key === 'bd');
-    assert.ok(bd);
-    assert.ok(bd!.permissions.includes('bd.bids.edit'));
-    assert.ok(bd!.permissions.includes('bd.leads.view'));
-    assert.ok(!bd!.permissions.includes('bd.ceo_sensitive_notes'),
-      'BD role should NOT get ceo_sensitive_notes by default');
-  });
-
-  test('Manager has operational perms but NOT finance margins / payroll / revenue', () => {
-    const mgr = SYSTEM_ROLES.find(r => r.key === 'manager');
-    assert.ok(mgr);
-    assert.ok(mgr!.permissions.includes('candidates.view'));
-    assert.ok(mgr!.permissions.includes('ai.chat.use'));
-    assert.ok(!mgr!.permissions.includes('finance.margins.view'),
-      'Manager should NOT get margin view by default');
-    assert.ok(!mgr!.permissions.includes('finance.payroll.view'));
-    assert.ok(!mgr!.permissions.includes('finance.revenue_reports.view'));
-  });
-
-  test('Manager does NOT have admin.roles.manage', () => {
-    const mgr = SYSTEM_ROLES.find(r => r.key === 'manager');
-    assert.ok(mgr);
-    assert.ok(!mgr!.permissions.includes('admin.roles.manage'));
-  });
-
-  test('Admin does NOT have CEO private permissions', () => {
-    const admin = SYSTEM_ROLES.find(r => r.key === 'admin');
-    assert.ok(admin);
-    const ceoPerms = admin!.permissions.filter(p => p.startsWith('ceo.'));
-    assert.equal(ceoPerms.length, 0, `Admin should not get CEO perms: ${ceoPerms.join(', ')}`);
-    assert.ok(!admin!.permissions.includes('bd.ceo_sensitive_notes'));
-    assert.ok(!admin!.permissions.includes('finance.margins.view'));
-  });
-
-  test('Staff role has minimal perms (only own PTO + AI chat)', () => {
-    const staff = SYSTEM_ROLES.find(r => r.key === 'staff');
-    assert.ok(staff);
-    assert.ok(staff!.permissions.length <= 5, 'Staff should have very limited permissions');
-    assert.ok(staff!.permissions.includes('pto.view_own'));
-    // No candidate, finance, HR, or admin access
-    const forbidden = staff!.permissions.filter(p =>
-      p.startsWith('candidates.') ||
-      p.startsWith('finance.') ||
-      p.startsWith('admin.') ||
-      p.startsWith('ceo.')
-    );
-    assert.equal(forbidden.length, 0,
-      `Staff has forbidden perms: ${forbidden.join(', ')}`);
-  });
-});
-
-describe('Acceptance tests — role isolation matrix', () => {
-
-  // These cover the specific scenarios from the original security spec:
-  // "recruiter cannot access X", "HR cannot access Y", etc.
-
-  const get = (key: string) => SYSTEM_ROLES.find(r => r.key === key)!;
-
-  test('Recruiter cannot access CEO tasks', () => {
-    assert.ok(!get('recruiter').permissions.includes('ceo.private_tasks'));
-    assert.ok(!get('recruiter').permissions.includes('ai.topic.ceo'));
-  });
-
-  test('Recruiter cannot access bid strategy', () => {
-    assert.ok(!get('recruiter').permissions.includes('bd.strategic_notes.view'));
-    assert.ok(!get('recruiter').permissions.includes('bd.ceo_sensitive_notes'));
-    assert.ok(!get('recruiter').permissions.includes('ai.topic.bids'));
-  });
-
-  test('Recruiter cannot access finance/payroll', () => {
-    assert.ok(!get('recruiter').permissions.includes('finance.pay_rates.view'));
-    assert.ok(!get('recruiter').permissions.includes('finance.margins.view'));
-    assert.ok(!get('recruiter').permissions.includes('finance.payroll.view'));
-    assert.ok(!get('recruiter').permissions.includes('finance.revenue_reports.view'));
-  });
-
-  test('Recruiter cannot search full SharePoint (no bids, HR, CEO folders)', () => {
-    assert.ok(!get('recruiter').permissions.includes('files.hr.search'));
-    assert.ok(!get('recruiter').permissions.includes('files.bids.search'));
-    assert.ok(!get('recruiter').permissions.includes('files.ceo_private.search'));
-    assert.ok(!get('recruiter').permissions.includes('files.credentialing.search'));
-  });
-
-  test('Recruiter CAN access their assigned candidates + jobs + tasks', () => {
-    const r = get('recruiter');
+  test('Recruiter has recruiting workflow perms only', () => {
+    const r = SYSTEM_ROLES.find(r => r.key === 'recruiter')!;
     assert.ok(r.permissions.includes('candidates.view'));
+    assert.ok(r.permissions.includes('candidates.create'));
+    assert.ok(r.permissions.includes('candidates.edit'));
+    assert.ok(r.permissions.includes('candidates.view.contact_info'));
     assert.ok(r.permissions.includes('jobs.view'));
     assert.ok(r.permissions.includes('submissions.view'));
+    assert.ok(r.permissions.includes('submissions.create'));
+    assert.ok(r.permissions.includes('pipeline.view'));
     assert.ok(r.permissions.includes('tasks.recruiter.view'));
   });
 
-  test('HR cannot access CEO/private areas', () => {
-    const hr = get('hr');
-    assert.ok(!hr.permissions.includes('ceo.private_tasks'));
-    assert.ok(!hr.permissions.includes('ceo.executive_strategy'));
-    assert.ok(!hr.permissions.includes('ai.topic.ceo'));
+  test('Recruiter does NOT have HR / credentialing / compliance / onboarding / payroll / admin / CEO', () => {
+    const r = SYSTEM_ROLES.find(r => r.key === 'recruiter')!;
+    assert.ok(!r.permissions.includes('hr.view'));
+    assert.ok(!r.permissions.includes('hr.employee_files'));
+    assert.ok(!r.permissions.includes('credentialing.view'));
+    assert.ok(!r.permissions.includes('credentialing.edit'));
+    assert.ok(!r.permissions.includes('compliance.view'));
+    assert.ok(!r.permissions.includes('onboarding.view'));
+    assert.ok(!r.permissions.includes('finance.payroll.view'));
+    assert.ok(!r.permissions.includes('finance.pay_rates.view'));
+    const adminPerms = r.permissions.filter(p => p.startsWith('admin.'));
+    assert.equal(adminPerms.length, 0, `Recruiter has admin perms: ${adminPerms.join(', ')}`);
+    for (const perm of CEO_TIER_PERMISSIONS) {
+      assert.ok(!r.permissions.includes(perm),
+        `Recruiter must not hold CEO-tier permission: ${perm}`);
+    }
   });
 
-  test('HR cannot access bid strategy notes', () => {
-    const hr = get('hr');
-    assert.ok(!hr.permissions.includes('bd.strategic_notes.view'));
-    assert.ok(!hr.permissions.includes('ai.topic.bids'));
+  test('Coordinator has limited operational support perms', () => {
+    const c = SYSTEM_ROLES.find(r => r.key === 'coordinator')!;
+    assert.ok(c.permissions.includes('candidates.view'));
+    assert.ok(c.permissions.includes('candidates.view.contact_info'));
+    assert.ok(c.permissions.includes('candidates.send_message'));
+    assert.ok(c.permissions.includes('assignments.view'));
+    assert.ok(c.permissions.includes('ai.chat.use'));
   });
 
-  test('HR cannot access finance/payroll', () => {
-    const hr = get('hr');
-    assert.ok(!hr.permissions.includes('finance.payroll.view'));
-    assert.ok(!hr.permissions.includes('finance.margins.view'));
-    assert.ok(!hr.permissions.includes('finance.revenue_reports.view'));
+  test('Coordinator does NOT have HR records / compliance docs / credentialing / payroll / admin', () => {
+    const c = SYSTEM_ROLES.find(r => r.key === 'coordinator')!;
+    assert.ok(!c.permissions.includes('hr.view'));
+    assert.ok(!c.permissions.includes('hr.employee_files'));
+    assert.ok(!c.permissions.includes('compliance.view'));
+    assert.ok(!c.permissions.includes('credentialing.view'));
+    assert.ok(!c.permissions.includes('finance.payroll.view'));
+    const adminPerms = c.permissions.filter(p => p.startsWith('admin.'));
+    assert.equal(adminPerms.length, 0, `Coordinator has admin perms: ${adminPerms.join(', ')}`);
+    for (const perm of CEO_TIER_PERMISSIONS) {
+      assert.ok(!c.permissions.includes(perm),
+        `Coordinator must not hold CEO-tier permission: ${perm}`);
+    }
   });
 
-  test('Credentialing cannot access unrelated CEO/bid/private data', () => {
-    const cred = get('credentialing');
-    assert.ok(!cred.permissions.includes('ceo.private_tasks'));
-    assert.ok(!cred.permissions.includes('bd.bids.view'));
-    assert.ok(!cred.permissions.includes('finance.margins.view'));
+  test('Coordinator is a strict subset of HR', () => {
+    const hr = new Set(SYSTEM_ROLES.find(r => r.key === 'hr')!.permissions);
+    const coordinator = SYSTEM_ROLES.find(r => r.key === 'coordinator')!.permissions;
+    for (const p of coordinator) {
+      assert.ok(hr.has(p), `Coordinator perm "${p}" should be in HR's set (HR is a superset)`);
+    }
   });
 
-  test('Manager can see operational team work but NOT CEO-private/finance/margins', () => {
+  test('Recruiter is a strict subset of HR', () => {
+    const hr = new Set(SYSTEM_ROLES.find(r => r.key === 'hr')!.permissions);
+    const recruiter = SYSTEM_ROLES.find(r => r.key === 'recruiter')!.permissions;
+    for (const p of recruiter) {
+      assert.ok(hr.has(p), `Recruiter perm "${p}" should be in HR's set (HR is a superset)`);
+    }
+  });
+
+  test('HR is a strict subset of Manager', () => {
+    const mgr = new Set(SYSTEM_ROLES.find(r => r.key === 'manager')!.permissions);
+    const hr = SYSTEM_ROLES.find(r => r.key === 'hr')!.permissions;
+    for (const p of hr) {
+      assert.ok(mgr.has(p), `HR perm "${p}" should be in Manager's set (Manager is a superset)`);
+    }
+  });
+});
+
+describe('CEO-protection — meta-permissions and helpers', () => {
+
+  test('CEO_TIER_PERMISSIONS includes admin.ceo_role.manage', () => {
+    assert.ok(CEO_TIER_PERMISSIONS.includes('admin.ceo_role.manage'));
+  });
+
+  test('CEO_TIER_PERMISSIONS includes all ceo.* category perms', () => {
+    for (const p of PERMISSIONS) {
+      if (p.category === 'ceo') {
+        assert.ok(CEO_TIER_PERMISSIONS.includes(p.key),
+          `ceo-category permission "${p.key}" should be in CEO_TIER_PERMISSIONS`);
+      }
+    }
+  });
+
+  test('isCeoTierPermission flags CEO-tier perms', () => {
+    assert.ok(isCeoTierPermission('admin.ceo_role.manage'));
+    assert.ok(isCeoTierPermission('ceo.private_tasks'));
+    assert.ok(isCeoTierPermission('finance.margins.view'));
+    assert.ok(isCeoTierPermission('finance.payroll.view'));
+    assert.ok(!isCeoTierPermission('candidates.view'));
+    assert.ok(!isCeoTierPermission('admin.users.manage'));
+  });
+
+  test('every CEO_TIER_PERMISSIONS entry is a real permission', () => {
+    const validKeys = new Set(PERMISSIONS.map(p => p.key));
+    for (const k of CEO_TIER_PERMISSIONS) {
+      assert.ok(validKeys.has(k), `CEO_TIER_PERMISSIONS contains unknown key: ${k}`);
+    }
+  });
+});
+
+describe('Acceptance tests — RBAC spec hierarchy', () => {
+
+  // These cover the explicit "what each role can/cannot do" lines from
+  // the RBAC spec.
+
+  const get = (key: string) => SYSTEM_ROLES.find(r => r.key === key)!;
+
+  test('CEO can do everything Admin can do (and more)', () => {
+    const ceo = new Set(get('ceo').permissions);
+    const admin = get('admin').permissions;
+    for (const p of admin) {
+      assert.ok(ceo.has(p), `CEO is missing admin permission: ${p}`);
+    }
+  });
+
+  test('Admin has every permission except admin.ceo_role.manage', () => {
+    const admin = new Set(get('admin').permissions);
+    for (const p of PERMISSIONS) {
+      if (p.key === 'admin.ceo_role.manage') {
+        assert.ok(!admin.has(p.key), 'Admin must not hold admin.ceo_role.manage');
+      } else {
+        assert.ok(admin.has(p.key), `Admin must hold permission: ${p.key}`);
+      }
+    }
+  });
+
+  test('Manager cannot edit role permission definitions', () => {
     const mgr = get('manager');
-    assert.ok(mgr.permissions.includes('candidates.view'));
-    assert.ok(mgr.permissions.includes('jobs.view'));
-    assert.ok(!mgr.permissions.includes('ceo.private_tasks'));
-    assert.ok(!mgr.permissions.includes('finance.margins.view'));
-    assert.ok(!mgr.permissions.includes('finance.payroll.view'));
+    assert.ok(!mgr.permissions.includes('admin.permissions.edit'));
+    assert.ok(!mgr.permissions.includes('admin.roles.manage'));
+    assert.ok(!mgr.permissions.includes('admin.roles.create_custom'));
   });
 
-  test('CEO can access everything', () => {
-    const ceo = get('ceo');
-    assert.equal(ceo.permissions.length, PERMISSIONS.length);
+  test('Manager cannot access system error logs / developer tools / integrations', () => {
+    const mgr = get('manager');
+    assert.ok(!mgr.permissions.includes('admin.security_logs.view'));
+    assert.ok(!mgr.permissions.includes('admin.ai_logs.view'));
+    assert.ok(!mgr.permissions.includes('admin.integrations.manage'));
+  });
+
+  test('Manager cannot manage users (broad user management is admin/CEO only)', () => {
+    const mgr = get('manager');
+    assert.ok(!mgr.permissions.includes('admin.users.manage'),
+      'Per spec: only Admin and CEO can broadly manage users');
+  });
+
+  test('HR cannot access admin-only settings', () => {
+    const hr = get('hr');
+    assert.ok(!hr.permissions.includes('admin.users.manage'));
+    assert.ok(!hr.permissions.includes('admin.permissions.edit'));
+    assert.ok(!hr.permissions.includes('admin.security_logs.view'));
+  });
+
+  test('Recruiter cannot access credentialing, compliance, onboarding, payroll, system settings, role management', () => {
+    const r = get('recruiter');
+    assert.ok(!r.permissions.includes('credentialing.view'));
+    assert.ok(!r.permissions.includes('compliance.view'));
+    assert.ok(!r.permissions.includes('onboarding.view'));
+    assert.ok(!r.permissions.includes('finance.payroll.view'));
+    assert.ok(!r.permissions.includes('admin.users.manage'));
+    assert.ok(!r.permissions.includes('admin.roles.manage'));
+  });
+
+  test('Coordinator cannot access sensitive HR records, compliance, credentialing, payroll, admin, system diagnostics', () => {
+    const c = get('coordinator');
+    assert.ok(!c.permissions.includes('hr.employee_files'));
+    assert.ok(!c.permissions.includes('hr.incidents.view'));
+    assert.ok(!c.permissions.includes('compliance.view'));
+    assert.ok(!c.permissions.includes('credentialing.view'));
+    assert.ok(!c.permissions.includes('finance.payroll.view'));
+    assert.ok(!c.permissions.includes('admin.users.manage'));
+    assert.ok(!c.permissions.includes('admin.roles.manage'));
+    assert.ok(!c.permissions.includes('admin.security_logs.view'));
+  });
+
+  test('No role below CEO can hold admin.ceo_role.manage', () => {
+    for (const role of SYSTEM_ROLES) {
+      if (role.key !== 'ceo') {
+        assert.ok(!role.permissions.includes('admin.ceo_role.manage'),
+          `Role "${role.key}" must not hold admin.ceo_role.manage`);
+      }
+    }
   });
 });

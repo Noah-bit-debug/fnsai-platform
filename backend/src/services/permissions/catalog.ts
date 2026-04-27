@@ -158,6 +158,15 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'admin.ai_logs.view',              category: 'admin',      label: 'View AI access logs',           description: 'Read the ai_security_log',                                        risk: 'high' },
   { key: 'admin.integrations.manage',       category: 'admin',      label: 'Manage integrations',           description: 'Configure Anthropic / Microsoft / SMS connections',               risk: 'high' },
   { key: 'admin.simulate.view_as_role',     category: 'admin',      label: 'Preview as another role',       description: 'Temporarily view the app as another role for testing',            risk: 'medium' },
+  // The meta-permission that protects the CEO role itself. ONLY the CEO
+  // role grants this. Without it, even Admin cannot:
+  //   - assign a user to the CEO role
+  //   - remove a user from the CEO role
+  //   - grant a CEO-tier permission override to anyone (including themselves)
+  //   - edit the CEO role's permission definition (also blocked by
+  //     is_system, but defensive belt-and-suspenders)
+  // The runtime guards live in routes/rbac.ts and routes/users.ts.
+  { key: 'admin.ceo_role.manage',           category: 'admin',      label: 'Manage CEO role + access',      description: 'Promote/demote users to CEO and edit CEO-tier permissions. Held only by CEO.', risk: 'critical' },
 
   // ═══ CEO-only ════════════════════════════════════════════════════════
   { key: 'ceo.private_tasks',               category: 'ceo',        label: 'CEO private tasks',             description: 'CEO\'s own personal task list',                                   risk: 'critical' },
@@ -166,8 +175,43 @@ export const PERMISSIONS: PermissionDef[] = [
 ];
 
 // ─── DEFAULT ROLES ──────────────────────────────────────────────────────
-// System roles are seeded at backend startup. Custom roles are created by
-// admins through the UI.
+//
+// The six default system roles. They follow a deliberate hierarchy:
+//
+//   CEO       — full access, including the meta-permission to manage the
+//               CEO role itself (admin.ceo_role.manage). Cannot be
+//               restricted by anyone else.
+//   Admin    — full operational access, including all CEO-tier data
+//               (CEO private tasks, executive strategy, finance margins,
+//               etc.). The ONE thing Admin lacks is admin.ceo_role.manage,
+//               which means Admin cannot promote anyone to CEO, demote
+//               the CEO, or grant CEO-tier permission overrides.
+//   Manager  — broad operational access. No system-level admin
+//               (security logs, error logs, integrations, role/permission
+//               editing). Can manage assignments + reports.
+//   HR       — superset of Recruiter + Coordinator + HR-specific work
+//               (employee files, incidents, onboarding manage, full
+//               credentialing + compliance).
+//   Recruiter — recruiting workflow only (pipeline, jobs, submissions,
+//               candidate contact + documents).
+//   Coordinator — limited operational support. Schedules, basic contact,
+//               assignments view, communication logs. No HR / compliance
+//               / credentialing / payroll / admin.
+//
+// CEO-protection guarantees enforced at runtime in the routes layer:
+//   - Only callers with admin.ceo_role.manage may assign or unassign
+//     the CEO role to/from any user.
+//   - Only callers with admin.ceo_role.manage may grant a permission
+//     override on any CEO-tier permission (ceo.*, admin.ceo_role.manage,
+//     bd.ceo_sensitive_notes, files.ceo_private.search, ai.topic.ceo,
+//     finance.margins.view, finance.payroll.view, finance.revenue_reports.view,
+//     ai.topic.finance).
+//   - System-role permission sets are not editable through the UI at
+//     all — to change them, edit this file and redeploy.
+//
+// Editing this file is the right way to update default permissions.
+// Anything more dynamic (per-tenant overrides, custom roles) goes
+// through the UI, where the guards above keep CEO-tier access locked.
 
 export interface SystemRoleDef {
   key: string;
@@ -176,174 +220,182 @@ export interface SystemRoleDef {
   permissions: string[];      // permission keys granted to this role
 }
 
-export const SYSTEM_ROLES: SystemRoleDef[] = [
+// ─── Permission bundles ────────────────────────────────────────────────
+// Defining the bundles up front makes the role definitions readable and
+// keeps the Recruiter ⊆ HR and Coordinator ⊆ HR relationships explicit
+// (HR composes both). Don't reference these constants outside this file.
 
-  // ═══ CEO — has everything ════════════════════════════════════════════
+const COORDINATOR_PERMS: string[] = [
+  // Lightweight operational support — scheduling, contact info, follow-ups.
+  // Coordinator does NOT see HR records, compliance docs, credentialing
+  // details, payroll, or admin tools.
+  'candidates.view',
+  'candidates.view.contact_info',
+  'candidates.send_message',
+  'jobs.view',
+  'pipeline.view',
+  'submissions.view',
+  'tasks.recruiter.view',
+  'assignments.view',
+  'pto.view_own',
+  'ai.chat.use',
+  'ai.action.draft_message',
+  'ai.action.create_task',
+  'files.candidates.search',
+];
+
+const RECRUITER_PERMS: string[] = [
+  // Recruiting workflow only: candidate pipeline, jobs, applications,
+  // interviews, recruiting communications, candidate profiles, recruiting
+  // notes/tasks. NO credentialing, compliance, onboarding, payroll, or
+  // admin tools.
+  'candidates.view',
+  'candidates.create',
+  'candidates.edit',
+  'candidates.view.contact_info',
+  'candidates.view.documents',
+  'candidates.send_message',
+  'jobs.view',
+  'submissions.view',
+  'submissions.create',
+  'pipeline.view',
+  'tasks.recruiter.view',
+  'assignments.view',
+  'pto.view_own',
+  'ai.chat.use',
+  'ai.esther.use',
+  'ai.topic.candidates',
+  'ai.action.draft_message',
+  'ai.action.create_task',
+  'files.candidates.search',
+];
+
+// HR is explicitly the superset: recruiter ∪ coordinator ∪ HR-specific.
+const HR_PERMS: string[] = Array.from(new Set([
+  ...COORDINATOR_PERMS,
+  ...RECRUITER_PERMS,
+  // HR-specific
+  'candidates.view.credentials',
+  'candidates.view.medical',
+  'hr.view', 'hr.edit',
+  'hr.employee_files',
+  'hr.incidents.view', 'hr.incidents.manage',
+  'onboarding.view', 'onboarding.manage',
+  'pto.view_team', 'pto.approve',
+  'assignments.manage',
+  // Credentialing — HR oversees the full lifecycle
+  'credentialing.view', 'credentialing.edit', 'credentialing.approve_docs',
+  'credentialing.view_expiring', 'credentialing.reminders',
+  // Compliance — HR sees + can edit
+  'compliance.view', 'compliance.edit', 'compliance.manuals.view',
+  'compliance.policies.manage', 'compliance.reports.export',
+  // Workforce + onboarding-related AI topics
+  'ai.topic.hr', 'ai.topic.credentialing', 'ai.topic.compliance',
+  'ai.search.files',
+  'files.candidates.search', 'files.hr.search', 'files.credentialing.search',
+  'files.compliance.search', 'files.upload',
+]));
+
+const MANAGER_PERMS: string[] = Array.from(new Set([
+  ...HR_PERMS,
+  // Manager additionally has cross-team reporting + BD visibility, plus
+  // the right to assign work and edit jobs. Manager does NOT have
+  // admin.* perms (no security logs, no role editing, no integrations).
+  'jobs.edit',
+  'tasks.recruiter.assign',
+  'bd.bids.view', 'bd.proposals.view', 'bd.checklists.view',
+  'bd.leads.view', 'bd.contacts.view',
+  'finance.bill_rates.view', 'finance.pay_rates.view',
+  'ai.team.use',
+  'ai.topic.bids',
+  'files.company.search', 'files.bids.search',
+  // Assigning users to existing roles is allowed for Manager, but only
+  // for non-Admin/CEO targets — the route layer guards CEO; Admin
+  // assignments are blocked by admin.users.manage being held only by
+  // Admin/CEO.
+]));
+
+// Admin gets EVERY permission EXCEPT admin.ceo_role.manage. That single
+// exclusion is what makes Admin unable to touch CEO assignments or
+// CEO-tier overrides while still having "access to everything else".
+const ADMIN_PERMS: string[] = PERMISSIONS
+  .map(p => p.key)
+  .filter(k => k !== 'admin.ceo_role.manage');
+
+export const SYSTEM_ROLES: SystemRoleDef[] = [
+  // ═══ CEO — full access, the only role that can manage CEO ════════════
   {
     key: 'ceo',
     label: 'CEO',
-    description: 'Full access to all features, data, and admin tools.',
-    permissions: PERMISSIONS.map(p => p.key), // grant ALL permissions
+    description: 'Full system access. The only role allowed to promote users to CEO or grant CEO-tier permission overrides. Permanent — cannot be restricted by Admin or anyone else.',
+    permissions: PERMISSIONS.map(p => p.key),
   },
 
-  // ═══ Admin — broad but not CEO-private ═══════════════════════════════
+  // ═══ Admin — full access EXCEPT CEO-meta ═════════════════════════════
   {
     key: 'admin',
     label: 'Admin',
-    description: 'Broad operational + admin access. Does NOT include CEO-private strategic/financial areas unless granted.',
-    permissions: PERMISSIONS.filter(p =>
-      // Exclude CEO-only and the most critical financial/strategic items
-      !p.key.startsWith('ceo.') &&
-      p.key !== 'bd.ceo_sensitive_notes' &&
-      p.key !== 'finance.margins.view' &&
-      p.key !== 'finance.payroll.view' &&
-      p.key !== 'finance.revenue_reports.view' &&
-      p.key !== 'files.ceo_private.search' &&
-      p.key !== 'ai.topic.ceo' &&
-      p.key !== 'ai.topic.finance'
-    ).map(p => p.key),
+    description: 'Full operational + system access, including CEO-tier data. Cannot manage CEO accounts, change CEO-tier permission overrides, or edit the CEO role definition.',
+    permissions: ADMIN_PERMS,
   },
 
-  // ═══ Manager — operational oversight ═════════════════════════════════
+  // ═══ Manager — broad operational, no admin/system ════════════════════
   {
     key: 'manager',
     label: 'Manager',
-    description: 'Operational oversight: team work, reports, assignments. No CEO-private, finance-critical, or security admin.',
-    permissions: [
-      // Recruiting
-      'candidates.view', 'candidates.edit', 'candidates.create', 'candidates.view.contact_info',
-      'candidates.view.documents', 'candidates.send_message',
-      'jobs.view', 'jobs.edit', 'submissions.view', 'submissions.create', 'pipeline.view',
-      'tasks.recruiter.view', 'tasks.recruiter.assign',
-      'assignments.view', 'assignments.manage',
-      // HR light
-      'hr.view', 'onboarding.view', 'pto.view_team', 'pto.approve',
-      // Credentialing view
-      'credentialing.view', 'credentialing.view_expiring',
-      // Compliance view
-      'compliance.view', 'compliance.manuals.view', 'compliance.reports.export',
-      // BD view
-      'bd.bids.view', 'bd.proposals.view', 'bd.checklists.view', 'bd.leads.view', 'bd.contacts.view',
-      // Finance — bill rates only, NOT margins/payroll/revenue
-      'finance.bill_rates.view', 'finance.pay_rates.view',
-      // AI
-      'ai.chat.use', 'ai.esther.use', 'ai.team.use',
-      'ai.topic.candidates', 'ai.topic.hr', 'ai.topic.credentialing', 'ai.topic.compliance', 'ai.topic.bids',
-      'ai.search.files', 'ai.action.draft_message', 'ai.action.create_task',
-      // Files
-      'files.company.search', 'files.candidates.search', 'files.compliance.search',
-      'files.upload',
-    ],
+    description: 'Broad operational oversight: candidates, jobs, HR-light, assignments, reports, bid visibility. No admin/system controls.',
+    permissions: MANAGER_PERMS,
   },
 
-  // ═══ HR ══════════════════════════════════════════════════════════════
+  // ═══ HR — superset of Recruiter + Coordinator + HR-specific ══════════
   {
     key: 'hr',
     label: 'HR',
-    description: 'HR records, onboarding, employee files. No candidate pay rates or bid/financial data.',
-    permissions: [
-      'candidates.view', 'candidates.view.contact_info', 'candidates.view.documents',
-      'candidates.view.medical', 'candidates.send_message',
-      'hr.view', 'hr.edit', 'onboarding.view', 'onboarding.manage',
-      'hr.employee_files', 'hr.incidents.view', 'hr.incidents.manage',
-      'assignments.view', 'assignments.manage',
-      'pto.view_own', 'pto.view_team', 'pto.approve',
-      'credentialing.view', 'credentialing.view_expiring',
-      'compliance.view', 'compliance.manuals.view',
-      'ai.chat.use', 'ai.esther.use',
-      'ai.topic.candidates', 'ai.topic.hr', 'ai.topic.credentialing', 'ai.topic.compliance',
-      'ai.search.files', 'ai.action.draft_message', 'ai.action.create_task',
-      'files.candidates.search', 'files.hr.search', 'files.compliance.search', 'files.upload',
-    ],
+    description: 'HR records, onboarding, credentialing, compliance, workforce management, plus everything Recruiter and Coordinator can do. No admin or CEO-tier access.',
+    permissions: HR_PERMS,
   },
 
-  // ═══ Recruiter — tightly scoped ══════════════════════════════════════
+  // ═══ Recruiter — recruiting workflow only ════════════════════════════
   {
     key: 'recruiter',
     label: 'Recruiter',
-    description: 'Candidates they\'re working + jobs they\'re filling. No HR records, no finance, no bids, no CEO tasks.',
-    permissions: [
-      'candidates.view', 'candidates.create', 'candidates.edit', 'candidates.view.contact_info',
-      'candidates.view.documents', 'candidates.send_message',
-      'jobs.view', 'submissions.view', 'submissions.create', 'pipeline.view',
-      'tasks.recruiter.view',
-      'assignments.view',
-      'credentialing.view', 'credentialing.view_expiring',
-      'pto.view_own',
-      'ai.chat.use', 'ai.esther.use',
-      'ai.topic.candidates',
-      'ai.action.draft_message', 'ai.action.create_task',
-      'files.candidates.search',
-    ],
+    description: 'Recruiting workflow only — candidate pipeline, jobs, applications, interviews, candidate communications. No HR records, credentialing, compliance, or admin tools.',
+    permissions: RECRUITER_PERMS,
   },
 
-  // ═══ Credentialing Coordinator ═══════════════════════════════════════
+  // ═══ Coordinator — limited operational support ═══════════════════════
   {
-    key: 'credentialing',
-    label: 'Credentialing Coordinator',
-    description: 'Credential records, document verification, expiration tracking. Sees candidate + staff credentials.',
-    permissions: [
-      'candidates.view', 'candidates.view.contact_info', 'candidates.view.documents',
-      'candidates.view.credentials', 'candidates.view.medical',
-      'credentialing.view', 'credentialing.edit', 'credentialing.approve_docs',
-      'credentialing.view_expiring', 'credentialing.reminders',
-      'compliance.view', 'compliance.manuals.view',
-      'pto.view_own',
-      'ai.chat.use',
-      'ai.topic.candidates', 'ai.topic.credentialing', 'ai.topic.compliance',
-      'ai.search.files', 'ai.action.draft_message',
-      'files.candidates.search', 'files.credentialing.search', 'files.compliance.search', 'files.upload',
-    ],
-  },
-
-  // ═══ Compliance Coordinator ══════════════════════════════════════════
-  {
-    key: 'compliance',
-    label: 'Compliance Coordinator',
-    description: 'Compliance policies, records, audits. No candidate contact info unless needed for compliance follow-up.',
-    permissions: [
-      'candidates.view',
-      'compliance.view', 'compliance.edit', 'compliance.manuals.view',
-      'compliance.policies.manage', 'compliance.audit_logs.view', 'compliance.reports.export',
-      'credentialing.view', 'credentialing.view_expiring',
-      'hr.view',
-      'pto.view_own',
-      'ai.chat.use', 'ai.esther.use',
-      'ai.topic.compliance', 'ai.topic.credentialing', 'ai.topic.hr',
-      'ai.search.files', 'ai.action.draft_message',
-      'files.compliance.search', 'files.upload',
-    ],
-  },
-
-  // ═══ Business Development / Bids ═════════════════════════════════════
-  {
-    key: 'bd',
-    label: 'Business Development / Bids',
-    description: 'Bid/proposal pipeline and related client opportunity work. No CEO-sensitive strategy notes.',
-    permissions: [
-      'bd.bids.view', 'bd.bids.edit', 'bd.proposals.view', 'bd.checklists.view',
-      'bd.strategic_notes.view',   // regular strategic notes, NOT ceo_sensitive_notes
-      'bd.leads.view', 'bd.contacts.view', 'bd.contracts.view',
-      'jobs.view', 'submissions.view',
-      'pto.view_own',
-      'ai.chat.use',
-      'ai.topic.bids',
-      'ai.search.files', 'ai.action.draft_message', 'ai.action.create_task',
-      'files.bids.search', 'files.upload',
-    ],
-  },
-
-  // ═══ Staff / Limited User ════════════════════════════════════════════
-  {
-    key: 'staff',
-    label: 'Staff / Limited User',
-    description: 'Sees only their own compliance assignments, PTO, time tracking. Can\'t see other users\' data.',
-    permissions: [
-      'pto.view_own',
-      'ai.chat.use',
-    ],
+    key: 'coordinator',
+    label: 'Coordinator',
+    description: 'Limited operational support: scheduling, basic candidate/staff contact, assignment follow-up, communication logs. No HR records, compliance, credentialing, payroll, or admin tools.',
+    permissions: COORDINATOR_PERMS,
   },
 ];
+
+// ─── CEO-tier permissions (used by runtime guards) ─────────────────────
+//
+// Granting any of these as an override requires admin.ceo_role.manage.
+// This complements the role-assignment guard (you can't be promoted to
+// CEO without admin.ceo_role.manage) and prevents an Admin from
+// achieving the same effect by side-loading individual CEO-tier perms
+// onto a non-CEO user.
+export const CEO_TIER_PERMISSIONS: ReadonlyArray<string> = [
+  'admin.ceo_role.manage',
+  'ceo.private_tasks',
+  'ceo.executive_strategy',
+  'ceo.legal_notes',
+  'bd.ceo_sensitive_notes',
+  'files.ceo_private.search',
+  'finance.margins.view',
+  'finance.payroll.view',
+  'finance.revenue_reports.view',
+  'ai.topic.ceo',
+  'ai.topic.finance',
+];
+
+export function isCeoTierPermission(key: string): boolean {
+  return CEO_TIER_PERMISSIONS.includes(key);
+}
 
 // ─── Helper lookups ─────────────────────────────────────────────────────
 
