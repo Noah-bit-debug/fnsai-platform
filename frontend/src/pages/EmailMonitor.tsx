@@ -17,10 +17,11 @@
  *   * Tab-switch no longer 500s on empty categories (react-query keeps
  *     previous data during refetch; empty state is explicit).
  */
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { emailsApi, EmailLog } from '../lib/api';
+import { useUser } from '../lib/auth';
 
 const CATEGORIES = ['all', 'urgent', 'important', 'low', 'spam'];
 
@@ -60,11 +61,17 @@ function errorDetail(err: unknown): { message: string; status?: number } {
 export default function EmailMonitor() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useUser();
   const [activeFilter, setActiveFilter] = useState('all');
   const [isScanning, setIsScanning] = useState(false);
   /** Surfaces the last scan / action error at the top of the page.
    *  Persistent — user dismisses explicitly. */
   const [pageError, setPageError] = useState<{ message: string; status?: number } | null>(null);
+  // Auto-scans run once per signed-in user per browser session. We
+  // remember which mailbox we already auto-scanned in sessionStorage so
+  // navigating back to the page doesn't trigger another scan, but
+  // reopening the app in a new tab / session does.
+  const autoScanFiredRef = useRef(false);
 
   const { data, isLoading, isError, error: listError, refetch } = useQuery({
     queryKey: ['emails', activeFilter],
@@ -109,6 +116,25 @@ export default function EmailMonitor() {
       setIsScanning(false);
     }
   }
+
+  // Auto-scan when the page first loads for the signed-in user. Runs
+  // once per session per mailbox so navigating back to the page doesn't
+  // re-trigger, but a fresh sign-in / new tab will. The backend resolves
+  // "your" mailbox from the auth token, so we don't need to pass it.
+  useEffect(() => {
+    const email = user?.primaryEmailAddress?.emailAddress;
+    if (!email) return;
+    if (autoScanFiredRef.current) return;
+    const sessionKey = `emailMonitor.autoScanned:${email}`;
+    if (sessionStorage.getItem(sessionKey)) {
+      autoScanFiredRef.current = true;
+      return;
+    }
+    autoScanFiredRef.current = true;
+    sessionStorage.setItem(sessionKey, '1');
+    void handleScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleScan is stable enough; we only want to fire once per email
+  }, [user?.primaryEmailAddress?.emailAddress]);
 
   function handleDraftReply(email: EmailLog) {
     const prompt = `Draft a professional reply to this email from ${email.from_name ?? email.from_address}. Subject: "${email.subject ?? ''}". Summary: ${email.ai_summary ?? ''}`;
