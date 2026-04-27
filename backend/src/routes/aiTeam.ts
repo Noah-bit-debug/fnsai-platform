@@ -136,16 +136,31 @@ router.get('/tasks/:id', requireAuth, requirePermission('ai.team.use'), async (r
 //
 // Kicks off the orchestrator loop. Returns immediately with status='running';
 // the runner appends messages as it goes and the client polls /tasks/:id.
+//
+// Concurrency: an atomic conditional UPDATE acts as a row-level lock — only
+// one caller wins the flip from non-running to running. A SELECT-then-call
+// pattern would be racy; two near-simultaneous POSTs would both pass the
+// check and spawn two runners writing to the same task.
 router.post('/tasks/:id/run', requireAuth, requirePermission('ai.team.use'), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const t = await query<{ status: string }>(`SELECT status FROM ai_team_tasks WHERE id = $1`, [id]);
-    if (t.rows.length === 0) { res.status(404).json({ error: 'Task not found' }); return; }
-    if (t.rows[0].status === 'running') {
-      res.status(409).json({ error: 'Task is already running' });
-      return;
-    }
-    if (t.rows[0].status === 'approved' || t.rows[0].status === 'rejected') {
+    // Take the slot in one shot. Returns the row only if the flip happened.
+    const claim = await query<{ id: string; prior_status: string }>(
+      `UPDATE ai_team_tasks
+          SET status = 'running', updated_at = NOW(), error = NULL
+        WHERE id = $1
+          AND status NOT IN ('running', 'approved', 'rejected')
+       RETURNING id, status AS prior_status`,
+      [id]
+    );
+    if (claim.rows.length === 0) {
+      // Either the task doesn't exist, is already running, or is terminal.
+      const t = await query<{ status: string }>(`SELECT status FROM ai_team_tasks WHERE id = $1`, [id]);
+      if (t.rows.length === 0) { res.status(404).json({ error: 'Task not found' }); return; }
+      if (t.rows[0].status === 'running') {
+        res.status(409).json({ error: 'Task is already running' });
+        return;
+      }
       res.status(409).json({ error: `Task is ${t.rows[0].status}; reopen by creating a new task.` });
       return;
     }
