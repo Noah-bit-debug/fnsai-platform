@@ -4,6 +4,7 @@ import NursysLookup from '../../components/NursysLookup';
 import SendForESignButton from '../../components/ESign/SendForESignButton';
 import AIActionPanel from '../../components/AI/AIActionPanel';
 import AssignmentPanel from '../../components/AssignmentPanel';
+import CandidateScheduleTimeline from '../../components/CandidateScheduleTimeline';
 import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
@@ -694,6 +695,18 @@ export default function CandidateDetail() {
           reviewer, credentialing, follow-up. Replaces the legacy
           recruiter-only assignment with per-role ownership. */}
       <AssignmentPanel assignableType="candidate" assignableId={candidate.id} />
+
+      {/* Phase 9 / 2 — per-candidate schedule timeline. Shows scheduled +
+          past reminders and lets users with reminders_manage generate
+          an AI-proposed timeline (interview prep, follow-up, missing-doc
+          nudges, credentialing/onboarding/start-date), edit it, and
+          send each reminder via SMS through ClerkChat. */}
+      <CandidateScheduleTimeline
+        candidateId={candidate.id}
+        candidateName={`${candidate.first_name} ${candidate.last_name}`}
+        candidatePhone={candidate.phone}
+        candidateEmail={candidate.email}
+      />
 
       {/* Phase 6.6 — AI action suggestions for this candidate. The panel
           is collapsed by default; clicking ✦ Suggest actions sends the

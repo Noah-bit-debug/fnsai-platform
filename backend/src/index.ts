@@ -467,6 +467,7 @@ async function runMigrations(): Promise<void> {
     'phase1_4_stage_check_drop.sql',
     'phase8_security_rbac.sql',
     'assignments_migration.sql',
+    'reminders_phase2_migration.sql',
     'ai_team_migration.sql',
   ];
 
