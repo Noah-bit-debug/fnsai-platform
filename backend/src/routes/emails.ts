@@ -104,45 +104,63 @@ router.post('/scan', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const emails = await getEmails(userId, Number(top));
+
+    // Dedupe in one round-trip instead of N. The previous code did a
+    // SELECT per email, which compounded with the per-email AI call to
+    // push total scan time well past the frontend's 30s axios timeout.
+    const ids = emails.map((e) => e.id);
+    const existing = ids.length
+      ? await query(
+          'SELECT outlook_message_id FROM email_logs WHERE outlook_message_id = ANY($1)',
+          [ids]
+        )
+      : { rows: [] as Array<{ outlook_message_id: string }> };
+    const seen = new Set(existing.rows.map((r) => r.outlook_message_id));
+    const newEmails = emails.filter((e) => !seen.has(e.id));
+
+    // Categorize + insert in parallel with a small concurrency cap.
+    // Sequential was the other half of the timeout problem: 25 emails
+    // × ~2-3s each Anthropic call = 50-75s. Concurrency 5 keeps total
+    // wall-clock under ~15s while staying well within Anthropic's
+    // per-minute limits and the pg pool size.
+    const CONCURRENCY = 5;
     const processed: Array<{ id: string; subject: string; category: string }> = [];
+    for (let i = 0; i < newEmails.length; i += CONCURRENCY) {
+      const batch = newEmails.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (email) => {
+          const categorization = await categorizeEmail(
+            email.subject ?? '(no subject)',
+            email.body?.content ?? email.bodyPreview ?? '',
+            `${email.from?.emailAddress?.name} <${email.from?.emailAddress?.address}>`
+          );
 
-    for (const email of emails) {
-      // Skip if already processed
-      const existing = await query(
-        'SELECT id FROM email_logs WHERE outlook_message_id = $1',
-        [email.id]
+          await query(
+            `INSERT INTO email_logs
+               (outlook_message_id, from_address, from_name, subject, received_at, ai_category, ai_summary, action_required, mailbox)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (outlook_message_id) DO NOTHING`,
+            [
+              email.id,
+              email.from?.emailAddress?.address,
+              email.from?.emailAddress?.name,
+              email.subject,
+              email.receivedDateTime,
+              categorization.category,
+              categorization.summary,
+              categorization.action_required,
+              userId,
+            ]
+          );
+
+          return {
+            id: email.id,
+            subject: email.subject,
+            category: categorization.category,
+          };
+        })
       );
-      if (existing.rows.length > 0) continue;
-
-      const categorization = await categorizeEmail(
-        email.subject ?? '(no subject)',
-        email.body?.content ?? email.bodyPreview ?? '',
-        `${email.from?.emailAddress?.name} <${email.from?.emailAddress?.address}>`
-      );
-
-      await query(
-        `INSERT INTO email_logs
-           (outlook_message_id, from_address, from_name, subject, received_at, ai_category, ai_summary, action_required, mailbox)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (outlook_message_id) DO NOTHING`,
-        [
-          email.id,
-          email.from?.emailAddress?.address,
-          email.from?.emailAddress?.name,
-          email.subject,
-          email.receivedDateTime,
-          categorization.category,
-          categorization.summary,
-          categorization.action_required,
-          userId,
-        ]
-      );
-
-      processed.push({
-        id: email.id,
-        subject: email.subject,
-        category: categorization.category,
-      });
+      processed.push(...results);
     }
 
     res.json({ scanned: emails.length, newEmails: processed.length, emails: processed, mailbox: userId });

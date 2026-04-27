@@ -220,7 +220,12 @@ export interface EmailLog {
 export const emailsApi = {
   list: (params?: { category?: string; actioned?: boolean }) =>
     api.get<{ emails: EmailLog[]; total: number }>('/emails', { params }),
-  scan: (userId?: string, top?: number) => api.post('/emails/scan', { userId, top }),
+  // Scan can take a while: it fans out an AI categorization call per
+  // new email. The default 30s axios timeout was tripping for batches
+  // of 25 even after backend parallelization, so we give this call its
+  // own ceiling.
+  scan: (userId?: string, top?: number) =>
+    api.post('/emails/scan', { userId, top }, { timeout: 120000 }),
   action: (id: string) => api.post(`/emails/${id}/action`),
   stats: () => api.get('/emails/stats'),
 };
