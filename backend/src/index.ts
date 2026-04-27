@@ -470,6 +470,7 @@ async function runMigrations(): Promise<void> {
     'reminders_phase2_migration.sql',
     'ai_team_migration.sql',
     'ai_brain_dedupe_clarifications.sql',
+    'email_logs_mailbox.sql',
   ];
 
   const client = await pool.connect();

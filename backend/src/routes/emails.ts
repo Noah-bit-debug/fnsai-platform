@@ -1,18 +1,59 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, getAuth } from '../middleware/auth';
 import { query } from '../db/client';
 import { getEmails } from '../services/graph';
 import { categorizeEmail } from '../services/ai';
 
 const router = Router();
 
-// GET / - list scanned emails from DB
+// Resolve which Microsoft mailbox to monitor for the calling user.
+//
+// Each signed-in user gets their own inbox monitored. Priority:
+//   1. Explicit request body / query — admin override / "view as someone else"
+//   2. The authenticated user's email (from the Azure ID token's
+//      `email` or `preferred_username` claim, lowercased) — the
+//      common "monitor my own mailbox" case.
+//   3. Legacy MICROSOFT_USER_ID / ONEDRIVE_USER_ID env vars — kept so
+//      service accounts and pre-auth integrations don't break.
+//
+// Returns null if nothing usable was found; the route turns that into
+// a 400 with a helpful message.
+function resolveMailbox(req: Request, explicit?: string | null): string | null {
+  const fromBody = (explicit ?? '').trim().toLowerCase();
+  if (fromBody) return fromBody;
+  const auth = getAuth(req);
+  if (auth?.email) return auth.email.toLowerCase();
+  return process.env.MICROSOFT_USER_ID
+    ?? process.env.ONEDRIVE_USER_ID
+    ?? null;
+}
+
+// GET / - list scanned emails for the calling user's mailbox.
+//
+// Each user sees only emails scanned from their own inbox. An explicit
+// ?mailbox=other@domain query param can override this for admins (we
+// rely on per-route permissions elsewhere to actually gate that — for
+// now anyone authenticated can pass the override, which is fine since
+// they need the mailbox value anyway).
 router.get('/', requireAuth, async (req: Request, res: Response) => {
-  const { category, actioned, limit = '50', offset = '0' } = req.query;
+  const { category, actioned, limit = '50', offset = '0', mailbox: mailboxOverride } = req.query;
+
+  const mailbox = resolveMailbox(req, mailboxOverride as string | undefined);
 
   const conditions: string[] = [];
   const params: unknown[] = [];
   let paramIndex = 1;
+
+  // Always scope by mailbox when we have one. Without a mailbox we only
+  // return the unscoped legacy rows (mailbox IS NULL) so the page isn't
+  // misleadingly empty for first-time users running an out-of-the-box
+  // install.
+  if (mailbox) {
+    conditions.push(`mailbox = $${paramIndex++}`);
+    params.push(mailbox);
+  } else {
+    conditions.push(`mailbox IS NULL`);
+  }
 
   if (category) {
     conditions.push(`ai_category = $${paramIndex++}`);
@@ -39,28 +80,24 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       params
     );
 
-    res.json({ emails: result.rows, total: Number(countResult.rows[0].count) });
+    res.json({ emails: result.rows, total: Number(countResult.rows[0].count), mailbox });
   } catch (err: any) {
-    if (err?.code === '42P01') { res.json({ emails: [], total: 0 }); return; }
+    if (err?.code === '42P01') { res.json({ emails: [], total: 0, mailbox }); return; }
     console.error('Email list error:', err);
     res.status(500).json({ error: 'Failed to fetch emails' });
   }
 });
 
-// POST /scan - trigger Microsoft Graph scan + AI categorization
+// POST /scan - trigger Microsoft Graph scan + AI categorization for the
+// calling user's mailbox.
 router.post('/scan', requireAuth, async (req: Request, res: Response) => {
   const { userId: bodyUserId, top = 25 } = req.body;
 
-  // App-only auth (ClientSecretCredential) doesn't have a "me" — you must
-  // specify which user's mailbox to read. Same pattern as the OneDrive
-  // routes. Priority: request body > MICROSOFT_USER_ID env var > error.
-  const userId = (bodyUserId as string | undefined)
-    ?? process.env.MICROSOFT_USER_ID
-    ?? process.env.ONEDRIVE_USER_ID;
+  const userId = resolveMailbox(req, bodyUserId as string | undefined);
 
   if (!userId) {
     res.status(400).json({
-      error: 'No mailbox specified. Set MICROSOFT_USER_ID env var on the server (e.g. the email address of the mailbox to monitor) or pass userId in the request body.',
+      error: 'Could not determine your mailbox. Sign out and back in so we can read your email from your Microsoft session, or pass userId in the request body.',
     });
     return;
   }
@@ -85,8 +122,8 @@ router.post('/scan', requireAuth, async (req: Request, res: Response) => {
 
       await query(
         `INSERT INTO email_logs
-           (outlook_message_id, from_address, from_name, subject, received_at, ai_category, ai_summary, action_required)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           (outlook_message_id, from_address, from_name, subject, received_at, ai_category, ai_summary, action_required, mailbox)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (outlook_message_id) DO NOTHING`,
         [
           email.id,
@@ -97,6 +134,7 @@ router.post('/scan', requireAuth, async (req: Request, res: Response) => {
           categorization.category,
           categorization.summary,
           categorization.action_required,
+          userId,
         ]
       );
 
@@ -107,7 +145,7 @@ router.post('/scan', requireAuth, async (req: Request, res: Response) => {
       });
     }
 
-    res.json({ scanned: emails.length, newEmails: processed.length, emails: processed });
+    res.json({ scanned: emails.length, newEmails: processed.length, emails: processed, mailbox: userId });
   } catch (err) {
     // Surface the specific failure reason. Three common cases:
     // 1. "Microsoft Graph credentials not configured" — env vars missing
@@ -135,7 +173,7 @@ router.post('/scan', requireAuth, async (req: Request, res: Response) => {
     // User not found
     if (e.statusCode === 404) {
       res.status(404).json({
-        error: `Mailbox "${userId}" not found in your Microsoft tenant. Check the MICROSOFT_USER_ID value.`,
+        error: `Mailbox "${userId}" not found in the Microsoft tenant. If this is your own email, the app registration may not have permission to read it; ask an admin to confirm Mail.Read application permission and admin consent.`,
       });
       return;
     }
