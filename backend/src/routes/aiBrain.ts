@@ -8,6 +8,46 @@ import { MODEL_FOR } from '../services/aiModels';
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ─── Clarification dedup helper ────────────────────────────────────────
+//
+// The review queue (ai_brain_clarifications) used to accumulate
+// duplicates because each insert site (chat handler, manual POST, file-
+// routing handler) issued an unconditional INSERT. The DB now has a
+// UNIQUE INDEX on lower(btrim(question)) (see
+// ai_brain_dedupe_clarifications.sql) so the same question can't land
+// twice. This helper does ON CONFLICT DO NOTHING and returns the row
+// id whether it was newly created or already existed, so callers can
+// branch on `created` to log differently.
+async function tryInsertClarification(args: {
+  question: string;
+  context: string | null;
+  source_type: string;
+}): Promise<{ id: string | null; created: boolean }> {
+  const q = (args.question ?? '').trim();
+  if (!q) return { id: null, created: false };
+  // Insert; if a row with the same normalized question already exists,
+  // ON CONFLICT short-circuits and we return the existing row.
+  const inserted = await pool.query<{ id: string }>(
+    `INSERT INTO ai_brain_clarifications (question, context, source_type)
+     VALUES ($1, $2, $3)
+     ON CONFLICT ((lower(btrim(question)))) DO NOTHING
+     RETURNING id`,
+    [q, args.context, args.source_type]
+  );
+  if (inserted.rows.length > 0) {
+    return { id: inserted.rows[0].id, created: true };
+  }
+  // Conflict — fetch the existing row's id so callers that want to
+  // attach metadata (audit log, frontend response) can do so.
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM ai_brain_clarifications
+      WHERE lower(btrim(question)) = lower(btrim($1))
+      LIMIT 1`,
+    [q]
+  );
+  return { id: existing.rows[0]?.id ?? null, created: false };
+}
+
 // When the user is looking at a specific record (candidate, job, client,
 // placement, submission), pull that record's full shape + its related
 // records and inject them into the prompt. This is what "AI knows what
@@ -457,11 +497,15 @@ router.post('/chat', requireAuth, async (req: Request, res: Response) => {
       try {
         const parsed = JSON.parse(clarificationMatch[0]);
         if (parsed.clarification_question) {
-          await pool.query(
-            `INSERT INTO ai_brain_clarifications (question, context, source_type) VALUES ($1, $2, $3)`,
-            [parsed.clarification_question, `From chat: ${userQuery.slice(0, 500)}`, parsed.source_type ?? 'general']
-          );
-          clarificationCreated = true;
+          const out = await tryInsertClarification({
+            question: parsed.clarification_question,
+            context: `From chat: ${userQuery.slice(0, 500)}`,
+            source_type: parsed.source_type ?? 'general',
+          });
+          // Only flag clarificationCreated when we actually added a new
+          // row — repeat detections of the same question shouldn't
+          // re-notify the user.
+          clarificationCreated = out.created;
         }
       } catch { /* ignore */ }
     }
@@ -515,11 +559,17 @@ router.post('/clarifications', requireAuth, async (req: Request, res: Response) 
   const { question, context, source_type } = req.body;
   if (!question) { res.status(400).json({ error: 'question is required' }); return; }
   try {
-    const result = await pool.query(
-      `INSERT INTO ai_brain_clarifications (question, context, source_type) VALUES ($1, $2, $3) RETURNING *`,
-      [question, context ?? null, source_type ?? 'general']
-    );
-    res.status(201).json(result.rows[0]);
+    const out = await tryInsertClarification({
+      question,
+      context: context ?? null,
+      source_type: source_type ?? 'general',
+    });
+    if (!out.id) { res.status(400).json({ error: 'question is empty' }); return; }
+    // Look up the full row so the response shape stays the same whether
+    // we created it or the dedup hit. status=200 vs 201 tells the client
+    // which case it was so the UI can decide whether to highlight.
+    const row = await pool.query(`SELECT * FROM ai_brain_clarifications WHERE id = $1`, [out.id]);
+    res.status(out.created ? 201 : 200).json({ ...row.rows[0], duplicate: !out.created });
   } catch {
     res.status(500).json({ error: 'Failed to create clarification' });
   }
@@ -627,10 +677,11 @@ Return ONLY valid JSON: {"folder": "folder name", "confidence": "high|medium|low
     const parsed = JSON.parse(match[0]);
 
     if (parsed.needs_clarification && parsed.clarification_question) {
-      await pool.query(
-        `INSERT INTO ai_brain_clarifications (question, context, source_type) VALUES ($1, $2, 'file_routing')`,
-        [parsed.clarification_question, `File: ${filename}`]
-      ).catch(() => {});
+      await tryInsertClarification({
+        question: parsed.clarification_question,
+        context: `File: ${filename}`,
+        source_type: 'file_routing',
+      }).catch(() => { /* dedup is best-effort here */ });
     }
 
     await pool.query(
