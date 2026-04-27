@@ -146,23 +146,41 @@ export default function AITeamTaskDetail() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // mountedRef stops late poll responses from setState'ing after unmount —
+  // a 2s interval can still have a request in flight when the user
+  // navigates away, and resolving that into setState would warn (or, in
+  // older React, leak).
+  const mountedRef = useRef(true);
+  // editingOutputRef avoids putting `editingOutput` in the load() deps:
+  // we want a stable load() that polling can call repeatedly without
+  // tearing down/recreating the interval each time the user toggles
+  // edit mode. We still need to read the latest value to decide whether
+  // to overwrite the draft on refresh.
+  const editingOutputRef = useRef(false);
+  useEffect(() => { editingOutputRef.current = editingOutput; }, [editingOutput]);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
       const r = await api.get<{ task: Task; messages: TaskMessage[]; artifacts: TaskArtifact[] }>(`/ai-team/tasks/${id}`);
+      if (!mountedRef.current) return;
       setTask(r.data.task);
       setMessages(r.data.messages ?? []);
       setArtifacts(r.data.artifacts ?? []);
-      if (!editingOutput) setOutputDraft(r.data.task.final_output ?? '');
+      if (!editingOutputRef.current) setOutputDraft(r.data.task.final_output ?? '');
     } catch (e: any) {
+      if (!mountedRef.current) return;
       setErr(e?.response?.data?.error ?? 'Failed to load task');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  }, [id, editingOutput]);
+  }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    mountedRef.current = true;
+    void load();
+    return () => { mountedRef.current = false; };
+  }, [load]);
 
   // Poll while running
   useEffect(() => {

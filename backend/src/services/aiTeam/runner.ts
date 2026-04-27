@@ -370,6 +370,26 @@ export async function runTask(taskId: string): Promise<void> {
           content: 'finalize_output',
           toolPayload: { id: tu.id, name: 'finalize_output', input: { output_length: out.length } },
         });
+        if (out.length === 0) {
+          // Defensive: Claude shouldn't normally call finalize with empty
+          // body, but if it does we shouldn't strand the user with a
+          // blank approval screen. Mark failed with a useful note so the
+          // user knows to re-run.
+          await query(
+            `UPDATE ai_team_tasks
+                SET status='failed',
+                    error='Orchestrator called finalize_output with empty body. Re-run the task.',
+                    updated_at=NOW()
+              WHERE id=$1`,
+            [taskId]
+          );
+          await appendMessage({
+            taskId, stepIndex: await nextStepIndex(taskId), persona: 'system', kind: 'status',
+            content: 'Finalize was called with empty output — task marked failed.',
+          });
+          finalized = true;
+          break;
+        }
         await query(
           `UPDATE ai_team_tasks
               SET status='awaiting_approval', final_output=$1,

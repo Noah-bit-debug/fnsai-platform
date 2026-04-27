@@ -109,7 +109,13 @@ export default function AssignmentPanel({
         assignable_id: assignableId,
         user_id: pickUser,           // db_id from /api/v1/users
         role: pickRole,
-        due_at: pickDue ? new Date(pickDue).toISOString() : null,
+        // The <input type="date"> value is just "YYYY-MM-DD" with no
+        // timezone. Parsing that with `new Date(...)` interprets it as
+        // UTC midnight, which is the previous day's afternoon in any
+        // negative-offset zone — meaning a user who picks Friday gets
+        // Thursday saved. Append a local-noon time so the resulting
+        // ISO string lands on the correct calendar day everywhere.
+        due_at: pickDue ? new Date(`${pickDue}T12:00:00`).toISOString() : null,
       });
       setAdding(false);
       setPickUser('');

@@ -263,27 +263,32 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response) => {
 
 // ─── POST /:id/complete — convenience wrapper ──────────────────────────
 router.post('/:id/complete', requireAuth, async (req: Request, res: Response) => {
-  const auth = getAuth(req);
-  const dbUserId = await resolveDbUserIdFromOid(auth?.userId);
-  // Only the assignee or someone with assignments.manage may complete.
-  const r = await query<{ user_id: string }>(`SELECT user_id FROM assignments WHERE id = $1`, [req.params.id]);
-  if (r.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
-  if (r.rows[0].user_id !== dbUserId) {
-    const perm = await query<{ has: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1
-           FROM rbac_user_roles ur
-           JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id
-          WHERE ur.user_id = $1 AND rp.permission_key = 'assignments.manage'
-       ) AS has`, [dbUserId]
+  try {
+    const auth = getAuth(req);
+    const dbUserId = await resolveDbUserIdFromOid(auth?.userId);
+    // Only the assignee or someone with assignments.manage may complete.
+    const r = await query<{ user_id: string }>(`SELECT user_id FROM assignments WHERE id = $1`, [req.params.id]);
+    if (r.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
+    if (r.rows[0].user_id !== dbUserId) {
+      const perm = await query<{ has: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+             FROM rbac_user_roles ur
+             JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id
+            WHERE ur.user_id = $1 AND rp.permission_key = 'assignments.manage'
+         ) AS has`, [dbUserId]
+      );
+      if (!perm.rows[0]?.has) { res.status(403).json({ error: 'Forbidden' }); return; }
+    }
+    await query(
+      `UPDATE assignments SET status='completed', completed_at=NOW(), updated_at=NOW() WHERE id=$1`,
+      [req.params.id]
     );
-    if (!perm.rows[0]?.has) { res.status(403).json({ error: 'Forbidden' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[assignments] complete error:', err);
+    res.status(500).json({ error: 'Failed to complete assignment' });
   }
-  await query(
-    `UPDATE assignments SET status='completed', completed_at=NOW(), updated_at=NOW() WHERE id=$1`,
-    [req.params.id]
-  );
-  res.json({ success: true });
 });
 
 // ─── POST /:id/reassign — hand off ─────────────────────────────────────
