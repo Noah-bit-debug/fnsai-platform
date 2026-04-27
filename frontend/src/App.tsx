@@ -34,6 +34,8 @@ const Reports = lazy(() => import('./pages/Reports'));
 const CompanyKnowledge = lazy(() => import('./pages/CompanyKnowledge'));
 const ClarificationCenter = lazy(() => import('./pages/ClarificationCenter'));
 const Templates = lazy(() => import('./pages/Templates'));
+const AITeam = lazy(() => import('./pages/AITeam'));
+const AITeamTaskDetail = lazy(() => import('./pages/AITeamTaskDetail'));
 const MyAssignedWork = lazy(() => import('./pages/MyAssignedWork'));
 const Suggestions = lazy(() => import('./pages/Suggestions'));
 const DailySummary = lazy(() => import('./pages/DailySummary'));
@@ -299,6 +301,8 @@ function AppRoutes() {
           <Route path="knowledge" element={<CompanyKnowledge />} />
           <Route path="clarification" element={<ClarificationCenter />} />
           <Route path="templates" element={<Templates />} />
+          <Route path="ai-team" element={<AITeam />} />
+          <Route path="ai-team/:id" element={<AITeamTaskDetail />} />
           <Route path="my-work" element={<MyAssignedWork />} />
           <Route path="suggestions" element={<Suggestions />} />
           <Route path="daily-summary" element={<DailySummary />} />

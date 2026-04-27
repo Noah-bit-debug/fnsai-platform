@@ -194,6 +194,7 @@ const NAV_GROUPS: NavGroupDef[] = [
     defaultOpen: false,
     items: [
       { to: '/ai-assistant',  icon: '🤖', label: 'AI Chat',           roles: null, permissions: ['ai.chat.use'] },
+      { to: '/ai-team',       icon: '👥', label: 'AI Team',           roles: null, permissions: ['ai.team.use'] },
       { to: '/ai-knowledge',  icon: '📚', label: 'Knowledge Base',    roles: null, permissions: ['ai.chat.use'] },
       { to: '/ai-brain',      icon: '🧠', label: 'AI Brain (admin)',   roles: null, permissions: ['admin.integrations.manage'] },
       { to: '/templates',     icon: '📝', label: 'Message Templates',  roles: null, permissions: ['candidates.view', 'candidates.edit'] },

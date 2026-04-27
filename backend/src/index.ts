@@ -34,6 +34,7 @@ import knowledgeRouter from './routes/knowledge';
 import clarificationRouter from './routes/clarification';
 import templatesRouter from './routes/templates';
 import assignmentsRouter from './routes/assignments';
+import aiTeamRouter from './routes/aiTeam';
 import suggestionsRouter from './routes/suggestions';
 import dailySummaryRouter from './routes/dailySummary';
 import timeTrackingRouter from './routes/timeTracking';
@@ -367,6 +368,7 @@ app.use('/api/v1/knowledge', knowledgeRouter);
 app.use('/api/v1/clarification', clarificationRouter);
 app.use('/api/v1/templates', templatesRouter);
 app.use('/api/v1/assignments', assignmentsRouter);
+app.use('/api/v1/ai-team', aiLimiter, aiTeamRouter);
 app.use('/api/v1/suggestions', suggestionsRouter);
 app.use('/api/v1/daily-summary', dailySummaryRouter);
 app.use('/api/v1/time-tracking', timeTrackingRouter);
@@ -466,6 +468,7 @@ async function runMigrations(): Promise<void> {
     'phase8_security_rbac.sql',
     'assignments_migration.sql',
     'reminders_phase2_migration.sql',
+    'ai_team_migration.sql',
   ];
 
   const client = await pool.connect();
