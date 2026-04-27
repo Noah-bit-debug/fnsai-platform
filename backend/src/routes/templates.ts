@@ -498,6 +498,166 @@ router.delete('/:id', requireAuth, requirePermission('templates_manage'), async 
 });
 
 // ---------------------------------------------------------------------------
+// POST /render — substitute {{variables}} in arbitrary subject+content
+// ---------------------------------------------------------------------------
+//
+// Used both for previewing a template (frontend passes a context object)
+// and as a building block for the reminder/messaging flows that need a
+// rendered string just before sending.
+//
+// Variable syntax: {{key}} — matched against the keys of the supplied
+// context object. Missing keys are left as-is and returned in the
+// `unresolved` array so the caller can warn the user instead of sending
+// half-rendered junk.
+const RENDER_VAR_RE = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+
+function renderString(input: string, ctx: Record<string, string | number | null | undefined>): { out: string; unresolved: string[] } {
+  const unresolved = new Set<string>();
+  const out = input.replace(RENDER_VAR_RE, (_match, key: string) => {
+    const v = ctx[key];
+    if (v === undefined || v === null || v === '') {
+      unresolved.add(key);
+      return `{{${key}}}`;
+    }
+    return String(v);
+  });
+  return { out, unresolved: Array.from(unresolved) };
+}
+
+router.post('/render', requireAuth, requirePermission('templates_view'), async (req: Request, res: Response) => {
+  const { template_id, subject, content, context } = req.body as {
+    template_id?: string;
+    subject?: string;
+    content?: string;
+    context?: Record<string, string | number | null | undefined>;
+  };
+  const ctx = context ?? {};
+
+  let subj = subject ?? '';
+  let body = content ?? '';
+
+  // If a template_id is given, load the stored subject/content so the
+  // caller doesn't have to ship them on every render. Subject/content
+  // passed alongside still take precedence (preview-while-editing).
+  if (template_id && (!subject || !content)) {
+    try {
+      const r = await query<{ subject: string; content: string }>(
+        `SELECT subject, content FROM templates WHERE id = $1`, [template_id]
+      );
+      if (r.rows.length === 0) { res.status(404).json({ error: 'Template not found' }); return; }
+      if (!subject) subj = r.rows[0].subject;
+      if (!content) body = r.rows[0].content;
+    } catch (err) {
+      console.error('[templates] render load error:', err);
+      res.status(500).json({ error: 'Failed to load template' });
+      return;
+    }
+  }
+
+  const renderedSubject = renderString(subj, ctx);
+  const renderedBody = renderString(body, ctx);
+  const unresolved = Array.from(new Set([...renderedSubject.unresolved, ...renderedBody.unresolved]));
+  res.json({ subject: renderedSubject.out, content: renderedBody.out, unresolved });
+});
+
+// ---------------------------------------------------------------------------
+// POST /generate — AI drafts a full template (subject + body) given a brief
+// ---------------------------------------------------------------------------
+//
+// Used by the template editor's "Draft with AI" button. Returns subject,
+// content, and the variables list extracted from the body.
+//
+// Tones supported: 'professional' | 'friendly' | 'urgent' | 'short_sms' | 'formal_email'.
+const GENERATE_TONES = ['professional', 'friendly', 'urgent', 'short_sms', 'formal_email'] as const;
+type GenerateTone = (typeof GENERATE_TONES)[number];
+
+router.post('/generate', requireAuth, requirePermission('templates_manage'), async (req: AuthenticatedRequest, res: Response) => {
+  const { description, tone, type, category, channel } = req.body as {
+    description?: string;
+    tone?: GenerateTone;
+    type?: typeof SUPPORTED_TYPES[number];
+    category?: typeof SUPPORTED_CATEGORIES[number];
+    channel?: 'sms' | 'email';
+  };
+
+  if (!description || description.trim().length < 10) {
+    res.status(400).json({ error: 'description must be at least 10 characters' });
+    return;
+  }
+  const t: GenerateTone = (tone && GENERATE_TONES.includes(tone)) ? tone : 'professional';
+  const channelHint = channel === 'sms' ? 'sms' : 'email';
+
+  const toneGuide: Record<GenerateTone, string> = {
+    professional:  'Professional, clear, neutral. Standard business style.',
+    friendly:      'Warm and conversational, while still respectful and clear.',
+    urgent:        'Direct and time-sensitive. Make the deadline obvious.',
+    short_sms:     'SMS-length (under 320 characters total). No greetings, no signoffs, just the action and a clear call-to-action.',
+    formal_email:  'Formal, business-letter style. Full salutation, full closing, complete sentences.',
+  };
+
+  const channelGuide = channelHint === 'sms'
+    ? 'This is an SMS. Keep the body under 320 characters. Use the subject as a one-line preview only.'
+    : 'This is an email. Subject is the email subject line. Body should include greeting, message, and signoff.';
+
+  const prompt = `You are an operations assistant for a healthcare staffing agency. Draft a reusable ${channelHint.toUpperCase()} message template.
+
+CONTEXT FROM USER:
+${description.trim()}
+
+REQUIREMENTS:
+- Tone: ${toneGuide[t]}
+- Channel: ${channelGuide}
+- Category: ${category ?? 'general'}
+- Type: ${type ?? 'follow_up'}
+- Use {{variable_name}} placeholders for anything candidate- or context-specific. Snake_case keys only.
+- Common variables: candidate_name, recruiter_name, agency_name, due_date, position_title, facility_name, missing_documents, coordinator_email, portal_url. Use them where appropriate; invent new ones only if needed.
+- Do NOT hardcode candidate names, dates, or facility names — always use {{variables}}.
+
+Return ONLY a valid JSON object. No prose, no markdown fences. Format:
+{
+  "name": "<short reusable template name, max 80 chars>",
+  "subject": "<subject line with {{variables}}>",
+  "content": "<body text with {{variables}} and \\n line breaks>",
+  "variables": ["candidate_name", "..."]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const block = response.content[0];
+    if (block.type !== 'text') throw new Error('Unexpected Claude response type');
+
+    const stripped = block.text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON object in Claude response');
+    const draft = JSON.parse(match[0]) as { name?: string; subject?: string; content?: string; variables?: string[] };
+
+    // Backstop: re-extract variables from the rendered body in case the
+    // model forgot to include some in the variables array.
+    const found = new Set<string>(draft.variables ?? []);
+    const re = new RegExp(RENDER_VAR_RE.source, 'g');
+    let m;
+    const haystack = `${draft.subject ?? ''}\n${draft.content ?? ''}`;
+    while ((m = re.exec(haystack)) !== null) found.add(m[1]);
+
+    res.json({
+      name:      draft.name ?? 'Untitled draft',
+      subject:   draft.subject ?? '',
+      content:   draft.content ?? '',
+      variables: Array.from(found),
+      tone:      t,
+      channel:   channelHint,
+    });
+  } catch (err) {
+    console.error('[templates] generate error:', err);
+    res.status(500).json({ error: 'Failed to generate template' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /:id/use — increment use_count
 // ---------------------------------------------------------------------------
 router.post('/:id/use', requireAuth, requirePermission('templates_view'), async (req: Request, res: Response) => {

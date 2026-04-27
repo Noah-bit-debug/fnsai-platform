@@ -34,6 +34,7 @@ const Reports = lazy(() => import('./pages/Reports'));
 const CompanyKnowledge = lazy(() => import('./pages/CompanyKnowledge'));
 const ClarificationCenter = lazy(() => import('./pages/ClarificationCenter'));
 const Templates = lazy(() => import('./pages/Templates'));
+const MyAssignedWork = lazy(() => import('./pages/MyAssignedWork'));
 const Suggestions = lazy(() => import('./pages/Suggestions'));
 const DailySummary = lazy(() => import('./pages/DailySummary'));
 const AIAssistant = lazy(() => import('./pages/AIAssistant'));
@@ -298,6 +299,7 @@ function AppRoutes() {
           <Route path="knowledge" element={<CompanyKnowledge />} />
           <Route path="clarification" element={<ClarificationCenter />} />
           <Route path="templates" element={<Templates />} />
+          <Route path="my-work" element={<MyAssignedWork />} />
           <Route path="suggestions" element={<Suggestions />} />
           <Route path="daily-summary" element={<DailySummary />} />
 

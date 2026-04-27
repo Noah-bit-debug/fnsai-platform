@@ -3,6 +3,7 @@ import { openTextingPanel } from '../../components/TextingPanel';
 import NursysLookup from '../../components/NursysLookup';
 import SendForESignButton from '../../components/ESign/SendForESignButton';
 import AIActionPanel from '../../components/AI/AIActionPanel';
+import AssignmentPanel from '../../components/AssignmentPanel';
 import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
@@ -688,6 +689,11 @@ export default function CandidateDetail() {
           </div>
         </div>
       </div>
+
+      {/* Phase 9 — generic assignment panel: HR, recruiter, manager-
+          reviewer, credentialing, follow-up. Replaces the legacy
+          recruiter-only assignment with per-role ownership. */}
+      <AssignmentPanel assignableType="candidate" assignableId={candidate.id} />
 
       {/* Phase 6.6 — AI action suggestions for this candidate. The panel
           is collapsed by default; clicking ✦ Suggest actions sends the
