@@ -16,6 +16,9 @@ interface TeamMember {
 }
 
 // ─── Role badge config ────────────────────────────────────────
+// Six default roles per the RBAC spec. The legacy 'viewer' role isn't
+// part of the defaults — anyone with that role keeps it (the row is
+// still in rbac_roles), but the dropdown no longer offers it.
 const ROLE_BADGES: Record<string, { label: string; color: string; bg: string }> = {
   ceo:         { label: 'CEO',         color: '#1e40af', bg: '#dbeafe' },
   admin:       { label: 'Admin',       color: '#6b21a8', bg: '#f3e8ff' },
@@ -23,25 +26,38 @@ const ROLE_BADGES: Record<string, { label: string; color: string; bg: string }> 
   hr:          { label: 'HR',          color: '#b45309', bg: '#fef3c7' },
   recruiter:   { label: 'Recruiter',   color: '#0369a1', bg: '#e0f2fe' },
   coordinator: { label: 'Coordinator', color: '#4f46e5', bg: '#ede9fe' },
-  viewer:      { label: 'Viewer',      color: '#64748b', bg: '#f1f5f9' },
 };
 
-const ALL_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator', 'viewer'];
+// Fallback badge for legacy/custom role keys that aren't in the default
+// six (e.g. existing 'credentialing'/'compliance'/'bd'/'staff'/'viewer'
+// users). Renders as a neutral grey chip.
+const FALLBACK_BADGE = { label: 'Custom', color: '#64748b', bg: '#f1f5f9' };
+const badgeFor = (role: string) => ROLE_BADGES[role] ?? { ...FALLBACK_BADGE, label: role || 'Unknown' };
+
+const ALL_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator'];
 
 // ─── Permission matrix (for accordion) ───────────────────────
-const ROLES_LIST = ['CEO', 'Manager', 'HR', 'Recruiter', 'Coordinator', 'Viewer'] as const;
+// Informational only — the actual gating happens via PermissionGate /
+// usePermissions reading from the backend. Order matches the RBAC spec
+// hierarchy: CEO ≥ Admin ≥ Manager ≥ HR ≥ Recruiter ≥ Coordinator.
+const ROLES_LIST = ['CEO', 'Admin', 'Manager', 'HR', 'Recruiter', 'Coordinator'] as const;
 const PERMISSION_MATRIX = [
-  { feature: 'Dashboard',              access: [true,  true,  true,  true,  true,  true]  },
-  { feature: 'Candidates & Pipeline',  access: [true,  true,  true,  true,  true,  false] },
-  { feature: 'Credentialing',          access: [true,  true,  true,  false, true,  false] },
-  { feature: 'Onboarding & eSign',     access: [true,  true,  true,  false, true,  false] },
-  { feature: 'Staff Management',       access: [true,  true,  true,  false, false, false] },
-  { feature: 'Placements',             access: [true,  true,  false, false, true,  false] },
-  { feature: 'Clients & Business Dev', access: [true,  true,  false, false, false, false] },
-  { feature: 'Reports & Analytics',    access: [true,  true,  true,  false, false, false] },
-  { feature: 'AI Tools',               access: [true,  false, false, false, false, false] },
-  { feature: 'User Management',        access: [true,  true,  false, false, false, false] },
-  { feature: 'System Settings',        access: [true,  false, false, false, false, false] },
+  // Columns:                            CEO    Admin  Manager HR     Recr.  Coord.
+  { feature: 'Dashboard',              access: [true,  true,  true,   true,  true,  true]  },
+  { feature: 'Candidates & Pipeline',  access: [true,  true,  true,   true,  true,  true]  },
+  { feature: 'Credentialing',          access: [true,  true,  true,   true,  false, false] },
+  { feature: 'Onboarding & eSign',     access: [true,  true,  true,   true,  false, false] },
+  { feature: 'Workforce Management',   access: [true,  true,  true,   true,  false, false] },
+  { feature: 'Placements',             access: [true,  true,  true,   true,  true,  false] },
+  { feature: 'Clients & Business Dev', access: [true,  true,  true,   false, false, false] },
+  { feature: 'Reports & Analytics',    access: [true,  true,  true,   true,  false, false] },
+  { feature: 'AI Tools',               access: [true,  true,  true,   true,  true,  true]  },
+  { feature: 'AI Team Workspace',      access: [true,  true,  true,   false, false, false] },
+  { feature: 'User Management',        access: [true,  true,  false,  false, false, false] },
+  { feature: 'Role / Permission Edit', access: [true,  true,  false,  false, false, false] },
+  { feature: 'CEO-Tier (private data)',access: [true,  true,  false,  false, false, false] },
+  { feature: 'Manage CEO Role',        access: [true,  false, false,  false, false, false] },
+  { feature: 'System Settings',        access: [true,  true,  false,  false, false, false] },
 ];
 
 // ─── Helper: format relative time ────────────────────────────
@@ -60,7 +76,7 @@ function relativeTime(ts: number | null): string {
 
 // ─── RoleBadge component ──────────────────────────────────────
 function RoleBadge({ role }: { role: string }) {
-  const b = ROLE_BADGES[role] ?? ROLE_BADGES.viewer;
+  const b = badgeFor(role);
   return (
     <span style={{
       display: 'inline-block',
@@ -113,7 +129,7 @@ interface ConfirmPopoverProps {
 }
 
 function ConfirmPopover({ member, newRole, onConfirm, onCancel, saving }: ConfirmPopoverProps) {
-  const b = ROLE_BADGES[newRole] ?? ROLE_BADGES.viewer;
+  const b = badgeFor(newRole);
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)',
@@ -230,7 +246,7 @@ export default function UserManagement() {
     }
   };
 
-  const currentBadge = role ? ROLE_BADGES[role] : ROLE_BADGES.viewer;
+  const currentBadge = role ? badgeFor(role) : FALLBACK_BADGE;
   const fullName =
     user?.fullName ||
     [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
@@ -294,8 +310,8 @@ export default function UserManagement() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{
                             width: 34, height: 34, borderRadius: '50%',
-                            background: (ROLE_BADGES[member.role] ?? ROLE_BADGES.viewer).bg,
-                            color: (ROLE_BADGES[member.role] ?? ROLE_BADGES.viewer).color,
+                            background: badgeFor(member.role).bg,
+                            color: badgeFor(member.role).color,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontWeight: 700, fontSize: 12, flexShrink: 0,
                           }}>

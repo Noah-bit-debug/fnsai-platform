@@ -5,6 +5,7 @@ import {
   requirePermission,
   invalidateUserCache,
   resolveDbUserIdFromOid,
+  userHasPermission,
 } from '../services/permissions/permissionService';
 import { logSecurityEvent } from '../services/permissions/auditLog';
 
@@ -130,6 +131,57 @@ router.patch(
 
       const auth = getAuth(req);
       const adminDbId = await resolveDbUserIdFromOid(auth?.userId);
+
+      // CEO-tier guard: promoting OR demoting through the CEO role
+      // requires admin.ceo_role.manage. We check both directions —
+      // setting role='ceo' (promotion) and changing a current CEO to
+      // anything else (demotion) — so an Admin can't lock the CEO out
+      // by setting them to 'manager'.
+      if (newRoleKey === 'ceo') {
+        const allowed = adminDbId
+          ? await userHasPermission(adminDbId, 'admin.ceo_role.manage')
+          : false;
+        if (!allowed) {
+          await logSecurityEvent({
+            userId: adminDbId,
+            actorOid: auth?.userId,
+            action: 'role.assigned',
+            outcome: 'denied',
+            reason: 'Attempt to set role to CEO without admin.ceo_role.manage',
+            context: { target_user_id: targetDbUserId, target_oid: userId, role_key: newRoleKey },
+            req,
+          });
+          return res.status(403).json({
+            error: 'Only CEO can promote a user to the CEO role.',
+            required_permission: 'admin.ceo_role.manage',
+          });
+        }
+      } else {
+        const current = await query<{ role: string }>(
+          `SELECT role FROM users WHERE id = $1`,
+          [targetDbUserId]
+        );
+        if (current.rows[0]?.role === 'ceo') {
+          const allowed = adminDbId
+            ? await userHasPermission(adminDbId, 'admin.ceo_role.manage')
+            : false;
+          if (!allowed) {
+            await logSecurityEvent({
+              userId: adminDbId,
+              actorOid: auth?.userId,
+              action: 'role.removed',
+              outcome: 'denied',
+              reason: 'Attempt to demote CEO without admin.ceo_role.manage',
+              context: { target_user_id: targetDbUserId, target_oid: userId, role_key: newRoleKey },
+              req,
+            });
+            return res.status(403).json({
+              error: 'Only CEO can demote a user from the CEO role.',
+              required_permission: 'admin.ceo_role.manage',
+            });
+          }
+        }
+      }
 
       // Sync legacy column.
       await query(

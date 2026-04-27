@@ -19,6 +19,7 @@ import {
   CATEGORY_LABELS,
   getPermissionDef,
   isCriticalPermission,
+  isCeoTierPermission,
 } from '../services/permissions/catalog';
 import {
   resolveUserPermissions,
@@ -338,6 +339,12 @@ router.get('/users/:userId/permissions', requireAuth, requirePermission('admin.u
 });
 
 // ─── POST /users/:userId/roles — assign a role to a user ───────────────
+//
+// Permission gate: admin.users.manage handles the broad "may manage
+// users" check. The CEO-tier guard below is an EXTRA gate that catches
+// the specific case of promoting someone to CEO — only callers with
+// admin.ceo_role.manage (held only by CEO) may do that. This is the
+// runtime mechanism that enforces "Admin cannot grant CEO access".
 router.post('/users/:userId/roles', requireAuth, requirePermission('admin.users.manage'), async (req: Request, res: Response) => {
   const auth = getAuth(req);
   const adminDbId = await resolveDbUserIdFromOid(auth?.userId);
@@ -347,6 +354,30 @@ router.post('/users/:userId/roles', requireAuth, requirePermission('admin.users.
   try {
     const role = await query<{ key: string }>(`SELECT key FROM rbac_roles WHERE id = $1`, [role_id]);
     if (role.rows.length === 0) { res.status(404).json({ error: 'Role not found' }); return; }
+    const targetKey = role.rows[0].key;
+
+    // CEO-tier guard: assigning the CEO role requires admin.ceo_role.manage.
+    if (targetKey === 'ceo') {
+      const allowed = adminDbId
+        ? await userHasPermission(adminDbId, 'admin.ceo_role.manage')
+        : false;
+      if (!allowed) {
+        await logSecurityEvent({
+          userId: adminDbId,
+          actorOid: auth?.userId,
+          action: 'role.assigned',
+          outcome: 'denied',
+          reason: 'Attempt to assign CEO role without admin.ceo_role.manage',
+          context: { target_user_id: userId, role_id, role_key: targetKey },
+          req,
+        });
+        res.status(403).json({
+          error: 'Only CEO can promote a user to the CEO role.',
+          required_permission: 'admin.ceo_role.manage',
+        });
+        return;
+      }
+    }
 
     await query(
       `INSERT INTO rbac_user_roles (user_id, role_id, assigned_by)
@@ -359,8 +390,8 @@ router.post('/users/:userId/roles', requireAuth, requirePermission('admin.users.
       actorOid: auth?.userId,
       action: 'role.assigned',
       outcome: 'allowed',
-      reason: `Assigned role '${role.rows[0].key}' to user ${userId}`,
-      context: { target_user_id: userId, role_id, role_key: role.rows[0].key },
+      reason: `Assigned role '${targetKey}' to user ${userId}`,
+      context: { target_user_id: userId, role_id, role_key: targetKey },
       req,
     });
 
@@ -373,12 +404,39 @@ router.post('/users/:userId/roles', requireAuth, requirePermission('admin.users.
 });
 
 // ─── DELETE /users/:userId/roles/:roleId — remove role from user ────────
+//
+// Same guard as POST: removing the CEO role from someone requires
+// admin.ceo_role.manage. Without this, an Admin could effectively
+// "lock out" the CEO.
 router.delete('/users/:userId/roles/:roleId', requireAuth, requirePermission('admin.users.manage'), async (req: Request, res: Response) => {
   const auth = getAuth(req);
   const adminDbId = await resolveDbUserIdFromOid(auth?.userId);
   const { userId, roleId } = req.params;
 
   try {
+    const role = await query<{ key: string }>(`SELECT key FROM rbac_roles WHERE id = $1`, [roleId]);
+    if (role.rows.length > 0 && role.rows[0].key === 'ceo') {
+      const allowed = adminDbId
+        ? await userHasPermission(adminDbId, 'admin.ceo_role.manage')
+        : false;
+      if (!allowed) {
+        await logSecurityEvent({
+          userId: adminDbId,
+          actorOid: auth?.userId,
+          action: 'role.removed',
+          outcome: 'denied',
+          reason: 'Attempt to remove CEO role without admin.ceo_role.manage',
+          context: { target_user_id: userId, role_id: roleId, role_key: 'ceo' },
+          req,
+        });
+        res.status(403).json({
+          error: 'Only CEO can remove the CEO role from a user.',
+          required_permission: 'admin.ceo_role.manage',
+        });
+        return;
+      }
+    }
+
     await query(
       `DELETE FROM rbac_user_roles WHERE user_id = $1 AND role_id = $2`,
       [userId, roleId]
@@ -421,6 +479,34 @@ router.post('/users/:userId/overrides', requireAuth, requirePermission('admin.ov
 
   const def = getPermissionDef(permission_key);
   if (!def) { res.status(400).json({ error: 'Unknown permission key' }); return; }
+
+  // CEO-tier guard: a non-CEO admin cannot grant CEO-tier permissions
+  // as user overrides. Without this, an Admin with admin.overrides.grant
+  // could side-step the role guard by granting ceo.private_tasks (or
+  // any other CEO-tier perm) directly to a non-CEO user. Denies on
+  // 'grant'; we still allow 'deny' overrides since those reduce access.
+  if (effect === 'grant' && isCeoTierPermission(permission_key)) {
+    const allowed = adminDbId
+      ? await userHasPermission(adminDbId, 'admin.ceo_role.manage')
+      : false;
+    if (!allowed) {
+      await logSecurityEvent({
+        userId: adminDbId,
+        actorOid: auth?.userId,
+        action: 'override.granted',
+        permissionKey: permission_key,
+        outcome: 'denied',
+        reason: 'Attempt to grant CEO-tier permission without admin.ceo_role.manage',
+        context: { target_user_id: userId, effect, risk: def.risk },
+        req,
+      });
+      res.status(403).json({
+        error: 'Only CEO can grant CEO-tier permissions as overrides.',
+        required_permission: 'admin.ceo_role.manage',
+      });
+      return;
+    }
+  }
 
   // Guard: critical perms require 2-person approval (requester cannot
   // auto-grant; requester must be different from target; ideally another
