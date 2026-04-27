@@ -64,8 +64,12 @@ export async function getEmails(userId?: string, top = 50): Promise<GraphEmail[]
 
     return (result.value as GraphEmail[]) ?? [];
   } catch (err) {
+    // Preserve Microsoft Graph error context (statusCode, code, body) so the
+    // route handler can surface 401/403/404/503 specifically instead of a
+    // generic 500. The "credentials not configured" Error from
+    // getCredential() also propagates through here unchanged.
     console.error('Graph getEmails error:', err);
-    throw new Error('Failed to fetch emails from Microsoft Graph');
+    throw err;
   }
 }
 
