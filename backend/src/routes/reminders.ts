@@ -5,10 +5,29 @@ import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '
 import { query } from '../db/client';
 import { getAuth } from '../middleware/auth';
 import { MODEL_FOR } from '../services/aiModels';
+import { sendSMS } from '../services/clerkchat';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const router = Router();
+
+// Phase 2 schedule categories — finer-grained than the legacy
+// trigger_type enum. trigger_type stays for backward compat with the
+// auto-generate sweep; category is what the candidate-schedule
+// timeline reads.
+const SCHEDULE_CATEGORIES = [
+  'interview',          // upcoming interview reminder
+  'application_followup',
+  'missing_document',
+  'credentialing_followup',
+  'onboarding_followup',
+  'start_date',         // start-date reminder
+  'general',
+] as const;
+
+const REMINDER_TONES = [
+  'professional', 'friendly', 'urgent', 'short_sms', 'formal_email',
+] as const;
 
 const reminderSchema = z.object({
   type: z.enum(['email','sms','both']),
@@ -21,6 +40,10 @@ const reminderSchema = z.object({
   subject: z.string().min(1).max(500),
   message: z.string().min(1).max(5000),
   scheduled_at: z.string().optional().nullable(),
+  // Phase 2 additions
+  category: z.enum(SCHEDULE_CATEGORIES).optional().nullable(),
+  tone: z.enum(REMINDER_TONES).optional().nullable(),
+  assigned_to_user_id: z.string().uuid().optional().nullable(),
 });
 
 // GET / — list reminders
@@ -67,13 +90,16 @@ router.post('/', requireAuth, requirePermission('reminders_manage'), async (req:
     const result = await query(
       `INSERT INTO reminders (type, trigger_type, candidate_id, staff_id, recipient_email,
          recipient_phone, recipient_name, subject, message, scheduled_at,
+         category, tone, assigned_to_user_id,
          created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-               (SELECT id FROM users WHERE clerk_user_id = $11 LIMIT 1))
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+               (SELECT id FROM users WHERE clerk_user_id = $14 LIMIT 1))
        RETURNING *`,
       [d.type, d.trigger_type, d.candidate_id, d.staff_id, d.recipient_email,
        d.recipient_phone, d.recipient_name, d.subject, d.message,
-       d.scheduled_at || null, auth?.userId ?? null]
+       d.scheduled_at || null,
+       d.category ?? null, d.tone ?? null, d.assigned_to_user_id ?? null,
+       auth?.userId ?? null]
     );
     await logAudit(null, auth?.userId ?? 'unknown', 'reminder.create', String(result.rows[0].id),
       { type: d.type, trigger_type: d.trigger_type }, (req.ip ?? 'unknown'));
@@ -121,25 +147,87 @@ router.delete('/:id', requireAuth, requirePermission('reminders_manage'), async 
   }
 });
 
-// POST /:id/send — send reminder immediately
+// POST /:id/send — actually deliver the reminder
+//
+// SMS path uses the existing ClerkChat integration (services/clerkchat).
+// Email path is still stubbed — when an email provider gets wired up,
+// only the `if (channel === 'email')` branch needs to change.
 router.post('/:id/send', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
   try {
-    const r = await query(`SELECT * FROM reminders WHERE id = $1`, [id]);
+    const r = await query<{
+      id: string;
+      type: 'email' | 'sms' | 'both';
+      recipient_phone: string | null;
+      recipient_email: string | null;
+      recipient_name: string | null;
+      subject: string;
+      message: string;
+    }>(`SELECT id, type, recipient_phone, recipient_email, recipient_name, subject, message
+          FROM reminders WHERE id = $1`, [id]);
     if (r.rows.length === 0) { res.status(404).json({ error: 'Reminder not found' }); return; }
     const reminder = r.rows[0];
 
-    // Mark as sent (actual email/SMS sending would happen here with configured providers)
-    console.log(`[REMINDER SENT] Type: ${reminder.type} | To: ${reminder.recipient_name} | Subject: ${reminder.subject}`);
+    const channels: Array<'sms' | 'email'> = reminder.type === 'both'
+      ? ['sms', 'email']
+      : [reminder.type];
+
+    const results: Array<{ channel: string; status: string; provider_message_id?: string; error?: string }> = [];
+
+    for (const channel of channels) {
+      if (channel === 'sms') {
+        if (!reminder.recipient_phone) {
+          results.push({ channel: 'sms', status: 'failed', error: 'No phone number on reminder' });
+          continue;
+        }
+        try {
+          // Subject is just metadata for SMS — body goes over the wire.
+          const sent = await sendSMS(reminder.recipient_phone, reminder.message);
+          results.push({ channel: 'sms', status: sent.status ?? 'sent', provider_message_id: sent.messageId });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          results.push({ channel: 'sms', status: 'failed', error: msg });
+        }
+      } else if (channel === 'email') {
+        // Email provider is not wired up yet — fall through to a stub
+        // that records the attempt without claiming success.
+        if (!reminder.recipient_email) {
+          results.push({ channel: 'email', status: 'failed', error: 'No email on reminder' });
+          continue;
+        }
+        console.log(`[REMINDER STUB EMAIL] To: ${reminder.recipient_email} | Subject: ${reminder.subject}`);
+        results.push({ channel: 'email', status: 'queued', error: 'Email provider not configured — not actually delivered' });
+      }
+    }
+
+    // Roll up results into a single status: 'sent' if every channel
+    // succeeded, 'failed' if every channel failed, 'partial' otherwise.
+    const allOk   = results.every(r => r.status === 'sent' || r.status === 'queued');
+    const anyOk   = results.some(r =>  r.status === 'sent' || r.status === 'queued');
+    const rollup  = allOk ? 'sent' : (anyOk ? 'sent' : 'failed');
+    const errLine = results.filter(r => r.error).map(r => `[${r.channel}] ${r.error}`).join('; ') || null;
+    const provId  = results.find(r => r.provider_message_id)?.provider_message_id ?? null;
 
     await query(
-      `UPDATE reminders SET status = 'sent', sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [id]
+      `UPDATE reminders
+          SET status = $1,
+              sent_at = CASE WHEN $1 = 'sent' THEN NOW() ELSE sent_at END,
+              provider_message_id = COALESCE($2, provider_message_id),
+              error = $3,
+              updated_at = NOW()
+        WHERE id = $4`,
+      [rollup, provId, errLine, id]
     );
     await logAudit(null, auth?.userId ?? 'unknown', 'reminder.sent', id,
-      { type: reminder.type, recipient: reminder.recipient_name }, (req.ip ?? 'unknown'));
-    res.json({ success: true, sent_at: new Date().toISOString() });
+      { type: reminder.type, recipient: reminder.recipient_name, results }, (req.ip ?? 'unknown'));
+
+    res.json({
+      success: rollup === 'sent',
+      status: rollup,
+      sent_at: rollup === 'sent' ? new Date().toISOString() : null,
+      results,
+    });
   } catch (err) {
     console.error('Send reminder error:', err);
     res.status(500).json({ error: 'Failed to send reminder' });
@@ -248,6 +336,7 @@ const aiDraftSchema = z.object({
   candidate_id: z.string().uuid().optional().nullable(),
   type: z.enum(['email', 'sms', 'both']).optional().default('email'),
   topic: z.string().max(500).optional().nullable(), // user's freeform ask, e.g. "remind about interview tomorrow"
+  tone: z.enum(REMINDER_TONES).optional().default('professional'),
 });
 
 router.post('/ai-draft', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
@@ -256,7 +345,7 @@ router.post('/ai-draft', requireAuth, requirePermission('reminders_manage'), asy
     res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() });
     return;
   }
-  const { candidate_id, type, topic } = parsed.data;
+  const { candidate_id, type, topic, tone } = parsed.data;
 
   if (!process.env.ANTHROPIC_API_KEY) {
     res.status(503).json({ error: 'AI drafting not configured on this server (ANTHROPIC_API_KEY missing).' });
@@ -317,16 +406,32 @@ router.post('/ai-draft', requireAuth, requirePermission('reminders_manage'), asy
     } catch { /* best effort */ }
   }
 
-  const systemPrompt = `You are drafting a reminder message for a healthcare staffing recruiter to send to a candidate. Be warm, concise, and actionable. Output ONLY JSON with this exact shape — no markdown, no prose:
+  // Phase 2 — tone-aware drafting. The user picks one of five tones in
+  // the UI; we translate that into specific style guidance for Claude.
+  const toneGuide: Record<typeof REMINDER_TONES[number], string> = {
+    professional: 'Professional and clear. Standard business style. Courteous greeting + signoff.',
+    friendly:     'Warm and conversational while still respectful. First-name greeting. Lighter sign-off.',
+    urgent:       'Direct and time-sensitive. Make the deadline obvious. Short sentences. Clear ask.',
+    short_sms:    'SMS-length (under 160 characters TOTAL). No greetings, no signoffs. Just the action and a clear call-to-action.',
+    formal_email: 'Formal business-letter style. Full salutation ("Dear Mr./Ms. Lastname"), full closing, complete sentences.',
+  };
+  const channelGuide = type === 'sms'
+    ? 'SMS — body under 160 characters; subject can be an empty string.'
+    : type === 'both'
+      ? 'Email + SMS — write the subject + a short email body; the SMS will be the first 160 chars of the body.'
+      : 'Email — full subject + body with greeting and sign-off.';
+
+  const systemPrompt = `You are drafting a reminder message for a healthcare staffing recruiter to send to a candidate. Output ONLY JSON with this exact shape — no markdown, no prose:
 
 {
-  "subject": "short subject line suitable for ${type === 'sms' ? 'SMS (omit for SMS but send empty string)' : 'email'}",
-  "message": "the reminder body, 1-3 short paragraphs for email, 1-2 sentences for SMS"
+  "subject": "short subject line suitable for ${type === 'sms' ? 'SMS (send empty string)' : 'email'}",
+  "message": "the reminder body, varying length per channel/tone"
 }
 
+CHANNEL: ${channelGuide}
+TONE (${tone}): ${toneGuide[tone ?? 'professional']}
+
 Rules:
-- If this is SMS (type = "sms"), keep the message under 160 chars and use a casual but professional tone
-- If this is email, include a greeting and a friendly sign-off (from "the FNS AI team")
 - Never invent credentials, licenses, or facts that aren't in the context
 - If outstanding credentials are listed, mention the specific items that need attention
 - Never include placeholders like [First Name] — use the actual name from context
@@ -354,6 +459,7 @@ Rules:
     res.json({
       subject: parsed2.subject ?? '',
       message: parsed2.message ?? '',
+      tone,
     });
   } catch (err) {
     const e = err as { status?: number; message?: string };
@@ -361,6 +467,157 @@ Rules:
     res.status(500).json({
       error: `AI drafting failed: ${e.message?.slice(0, 200) ?? 'unknown error'}`,
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /suggest-schedule — AI proposes a 3–7 reminder timeline for a candidate
+// ---------------------------------------------------------------------------
+//
+// Reads the candidate's current state (stage, missing docs, upcoming
+// interviews, onboarding status) and asks Claude to propose a sequence of
+// reminders the recruiter / HR / manager should set up. The user reviews
+// each suggestion and can accept / edit / discard before they get
+// inserted as reminder rows.
+//
+// Returns the suggestions ONLY — no DB inserts. The user later POSTs the
+// approved subset via POST / (existing endpoint).
+const suggestScheduleSchema = z.object({
+  candidate_id: z.string().uuid(),
+  tone: z.enum(REMINDER_TONES).optional().default('professional'),
+});
+
+router.post('/suggest-schedule', requireAuth, requirePermission('reminders_manage'), async (req: Request, res: Response) => {
+  const parsed = suggestScheduleSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Validation error', details: parsed.error.flatten() }); return; }
+  const { candidate_id, tone } = parsed.data;
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).json({ error: 'AI scheduling not configured (ANTHROPIC_API_KEY missing).' });
+    return;
+  }
+
+  // Pull the same context as ai-draft, but include start_date /
+  // upcoming interview info that the timeline cares about.
+  const ctx: string[] = [];
+  let candidate: any = null;
+  try {
+    const [candRes, docsRes, subsRes, formsRes] = await Promise.all([
+      query(
+        `SELECT first_name, last_name, role, stage, status, start_date,
+                years_experience, recruiter_notes, hr_notes, updated_at
+           FROM candidates WHERE id = $1`,
+        [candidate_id]
+      ),
+      query(
+        `SELECT label, document_type, status, expiry_date, required
+           FROM candidate_documents WHERE candidate_id = $1
+            AND (status = 'missing' OR status = 'pending' OR status = 'expired')
+           ORDER BY required DESC LIMIT 20`,
+        [candidate_id]
+      ),
+      query(
+        `SELECT s.stage_key, s.interview_scheduled_at, j.title AS job_title
+           FROM submissions s LEFT JOIN jobs j ON j.id = s.job_id
+          WHERE s.candidate_id = $1 ORDER BY s.updated_at DESC LIMIT 5`,
+        [candidate_id]
+      ),
+      query(
+        `SELECT form_type, status, sent_at, last_reminder_at
+           FROM onboarding_forms WHERE candidate_id = $1
+           ORDER BY form_type ASC LIMIT 20`,
+        [candidate_id]
+      ).catch(() => ({ rows: [] })),
+    ]);
+
+    if (candRes.rows.length === 0) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    candidate = candRes.rows[0];
+
+    ctx.push(`CANDIDATE: ${candidate.first_name} ${candidate.last_name} — ${candidate.role ?? 'role?'} · stage: ${candidate.stage ?? '?'} · status: ${candidate.status ?? '?'}`);
+    if (candidate.start_date) ctx.push(`START DATE: ${new Date(candidate.start_date).toISOString().slice(0, 10)}`);
+    const daysStale = Math.floor((Date.now() - new Date(candidate.updated_at as string).getTime()) / 86400000);
+    if (daysStale > 3) ctx.push(`Record stale: ${daysStale} days since last update.`);
+
+    if (docsRes.rows.length > 0) {
+      ctx.push(
+        `OUTSTANDING CREDENTIALS:\n` +
+        docsRes.rows.map((d: any) => `- ${d.label} (${d.document_type}): ${d.status}${d.expiry_date ? ` — expires ${new Date(d.expiry_date).toISOString().slice(0, 10)}` : ''}`).join('\n')
+      );
+    }
+    if (subsRes.rows.length > 0) {
+      ctx.push(
+        `RECENT SUBMISSIONS:\n` +
+        subsRes.rows.map((s: any) => `- ${s.job_title ?? 'Unknown job'} @ ${s.stage_key ?? '?'}${s.interview_scheduled_at ? ` · interview ${new Date(s.interview_scheduled_at).toISOString().slice(0, 16).replace('T', ' ')}` : ''}`).join('\n')
+      );
+    }
+    if (formsRes.rows.length > 0) {
+      const incomplete = formsRes.rows.filter((f: any) => f.status !== 'completed');
+      if (incomplete.length > 0) {
+        ctx.push(
+          `INCOMPLETE ONBOARDING FORMS:\n` +
+          incomplete.map((f: any) => `- ${f.form_type}: ${f.status}${f.sent_at ? ` (sent ${new Date(f.sent_at).toISOString().slice(0, 10)})` : ''}`).join('\n')
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[suggest-schedule] context error:', err);
+    res.status(500).json({ error: 'Failed to load candidate context' });
+    return;
+  }
+
+  const systemPrompt = `You are scheduling reminders for a healthcare staffing recruiter to manage a single candidate's journey from application through start date.
+
+Today's date: ${new Date().toISOString().slice(0, 10)}
+
+Output ONLY a JSON object with a "schedule" array — no markdown, no prose. Each item in the array is one proposed reminder:
+
+{
+  "schedule": [
+    {
+      "category": "interview" | "application_followup" | "missing_document" | "credentialing_followup" | "onboarding_followup" | "start_date" | "general",
+      "channel": "sms" | "email",
+      "scheduled_at": "ISO 8601 timestamp (UTC)",
+      "subject": "short subject line",
+      "message": "the body — concise, actionable, candidate-specific",
+      "assignee_role": "recruiter" | "hr" | "manager_reviewer" | "credentialing",
+      "rationale": "1-sentence note for the human reviewer about why this reminder matters now"
+    }
+  ]
+}
+
+Rules:
+- Propose between 3 and 7 reminders covering the next 30 days
+- Tone: ${tone}. Apply consistently across all message bodies.
+- Only schedule things that make sense given the context (don't propose a start_date reminder if there's no start date)
+- Distribute scheduled_at across the next 30 days — not all at once
+- For SMS, message must be under 160 characters
+- Never invent credentials, licenses, or interview times that aren't in the context
+- assignee_role should match the work: credentialing items → credentialing; HR docs → hr; recruiting follow-ups → recruiter; final-review checks → manager_reviewer`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL_FOR.templateDrafting,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: ctx.join('\n\n') }],
+    });
+    const text = (response.content[0] as { type: string; text: string }).text;
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const first = cleaned.indexOf('{');
+    const last = cleaned.lastIndexOf('}');
+    const jsonStr = first >= 0 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+    const parsed2 = JSON.parse(jsonStr) as { schedule?: Array<Record<string, unknown>> };
+
+    res.json({
+      candidate_id,
+      candidate_name: `${candidate.first_name} ${candidate.last_name}`,
+      tone,
+      schedule: Array.isArray(parsed2.schedule) ? parsed2.schedule : [],
+    });
+  } catch (err) {
+    const e = err as { message?: string };
+    console.error('AI suggest-schedule error:', err);
+    res.status(500).json({ error: `AI scheduling failed: ${e.message?.slice(0, 200) ?? 'unknown error'}` });
   }
 });
 
