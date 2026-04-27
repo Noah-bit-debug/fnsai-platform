@@ -59,6 +59,8 @@ router.get('/', requireAuth, async (_req: Request, res: Response) => {
       return {
         id: u.clerk_user_id,          // Azure oid — matches what the frontend
                                       // expects to use in PATCH /users/:id
+        db_id: u.id,                  // DB UUID — used by tables (e.g. assignments)
+                                      // whose foreign keys target users.id
         firstName,
         lastName,
         fullName: u.name || 'Unknown',

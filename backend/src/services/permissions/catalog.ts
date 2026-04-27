@@ -61,6 +61,10 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'tasks.recruiter.view',            category: 'recruiting', label: 'View recruiter tasks',          description: 'Their own + assigned tasks',                                      risk: 'low' },
   { key: 'tasks.recruiter.assign',          category: 'recruiting', label: 'Assign recruiter tasks',        description: 'Assign tasks to other users',                                     risk: 'medium' },
 
+  // ═══ Assignments (generic owner pattern) ═════════════════════════════
+  { key: 'assignments.view',                category: 'recruiting', label: 'View assignments',              description: 'See who owns candidates, tasks, and reminders',                   risk: 'low' },
+  { key: 'assignments.manage',              category: 'recruiting', label: 'Assign and reassign work',      description: 'Assign or reassign candidates, tasks, reminders to users',        risk: 'medium' },
+
   // ═══ HR ══════════════════════════════════════════════════════════════
   { key: 'hr.view',                         category: 'hr',         label: 'View HR records',               description: 'General HR dashboards + employee lists',                          risk: 'medium' },
   { key: 'hr.edit',                         category: 'hr',         label: 'Edit HR records',               description: 'Modify employee records, employment status',                      risk: 'high' },
@@ -211,6 +215,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       'candidates.view.documents', 'candidates.send_message',
       'jobs.view', 'jobs.edit', 'submissions.view', 'submissions.create', 'pipeline.view',
       'tasks.recruiter.view', 'tasks.recruiter.assign',
+      'assignments.view', 'assignments.manage',
       // HR light
       'hr.view', 'onboarding.view', 'pto.view_team', 'pto.approve',
       // Credentialing view
@@ -241,6 +246,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       'candidates.view.medical', 'candidates.send_message',
       'hr.view', 'hr.edit', 'onboarding.view', 'onboarding.manage',
       'hr.employee_files', 'hr.incidents.view', 'hr.incidents.manage',
+      'assignments.view', 'assignments.manage',
       'pto.view_own', 'pto.view_team', 'pto.approve',
       'credentialing.view', 'credentialing.view_expiring',
       'compliance.view', 'compliance.manuals.view',
@@ -261,6 +267,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       'candidates.view.documents', 'candidates.send_message',
       'jobs.view', 'submissions.view', 'submissions.create', 'pipeline.view',
       'tasks.recruiter.view',
+      'assignments.view',
       'credentialing.view', 'credentialing.view_expiring',
       'pto.view_own',
       'ai.chat.use', 'ai.esther.use',

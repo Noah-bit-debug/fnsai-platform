@@ -101,6 +101,49 @@ function TemplateFormModal({ initial, title, onClose, onSaved }: TemplateFormMod
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Phase 9 — AI drafting state. The user types a brief description +
+  // picks a tone; the backend returns a full draft (subject + content +
+  // variables) which fills the form.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiDescription, setAiDescription] = useState('');
+  const [aiTone, setAiTone] = useState<'professional' | 'friendly' | 'urgent' | 'short_sms' | 'formal_email'>('professional');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+
+  const handleAIGenerate = async () => {
+    if (aiDescription.trim().length < 10) {
+      setAiErr('Describe what you need in at least 10 characters.');
+      return;
+    }
+    setAiBusy(true);
+    setAiErr(null);
+    try {
+      const res = await api.post<{ name: string; subject: string; content: string; variables: string[] }>(
+        '/templates/generate',
+        {
+          description: aiDescription.trim(),
+          tone: aiTone,
+          type: form.type,
+          category: form.category,
+          channel: form.type === 'sms' ? 'sms' : 'email',
+        }
+      );
+      setForm((f) => ({
+        ...f,
+        name:    f.name || res.data.name,
+        subject: res.data.subject,
+        content: res.data.content,
+      }));
+      setVariables(res.data.variables ?? []);
+      setAiOpen(false);
+      setAiDescription('');
+    } catch (e: any) {
+      setAiErr(e?.response?.data?.error ?? 'Generation failed.');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const set = (k: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
@@ -143,7 +186,68 @@ function TemplateFormModal({ initial, title, onClose, onSaved }: TemplateFormMod
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 580, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>{title}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c' }}>{title}</div>
+          <button
+            onClick={() => setAiOpen((v) => !v)}
+            style={{
+              background: aiOpen ? '#1565c0' : '#eff6ff',
+              color: aiOpen ? '#fff' : '#1565c0',
+              border: '1px solid #bfdbfe', borderRadius: 8,
+              padding: '6px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 12,
+            }}
+          >
+            ✦ Draft with AI
+          </button>
+        </div>
+
+        {aiOpen && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 18 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+              What should this template do?
+            </label>
+            <textarea
+              value={aiDescription}
+              onChange={(e) => setAiDescription(e.target.value)}
+              placeholder="e.g. Remind a candidate that their TB test is missing and needs to be uploaded by Friday."
+              style={{ ...inputStyle(), height: 70, resize: 'vertical', fontFamily: 'inherit', marginBottom: 10 }}
+            />
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Tone</label>
+              <select
+                value={aiTone}
+                onChange={(e) => setAiTone(e.target.value as typeof aiTone)}
+                style={{ ...inputStyle(), flex: 1, padding: '7px 10px' }}
+              >
+                <option value="professional">Professional</option>
+                <option value="friendly">Friendly</option>
+                <option value="urgent">Urgent</option>
+                <option value="short_sms">Short SMS</option>
+                <option value="formal_email">Formal email</option>
+              </select>
+            </div>
+            {aiErr && <div style={{ color: '#c62828', fontSize: 12, marginBottom: 8 }}>{aiErr}</div>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setAiOpen(false); setAiErr(null); }}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 12, color: '#374151' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAIGenerate}
+                disabled={aiBusy}
+                style={{
+                  background: '#1565c0', color: '#fff', border: 'none', borderRadius: 7,
+                  padding: '6px 12px', cursor: aiBusy ? 'not-allowed' : 'pointer',
+                  fontWeight: 600, fontSize: 12, opacity: aiBusy ? 0.6 : 1,
+                }}
+              >
+                {aiBusy ? 'Drafting…' : 'Generate'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
           <div>
