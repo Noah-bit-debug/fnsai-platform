@@ -469,6 +469,7 @@ async function runMigrations(): Promise<void> {
     'assignments_migration.sql',
     'reminders_phase2_migration.sql',
     'ai_team_migration.sql',
+    'ai_brain_dedupe_clarifications.sql',
   ];
 
   const client = await pool.connect();
