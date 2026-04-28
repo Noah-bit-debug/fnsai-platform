@@ -845,6 +845,314 @@ CONTINUOUS IMPROVEMENT RULE
 Audit results must be used to improve processes, update controls, and
 strengthen compliance systems.`,
   },
+
+  // ─── Module 13 ────────────────────────────────────────────────────────
+  {
+    title: 'Multi-State Compliance Matrix',
+    applicable_roles: LEADERSHIP_HR_MANAGER,
+    content: `PURPOSE
+Ensure all operations comply with the laws and regulations of each
+state where services are performed.
+
+SCOPE
+Applies to all workers, all assignments, all payroll processing, and
+all credentialing decisions.
+
+CORE RULE
+The state of work determines all applicable laws — overrides company
+headquarters, recruiter location, and employee residence.
+
+STATE COVERAGE
+- Primary: Texas
+- High-regulation: California, New York
+- Additional: Florida and any expanded states
+
+COMPLIANCE CATEGORIES BY STATE
+Each assignment must be validated against:
+- Licensing requirements
+- Wage & hour laws
+- Overtime rules
+- Worker classification laws
+- Onboarding requirements
+- Background check rules
+
+OPERATIONAL CONTROLS
+Before placement, verify the license is valid in the assignment state,
+the pay rate complies with state law, classification aligns with state
+requirements, and onboarding meets state requirements.
+
+HIGH-RISK STATE CONTROLS
+For California and New York:
+- Additional wage validation
+- Stricter classification review
+- Enhanced documentation requirements
+
+CROSS-STATE ASSIGNMENT RULE
+If a worker operates across states, evaluate EACH state independently,
+apply the strictest applicable rule, and escalate if unclear.
+
+ESCALATION TRIGGERS
+Immediate escalation required for conflicting state laws, unclear
+jurisdiction, cross-state payroll discrepancies, or a license that is
+not valid in the assignment state.
+
+DOCUMENTATION REQUIREMENTS
+Maintain assignment-state verification, compliance validation records,
+and state-specific notes.
+
+AUDIT REQUIREMENTS
+All multi-state decisions must be documented, justified, and
+auditable.
+
+ENFORCEMENT
+Failure to comply may result in regulatory violations, financial
+penalties, or legal exposure.`,
+  },
+
+  // ─── Module 14 ────────────────────────────────────────────────────────
+  {
+    title: 'Escalation & Legal Trigger Framework',
+    applicable_roles: ALL_ROLES,
+    content: `PURPOSE
+Ensure all high-risk issues are escalated appropriately and not
+handled informally.
+
+SCOPE
+Applies to all departments, all compliance events, and all
+risk-related decisions.
+
+ESCALATION LEVELS
+1. Staff member
+2. Department lead (HR / Compliance)
+3. Executive leadership
+4. Legal counsel
+
+IMMEDIATE ESCALATION TRIGGERS
+Escalate IMMEDIATELY for:
+- Expired or unverifiable license
+- Patient harm or safety incident
+- Payroll dispute or wage violation
+- PHI breach or data exposure
+- Discrimination complaint
+- Suspected fraud
+- Regulatory inquiry
+
+STANDARD ESCALATION TRIGGERS
+Escalate when documentation is incomplete, compliance is unclear,
+process deviation occurs, or recurring issues are identified.
+
+ESCALATION RULES
+- Do NOT delay escalation.
+- Do NOT resolve high-risk issues informally.
+- Document ALL escalations.
+- Escalate even if uncertain.
+
+DOCUMENTATION REQUIREMENTS
+All escalations must include the issue description, timeline, actions
+taken, and responsible parties.
+
+LEGAL SENSITIVITY RULE
+If an issue presents legal risk, escalate immediately to executive /
+legal.
+
+PROHIBITED ACTIONS
+- Ignoring escalation triggers.
+- Delaying reporting.
+- Resolving critical issues without documentation.
+- Suppressing incidents.
+
+ENFORCEMENT
+Failure to escalate may result in compliance violations, disciplinary
+action, or legal exposure.`,
+  },
+
+  // ─── Module 15 ────────────────────────────────────────────────────────
+  {
+    title: 'Contractor vs Employee Risk Framework',
+    applicable_roles: LEADERSHIP_HR,
+    content: `PURPOSE
+Ensure proper worker classification and prevent misclassification
+risk.
+
+SCOPE
+Applies to all workers, all assignments, and all payroll
+classifications.
+
+CLASSIFICATION TYPES
+- Employee (W-2)
+- Independent Contractor (1099)
+
+CLASSIFICATION CRITERIA
+Evaluate level of control, independence, financial arrangement,
+duration of work, and integration into operations.
+
+DOCUMENTATION REQUIREMENT
+Classification must be documented, justified, and retained for audit.
+
+RISK INDICATORS
+High risk if a contractor is treated like an employee, a fixed
+schedule is imposed, supervision mirrors an employee structure, or
+there is a lack of independence.
+
+HARD STOP RULE
+If classification is unclear, DO NOT PROCEED.
+
+RE-VERIFICATION TRIGGERS
+Review classification when the assignment changes, duties change,
+duration extends, or an audit identifies risk.
+
+ESCALATION TRIGGERS
+Immediate escalation required for a classification dispute, regulatory
+inquiry, or inconsistent classification practices.
+
+AUDIT REQUIREMENTS
+All classifications must be documented, consistent, and auditable.
+
+ENFORCEMENT
+Violations may result in fines, back wages, or legal penalties.`,
+  },
+
+  // ─── Module 16 ────────────────────────────────────────────────────────
+  {
+    title: 'Employee Onboarding Compliance Manual',
+    applicable_roles: LEADERSHIP_HR,
+    content: `PURPOSE
+Ensure all workers are properly vetted, documented, and approved
+before placement.
+
+SCOPE
+Applies to all new hires, all contractors, and all assignments.
+
+ONBOARDING REQUIREMENTS
+Must complete the credentialing file, license verification, signed
+policies, employment eligibility verification, and payroll setup.
+
+ONBOARDING WORKFLOW
+1. Candidate selection
+2. Document collection
+3. Credential verification
+4. Compliance review
+5. Final clearance
+6. Assignment start
+
+CLEARANCE RULE
+A worker MUST NOT start until ALL requirements are complete.
+
+DOCUMENTATION REQUIREMENTS
+Maintain the onboarding checklist, signed documents, and verification
+records.
+
+HARD STOP RULES
+DO NOT onboard if the credential file is incomplete, the license is
+not verified, or any required documentation is missing.
+
+ESCALATION TRIGGERS
+Immediate escalation for incomplete onboarding, an early placement
+request, or missing documentation.
+
+AUDIT REQUIREMENTS
+Onboarding files must be complete, documented, and audit-ready.
+
+ENFORCEMENT
+Violations may result in compliance failure or disciplinary action.`,
+  },
+
+  // ─── Module 17 ────────────────────────────────────────────────────────
+  {
+    title: 'Termination & Offboarding Compliance Policy',
+    applicable_roles: LEADERSHIP_HR,
+    content: `PURPOSE
+Ensure proper closure of employment and protection of company systems
+and data.
+
+SCOPE
+Applies to all employees and all contractors.
+
+OFFBOARDING REQUIREMENTS
+Must complete system access removal, assignment closure, final
+payroll review, and documentation completion.
+
+OFFBOARDING WORKFLOW
+1. Termination notice
+2. Access removal
+3. Payroll review
+4. Documentation completion
+5. File closure
+
+DATA SECURITY RULE
+Immediately revoke access to systems, PHI, and internal data.
+
+PAYROLL COMPLIANCE
+Ensure final pay accuracy and state-law compliance.
+
+DOCUMENTATION REQUIREMENTS
+Maintain the termination record, offboarding checklist, and final pay
+documentation.
+
+ESCALATION TRIGGERS
+Immediate escalation for a disputed termination, payroll issue, or
+compliance concern.
+
+AUDIT REQUIREMENTS
+Offboarding must be documented and auditable.
+
+ENFORCEMENT
+Violations may result in compliance risk or disciplinary action.`,
+  },
+
+  // ─── Module 18 ────────────────────────────────────────────────────────
+  {
+    title: 'Continuous Audit & Review Protocol',
+    applicable_roles: LEADERSHIP_HR,
+    content: `PURPOSE
+Ensure ongoing compliance monitoring and continuous improvement.
+
+SCOPE
+Applies to all operational areas: credentialing, payroll, recruiting,
+incident management, and compliance.
+
+AUDIT FREQUENCY
+- Weekly: operational review
+- Monthly: executive compliance report
+- Quarterly: full internal audit
+
+AUDIT SCOPE
+Review credential files, payroll records, incident logs, training
+records, and compliance documentation.
+
+AUDIT METHODOLOGY
+- Sampling
+- Validation
+- Verification
+- Deficiency identification
+
+DEFICIENCY HANDLING
+1. Identify the issue.
+2. Log the deficiency.
+3. Assign corrective action.
+4. Track to closure.
+
+MONITORING REQUIREMENTS
+Track compliance KPIs, incident trends, audit findings, and escalation
+frequency.
+
+REPORTING REQUIREMENTS
+- Weekly dashboard
+- Monthly executive report
+- Audit findings log
+
+ESCALATION TRIGGERS
+Immediate escalation for a major audit failure, repeated compliance
+issues, or unresolved deficiencies.
+
+CONTINUOUS IMPROVEMENT RULE
+Update processes, strengthen controls, and improve compliance systems
+based on audit results.
+
+ENFORCEMENT
+Failure to maintain audit protocol may result in compliance breakdown,
+audit failure, or operational risk.`,
+  },
 ];
 
 async function main(): Promise<void> {
