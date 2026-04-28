@@ -104,6 +104,32 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   const data = parse.data;
 
   try {
+    // Hard-stop: refuse placement if compliance has marked the staff
+    // member as not placement-ready. Mirrors the Credentialing SOP /
+    // License Verification / Onboarding modules — no placement without
+    // a cleared credential file.
+    //
+    // Falls open if no readiness record exists yet so we don't
+    // retroactively block flows where evaluations haven't been run.
+    // Once /compliance/readiness/evaluate-all has run once, the gate
+    // is live for any staff member with a recorded "not ready" verdict.
+    if (data.staff_id) {
+      const readiness = await query(
+        `SELECT is_ready, blocking_issues
+         FROM comp_placement_readiness
+         WHERE staff_id = $1`,
+        [data.staff_id]
+      );
+      if (readiness.rows.length > 0 && readiness.rows[0].is_ready === false) {
+        res.status(409).json({
+          error: 'Placement blocked: staff member is not compliance-ready. Resolve credential blockers before placement.',
+          code: 'PLACEMENT_NOT_READY',
+          blocking_issues: readiness.rows[0].blocking_issues ?? [],
+        });
+        return;
+      }
+    }
+
     const result = await query(
       `INSERT INTO placements (staff_id, facility_id, role, start_date, end_date, status, hourly_rate, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
