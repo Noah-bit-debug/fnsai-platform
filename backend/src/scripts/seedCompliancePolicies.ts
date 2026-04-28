@@ -26,6 +26,7 @@ const ALL_ROLES = ['ceo', 'admin', 'manager', 'hr', 'recruiter', 'coordinator'];
 const LEADERSHIP = ['ceo', 'admin'];
 const LEADERSHIP_HR = ['ceo', 'admin', 'hr'];
 const LEADERSHIP_HR_MANAGER = ['ceo', 'admin', 'manager', 'hr'];
+const RECRUITERS_AND_OVERSIGHT = ['ceo', 'admin', 'hr', 'recruiter'];
 
 export const POLICIES: PolicySeed[] = [
   // ─── Module 1 ─────────────────────────────────────────────────────────
@@ -442,6 +443,407 @@ action, or increased legal risk.
 CONTINUOUS MONITORING
 Track incident trends, identify repeat issues, and implement
 corrective actions.`,
+  },
+
+  // ─── Module 7 ─────────────────────────────────────────────────────────
+  {
+    title: 'Recruiting Compliance Manual',
+    applicable_roles: RECRUITERS_AND_OVERSIGHT,
+    content: `PURPOSE
+Ensure all recruiting activities are conducted in a compliant,
+ethical, and legally defensible manner. This policy prevents
+discriminatory hiring practices, misrepresentation, premature
+placement decisions, and compliance risk during candidate sourcing.
+
+SCOPE
+Applies to all recruiters, hiring managers, and any personnel involved
+in sourcing, screening, or communicating with candidates.
+
+RECRUITING PRINCIPLES
+- Job-related decision-making only.
+- Equal opportunity employment standards.
+- Documented and consistent screening processes.
+- Transparency in communication.
+- No informal or undocumented hiring decisions.
+
+APPROVED RECRUITING ACTIVITIES
+Recruiters are authorized to post job listings using compliant
+language, review resumes based on qualifications, conduct structured
+candidate screenings, collect preliminary documentation, communicate
+role expectations accurately, and submit candidates for credentialing
+review.
+
+PROHIBITED PRACTICES
+Recruiters MUST NOT:
+- Screen candidates based on protected characteristics.
+- Ask discriminatory or inappropriate questions.
+- Promise placement before credentialing clearance.
+- Misrepresent job conditions, pay, or responsibilities.
+- Bypass credentialing or compliance processes.
+- Pressure candidates into acceptance.
+- Provide legal, payroll, or credentialing determinations.
+
+CANDIDATE COMMUNICATION RULES
+All communication must be factual and documented, reflect accurate job
+details, avoid guarantees or promises, and be consistent with company
+policies.
+
+DOCUMENTATION REQUIREMENTS
+Recruiters must maintain candidate notes, interview summaries,
+communication logs, and submission records. All recruiting decisions
+must be documented.
+
+ESCALATION TRIGGERS
+Immediate escalation required for a candidate discrimination
+complaint, request from a client to discriminate, unclear job
+requirements, candidate legal concerns, suspected misrepresentation,
+or conflict between recruiter and compliance.
+
+ROLE RESTRICTIONS
+Recruiters CANNOT clear candidates, override credentialing decisions,
+or access full compliance / PHI data. Recruiters MUST transfer
+candidates to the credentialing team.
+
+CLIENT INTERACTION RULE
+If a client requests discriminatory criteria or non-compliant hiring
+practices, the recruiter MUST refuse the request and escalate to
+compliance immediately.
+
+AUDIT REQUIREMENTS
+Recruiting processes must be documented, consistent, and defensible.
+
+ENFORCEMENT
+Violations may result in restricted recruiting authority, disciplinary
+action, or termination.`,
+  },
+
+  // ─── Module 8 ─────────────────────────────────────────────────────────
+  {
+    title: 'Anti-Discrimination Hiring Policy',
+    applicable_roles: ALL_ROLES,
+    content: `PURPOSE
+Ensure all hiring decisions are made fairly, lawfully, and without
+discrimination.
+
+SCOPE
+Applies to all hiring decisions, all recruiting activities, and all
+client interactions involving staffing.
+
+PROTECTED CLASSES
+The organization prohibits discrimination based on race, color,
+religion, gender, gender identity, sexual orientation, age,
+disability, national origin, and marital status (where applicable).
+
+HIRING STANDARDS
+All hiring decisions must be based ONLY on qualifications, experience,
+certifications, and job-related criteria.
+
+PROHIBITED ACTIONS
+The following are strictly prohibited:
+- Asking about protected characteristics.
+- Making hiring decisions based on bias.
+- Honoring discriminatory client requests.
+- Excluding candidates for non-job-related reasons.
+- Creating biased job postings.
+
+CLIENT REQUEST RULE
+If a client requests discriminatory hiring, you MUST refuse the
+request, document the request, and escalate immediately.
+
+INTERVIEW GUIDELINES
+Interview questions must be job-related, consistent across candidates,
+and avoid personal or protected information.
+
+COMPLAINT HANDLING
+1. Document the complaint.
+2. Escalate immediately.
+3. Maintain confidentiality.
+4. Investigate per compliance procedures.
+
+RETALIATION PROHIBITION
+No individual may retaliate against a complaint or penalize the
+reporting of discrimination.
+
+ESCALATION TRIGGERS
+Immediate escalation required for discrimination complaints, biased
+hiring decisions, inappropriate interview questions, or client
+discrimination requests.
+
+DOCUMENTATION REQUIREMENTS
+Maintain hiring decision records, candidate evaluation notes, and
+complaint logs.
+
+ENFORCEMENT
+Violations may result in disciplinary action, termination, or legal
+escalation.`,
+  },
+
+  // ─── Module 9 ─────────────────────────────────────────────────────────
+  {
+    title: 'Payroll & Classification Compliance Manual',
+    applicable_roles: LEADERSHIP_HR,
+    content: `PURPOSE
+Ensure all payroll processing and worker classification decisions are
+accurate, compliant, and legally defensible.
+
+SCOPE
+Applies to payroll processing, worker classification, wage compliance,
+and multi-state compensation rules.
+
+PAYROLL REQUIREMENTS
+All payroll must ensure accurate time tracking, correct pay rates,
+proper overtime calculation, and compliance with state wage laws.
+
+WORKER CLASSIFICATION RULES
+Workers must be classified as Employee (W-2) or Independent Contractor
+(1099). Classification must be documented, justified, and consistent.
+
+CLASSIFICATION CRITERIA
+Evaluate level of control, independence, financial relationship, and
+duration of engagement.
+
+MULTI-STATE WAGE RULE
+Payroll must follow the state where work is performed — NOT company
+headquarters or employee residence.
+
+PAYROLL EXCEPTION HANDLING
+Track and resolve missing hours, incorrect pay, overtime
+discrepancies, classification issues, and final pay concerns.
+
+HARD STOP RULES
+DO NOT process payroll if classification is unclear, required
+documentation is missing, an unresolved compliance issue exists, or
+payroll data is incomplete.
+
+RE-VERIFICATION TRIGGERS
+Review payroll compliance when classification changes, the state of
+work changes, wage disputes arise, an audit identifies an issue, or a
+termination occurs.
+
+ESCALATION TRIGGERS
+Immediate escalation required for wage disputes, overtime violations,
+classification concerns, final paycheck issues, or payroll
+discrepancies.
+
+DOCUMENTATION REQUIREMENTS
+Maintain payroll records, timekeeping data, classification
+documentation, and exception logs.
+
+AUDIT REQUIREMENTS
+Payroll must be accurate, documented, and auditable.
+
+ENFORCEMENT
+Violations may result in financial penalties, compliance violations,
+or disciplinary action.
+
+LEGAL SENSITIVITY RULE
+If a payroll issue presents legal risk, escalate immediately.`,
+  },
+
+  // ─── Module 10 ────────────────────────────────────────────────────────
+  {
+    title: 'PHI Data Protection Manual',
+    applicable_roles: ALL_ROLES,
+    content: `PURPOSE
+Establish strict controls for the handling, storage, transmission, and
+protection of Protected Health Information (PHI) in alignment with
+HIPAA principles and industry standards.
+
+SCOPE
+Applies to all employees, contractors, systems (including AI tools),
+and data handling activities involving PHI.
+
+DEFINITION OF PHI
+PHI includes any identifiable health-related information: medical
+records, health history, treatment details, insurance information, and
+any data tied to a specific individual.
+
+DATA CLASSIFICATION LEVELS
+- PHI (high sensitivity)
+- PII (moderate sensitivity)
+- Operational data (internal use)
+- Public data (low risk)
+
+ACCESS CONTROL RULES
+Access to PHI must be role-based and restricted to authorized
+personnel only. Users may only access data necessary to perform their
+job (minimum-necessary).
+
+DATA HANDLING RULES
+All PHI must be stored in approved systems only, transmitted securely,
+protected from unauthorized access, and accessed only when necessary.
+
+PROHIBITED ACTIONS
+The following are strictly prohibited:
+- Accessing PHI without authorization.
+- Sharing PHI via unsecured channels (email, text, etc.).
+- Storing PHI on personal devices or unauthorized platforms.
+- Entering PHI into unapproved AI systems.
+- Discussing PHI in public or unsecured environments.
+
+AI-SPECIFIC PHI RULES
+PHI may ONLY be entered into approved, secured workflows. AI systems
+must not retain PHI beyond required usage or expose PHI across roles.
+
+BREACH IDENTIFICATION
+A breach includes unauthorized access, unauthorized disclosure, data
+loss, or system compromise.
+
+BREACH RESPONSE PROTOCOL
+1. Immediately escalate.
+2. Document the incident.
+3. Contain exposure.
+4. Notify leadership.
+5. Initiate formal review.
+
+ESCALATION TRIGGERS
+Immediate escalation required for a suspected data breach,
+unauthorized PHI access, lost or exposed data, system vulnerability,
+or improper data handling.
+
+DOCUMENTATION REQUIREMENTS
+Maintain access logs, incident reports, breach documentation, and
+corrective action records.
+
+AUDIT REQUIREMENTS
+PHI controls must be reviewed regularly, documented, and auditable.
+
+ENFORCEMENT
+Violations may result in immediate access revocation, disciplinary
+action, termination, or legal escalation.
+
+LEGAL SENSITIVITY RULE
+PHI violations carry regulatory and legal consequences — immediate
+escalation is required.`,
+  },
+
+  // ─── Module 11 ────────────────────────────────────────────────────────
+  {
+    title: 'AI Data Access Control Policy',
+    applicable_roles: ALL_ROLES,
+    content: `PURPOSE
+Define how data is accessed, restricted, and controlled within AI
+systems to prevent misuse, overexposure, and compliance violations.
+
+SCOPE
+Applies to all AI systems (GPTs), all users interacting with AI tools,
+and all data processed through AI.
+
+ACCESS CONTROL MODEL (RBAC)
+Access is strictly governed by Role-Based Access Control (RBAC).
+
+ROLE PERMISSIONS
+- Recruiter: limited candidate data only; no PHI access.
+- HR / Credentialing: credentialing data access; controlled PHI access.
+- Payroll: compensation data; limited personal data.
+- Executive: full oversight access.
+
+DATA CLASSIFICATION IN AI SYSTEMS
+AI systems must handle PHI (restricted), PII (controlled), operational
+data, and compliance records.
+
+ACCESS RULES
+Users may ONLY access data required for their role, use AI within
+assigned permissions, and input approved data types.
+
+PROHIBITED ACTIONS
+Users MUST NOT access data outside their role, input PHI into
+unauthorized GPTs, use AI to retrieve restricted data, bypass RBAC
+controls, or share outputs across unauthorized roles.
+
+GPT USAGE RESTRICTIONS
+- Recruiters cannot access credentialing files or input PHI.
+- Payroll cannot access clinical data beyond necessity.
+- Compliance must enforce access restrictions.
+
+MONITORING & LOGGING
+The organization will track AI usage, monitor access patterns, and
+review logs for violations.
+
+ESCALATION TRIGGERS
+Immediate escalation required for an unauthorized access attempt,
+cross-role data exposure, misuse of AI systems, or PHI entered into
+the incorrect system.
+
+DATA SEGMENTATION RULE
+Data must be separated by role, protected from cross-access, and
+restricted to a need-to-know basis.
+
+AUDIT REQUIREMENTS
+AI access must be logged, monitored, and auditable.
+
+ENFORCEMENT
+Violations may result in access revocation, disciplinary action, or
+escalation to compliance / legal.
+
+SYSTEM INTEGRITY RULE
+AI systems must enforce access controls, prevent unauthorized
+exposure, and maintain compliance boundaries.`,
+  },
+
+  // ─── Module 12 ────────────────────────────────────────────────────────
+  {
+    title: 'Audit Logging & Monitoring Manual',
+    applicable_roles: LEADERSHIP_HR,
+    content: `PURPOSE
+Ensure all compliance activities are documented, tracked, monitored,
+and auditable across the organization.
+
+SCOPE
+Applies to credentialing, payroll, recruiting, incident management,
+compliance operations, and AI system usage.
+
+LOGGING REQUIREMENTS
+The organization must log credentialing actions, license
+verifications, payroll processing activities, incident reports,
+corrective actions, and AI system usage (where applicable).
+
+LOG TYPES
+Maintain credentialing logs, incident logs, payroll logs, audit logs,
+and corrective action logs.
+
+MONITORING FREQUENCY
+- Daily: critical events.
+- Weekly: dashboard review.
+- Monthly: executive report.
+- Quarterly: audit review.
+
+AUDIT READINESS RULE
+All logs must be complete, accurate, timestamped, and retrievable.
+
+EXCEPTION TRACKING
+All deviations must be identified, documented, assigned ownership, and
+tracked to resolution.
+
+ESCALATION TRIGGERS
+Immediate escalation required for missing logs, incomplete records,
+repeated compliance failures, untracked incidents, or system
+discrepancies.
+
+DOCUMENTATION REQUIREMENTS
+Maintain audit logs, issue logs, resolution tracking, and corrective
+action records.
+
+RETENTION POLICY
+Logs must be stored securely, retained per regulatory requirements,
+and accessible for audit.
+
+SYSTEM MONITORING REQUIREMENTS
+The organization must monitor trends, identify recurring issues,
+detect anomalies, and track compliance performance.
+
+REPORTING REQUIREMENTS
+- Weekly dashboard updates.
+- Monthly executive reports.
+- Audit findings documentation.
+
+ENFORCEMENT
+Failure to maintain logs may result in audit failure, compliance
+violations, or disciplinary action.
+
+CONTINUOUS IMPROVEMENT RULE
+Audit results must be used to improve processes, update controls, and
+strengthen compliance systems.`,
   },
 ];
 
