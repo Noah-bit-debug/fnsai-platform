@@ -131,7 +131,7 @@ export default function MyPermissions() {
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: has ? '#1a2b3c' : '#94a3b8' }}>{p.label}</span>
-                            <RiskBadge risk={p.risk_level} />
+                            <RiskBadge risk={p.risk} />
                             <code style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{p.key}</code>
                           </div>
                           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{p.description}</div>

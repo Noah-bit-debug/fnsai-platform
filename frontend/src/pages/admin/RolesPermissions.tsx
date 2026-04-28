@@ -242,7 +242,7 @@ export default function RolesPermissions() {
                             <div style={{ flex: 1 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <span style={{ fontSize: 13, fontWeight: 600, color: '#1a2b3c' }}>{p.label}</span>
-                                <RiskBadge risk={p.risk_level} />
+                                <RiskBadge risk={p.risk} />
                                 <code style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{p.key}</code>
                               </div>
                               <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{p.description}</div>
