@@ -253,7 +253,7 @@ function AddOverrideModal({ userId, catalog, onClose, onSaved }: { userId: strin
   const [saving, setSaving] = useState(false);
 
   const perm = catalog.find(p => p.key === permKey);
-  const needsJustification = perm?.risk_level === 'critical';
+  const needsJustification = perm?.risk === 'critical';
 
   const save = async () => {
     if (!permKey) { toast.error('Pick a permission'); return; }
@@ -283,7 +283,7 @@ function AddOverrideModal({ userId, catalog, onClose, onSaved }: { userId: strin
         <label style={lbl}>Permission</label>
         <select value={permKey} onChange={e => setPermKey(e.target.value)} style={field}>
           <option value="">— Pick a permission —</option>
-          {catalog.map(p => <option key={p.key} value={p.key}>{p.label} ({p.key}) · {p.risk_level}</option>)}
+          {catalog.map(p => <option key={p.key} value={p.key}>{p.label} ({p.key}) · {p.risk}</option>)}
         </select>
         <label style={lbl}>Effect</label>
         <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>

@@ -8,7 +8,7 @@ export interface PermissionDef {
   category: string;
   label: string;
   description: string;
-  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  risk: 'low' | 'medium' | 'high' | 'critical';
   is_ai_only: boolean;
 }
 

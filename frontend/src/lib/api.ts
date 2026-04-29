@@ -1217,11 +1217,18 @@ export interface PipelineStageColumn {
 }
 
 // Simple user list for assignee dropdowns etc.
+// `id` is the Azure oid (used in PATCH /users/:id); `db_id` is the
+// users table primary key (the value stored in foreign keys like
+// candidates.assigned_recruiter_id).
 export interface OrgUser {
   id: string;
-  clerk_user_id: string;
+  db_id: string;
+  clerk_user_id?: string;
   email: string;
-  name: string | null;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string | null;
   role: string;
 }
 export const usersApi = {

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { candidatesApi, ParsedResume } from '../../lib/api';
+import { candidatesApi, usersApi, OrgUser, ParsedResume } from '../../lib/api';
+import { useUser } from '../../lib/auth';
 
 type DuplicateMatch = { id: string; first_name: string; last_name: string; email?: string; phone?: string; role?: string; stage: string; status: string; created_at: string };
 
@@ -35,9 +36,23 @@ function Field({ label, required, children }: { label: string; required?: boolea
 export default function CandidateNew() {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
+  const { user } = useUser();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [inputTab, setInputTab] = useState<'upload' | 'manual'>('upload');
+
+  // Recruiter list for the optional override dropdown. The candidate
+  // defaults to the signed-in user — backend auto-assigns when we send
+  // assigned_recruiter_id: undefined, so we only override if the user
+  // explicitly picks a different recruiter.
+  const [users, setUsers] = useState<OrgUser[]>([]);
+  useEffect(() => {
+    usersApi.list()
+      .then((r) => setUsers(r.data.users))
+      .catch(() => { /* dropdown is optional — silent on failure */ });
+  }, []);
+
+  const meName = user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || 'You';
 
   // Resume parse state
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -488,9 +503,27 @@ export default function CandidateNew() {
         <div style={cardStyle}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
             <div style={{ gridColumn: '1 / -1' }}>
-              <Field label="Recruiter Name / ID">
-                <input style={inputStyle()} value={form2.assigned_recruiter_id} onChange={set2('assigned_recruiter_id')} placeholder="Recruiter name or system ID" />
+              <Field label="Assigned Recruiter">
+                <select
+                  style={inputStyle()}
+                  value={form2.assigned_recruiter_id}
+                  onChange={set2('assigned_recruiter_id')}
+                >
+                  <option value="">
+                    Auto-assign to me ({meName})
+                  </option>
+                  {users.map((u) => (
+                    <option key={u.db_id} value={u.db_id}>
+                      {u.fullName || u.name || u.email}{u.role ? ` · ${u.role}` : ''}
+                    </option>
+                  ))}
+                </select>
               </Field>
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: -10, marginBottom: 16 }}>
+                This candidate will be assigned to {form2.assigned_recruiter_id
+                  ? (users.find((u) => u.db_id === form2.assigned_recruiter_id)?.fullName ?? 'the selected recruiter')
+                  : `${meName} (you)`} as the recruiter of record.
+              </div>
             </div>
             <div style={{ paddingRight: 10 }}>
               <Field label="Desired Pay Rate ($/hr)">

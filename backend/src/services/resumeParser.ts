@@ -5,7 +5,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Sonnet handles resume parsing just as well as Opus at ~5× the speed and
 // ~5× the cost savings. Upgraded if we ever hit accuracy issues.
-const MODEL = process.env.ANTHROPIC_RESUME_MODEL || 'claude-sonnet-4-5';
+const MODEL = process.env.ANTHROPIC_RESUME_MODEL || 'claude-sonnet-4-6';
 
 export interface ParsedResume {
   name: string | null;
@@ -107,70 +107,62 @@ export async function parseResume(
   let responseText: string;
 
   try {
+    // Resolve the resume to plain text regardless of input format. Earlier
+    // versions sent PDFs to Claude as `type: "document"` blocks, but the
+    // installed Anthropic SDK doesn't reliably accept that shape — calls
+    // failed with cryptic "input.0.content.0.type" errors. Extracting text
+    // up front (PDF via pdf-parse, DOCX via mammoth) is what the BD bid
+    // pipeline already does and works on every SDK version.
+    let textContent: string;
     if (kind === 'pdf') {
-      // Claude's native document vision — reads the PDF directly including
-      // images, tables, and formatting. Much better than a text-only extract.
-      const base64Data = fileBuffer.toString('base64');
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: {
-                  type: 'base64',
-                  media_type: 'application/pdf',
-                  data: base64Data,
-                },
-              } as any,
-              {
-                type: 'text',
-                text: PARSE_PROMPT,
-              },
-            ],
-          },
-        ],
-      });
-      responseText = (response.content[0] as any).text;
-    } else {
-      // For DOCX, extract clean text with mammoth. For plain text, just decode.
-      // Critically, this is NOT fileBuffer.toString() for DOCX — that returned
-      // the zip-container binary gibberish that broke every DOCX upload.
-      let textContent: string;
-      if (kind === 'docx') {
-        const result = await mammoth.extractRawText({ buffer: fileBuffer });
-        textContent = (result.value || '').trim();
-        if (!textContent) {
-          throw new ResumeParseError(
-            'mammoth extracted no text from DOCX',
-            'Could not read any text from this DOCX. It may be image-only or corrupted. Try exporting to PDF.',
-          );
-        }
-      } else {
-        textContent = fileBuffer.toString('utf-8').trim();
-        if (!textContent) {
-          throw new ResumeParseError(
-            'Empty text file',
-            'This resume file appears to be empty.',
-          );
-        }
+      const mod = await import('pdf-parse' as string).catch(() => null);
+      if (!mod) {
+        throw new ResumeParseError(
+          'pdf-parse module unavailable on the server',
+          'PDF parsing is not configured on this server. Please upload a DOCX or paste the resume text.',
+        );
       }
-
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: `${PARSE_PROMPT}\n\nResume content:\n${textContent}`,
-          },
-        ],
-      });
-      responseText = (response.content[0] as any).text;
+      const data = await (mod as any).default(fileBuffer);
+      textContent = String(data?.text ?? '').trim();
+      if (!textContent) {
+        throw new ResumeParseError(
+          'pdf-parse extracted no text from PDF',
+          'Could not read any text from this PDF. It may be a scanned image — try a text-based PDF or upload a DOCX.',
+        );
+      }
+    } else if (kind === 'docx') {
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      textContent = (result.value || '').trim();
+      if (!textContent) {
+        throw new ResumeParseError(
+          'mammoth extracted no text from DOCX',
+          'Could not read any text from this DOCX. It may be image-only or corrupted. Try exporting to PDF.',
+        );
+      }
+    } else {
+      textContent = fileBuffer.toString('utf-8').trim();
+      if (!textContent) {
+        throw new ResumeParseError(
+          'Empty text file',
+          'This resume file appears to be empty.',
+        );
+      }
     }
+
+    // Trim very long resumes to keep the prompt fast and predictable.
+    if (textContent.length > 40000) textContent = textContent.slice(0, 40000);
+
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: `${PARSE_PROMPT}\n\nResume content:\n${textContent}`,
+        },
+      ],
+    });
+    responseText = (response.content[0] as any).text;
 
     if (!responseText || !responseText.trim()) {
       throw new ResumeParseError(

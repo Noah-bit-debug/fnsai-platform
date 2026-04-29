@@ -15,8 +15,8 @@
  *   ANTHROPIC_HAIKU_MODEL
  */
 
-export const SONNET = process.env.ANTHROPIC_SONNET_MODEL || 'claude-sonnet-4-5';
-export const OPUS   = process.env.ANTHROPIC_OPUS_MODEL   || 'claude-opus-4-5';
+export const SONNET = process.env.ANTHROPIC_SONNET_MODEL || 'claude-sonnet-4-6';
+export const OPUS   = process.env.ANTHROPIC_OPUS_MODEL   || 'claude-opus-4-7';
 export const HAIKU  = process.env.ANTHROPIC_HAIKU_MODEL  || 'claude-haiku-4-5';
 
 /**
