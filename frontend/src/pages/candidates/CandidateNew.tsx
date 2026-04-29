@@ -3,28 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { candidatesApi, usersApi, OrgUser, ParsedResume } from '../../lib/api';
 import { useUser } from '../../lib/auth';
 import { useToast } from '../../components/ToastHost';
+import { extractFieldErrors, summarizeFieldErrors } from '../../lib/formErrors';
 
-// Pull the zod-flatten() shape ({ formErrors: string[], fieldErrors:
-// Record<string, string[]> }) out of a backend 400 response and turn
-// it into a flat per-field map. Returns null if the response isn't a
-// validation error.
-function extractFieldErrors(err: any): Record<string, string> | null {
-  const details = err?.response?.data?.details;
-  if (!details) return null;
-  const out: Record<string, string> = {};
-  if (details.formErrors?.length) {
-    out._form = details.formErrors.join(' ');
-  }
-  if (details.fieldErrors && typeof details.fieldErrors === 'object') {
-    for (const [field, msgs] of Object.entries(details.fieldErrors as Record<string, string[]>)) {
-      if (Array.isArray(msgs) && msgs.length > 0) out[field] = msgs[0];
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-// Human-readable label for the auto-extracted field errors.
-const FIELD_LABELS: Record<string, string> = {
+// Human-readable label for the auto-extracted field errors. Shared
+// between create and edit forms.
+export const CANDIDATE_FIELD_LABELS: Record<string, string> = {
   first_name: 'First Name',
   last_name: 'Last Name',
   email: 'Email',
@@ -245,11 +228,7 @@ export default function CandidateNew() {
       const fields = extractFieldErrors(err);
       if (fields) {
         setFieldErrors(fields);
-        const summary = Object.entries(fields)
-          .filter(([k]) => k !== '_form')
-          .map(([k, v]) => `${FIELD_LABELS[k] ?? k}: ${v}`)
-          .join(' · ');
-        setSaveError(summary || fields._form || 'Please correct the highlighted fields.');
+        setSaveError(summarizeFieldErrors(fields, CANDIDATE_FIELD_LABELS));
       } else {
         const msg = err?.response?.data?.error ?? err?.message ?? 'Failed to save candidate.';
         setSaveError(msg);

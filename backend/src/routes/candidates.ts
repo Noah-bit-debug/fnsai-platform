@@ -6,7 +6,7 @@ import { query, withTransaction } from '../db/client';
 import { getAuth } from '../middleware/auth';
 import { parseResume, ResumeParseError } from '../services/resumeParser';
 import { reviewDocument, DocumentReviewError } from '../services/documentReviewer';
-import { parseAvailabilityStart } from '../services/dates';
+import { parseAvailabilityStart, isParsedDateErr } from '../services/dates';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -38,7 +38,7 @@ const candidateSchema = z.object({
   // user-facing message instead of a generic "Validation error".
   availability_start: z.string().optional().nullable().transform((v, ctx) => {
     const parsed = parseAvailabilityStart(v);
-    if (!parsed.ok) {
+    if (isParsedDateErr(parsed)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.message });
       return z.NEVER;
     }
@@ -327,6 +327,32 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
       return;
     }
 
+    // Hard-stop the candidate from landing in onboarding / placed without
+    // *something* tying them to an employer. Without this guard the
+    // downstream auto-create-placement and compliance-bundle-assign
+    // logic fires against a candidate with no job, creating orphaned
+    // placement rows and onboarding tasks against no facility.
+    // Acceptable links: a submission to a job (most common) OR a
+    // pre-set target_facility_id (legacy / direct-hire workflow).
+    const REQUIRES_JOB_LINK = new Set(['onboarding', 'placed', 'confirmed']);
+    if (REQUIRES_JOB_LINK.has(stage)) {
+      const linkRes = await query<{ has_submission: boolean; target_facility_id: string | null }>(
+        `SELECT
+           EXISTS(SELECT 1 FROM submissions WHERE candidate_id = $1) AS has_submission,
+           target_facility_id
+         FROM candidates WHERE id = $1`,
+        [id]
+      );
+      const link = linkRes.rows[0];
+      if (link && !link.has_submission && !link.target_facility_id) {
+        res.status(409).json({
+          error: 'no_job_link',
+          message: `Cannot move to '${stage}' without a job submission or target facility. Submit the candidate to a job first, or set their target facility on the candidate profile.`,
+        });
+        return;
+      }
+    }
+
     // Run stage UPDATE + history INSERT inside one transaction.
     // Without this, rapid moves can race (UPDATE for move B commits
     // before INSERT for move A), and a network blip between the two
@@ -460,6 +486,12 @@ router.post('/:id/parse-resume', requireAuth, requirePermission('resume_upload')
       res.status(400).json({ error: 'No resume file uploaded' });
       return;
     }
+    if (req.file.size === 0) {
+      // Multer accepts 0-byte uploads; downstream parsers fail with
+      // cryptic 500s. Reject up front with a clear 422.
+      res.status(422).json({ error: 'Resume file is empty (0 bytes). Please upload a non-empty PDF or DOCX.' });
+      return;
+    }
     try {
       const parsed = await parseResume(
         req.file.buffer,
@@ -542,15 +574,35 @@ router.put('/:id/documents/:docId', requireAuth, requirePermission('credentialin
   try {
     const approvedBy = status === 'approved' ? req.userRecord?.id : null;
 
+    // CRITICAL: only re-evaluate `approved_at`/`approved_by` when the
+    // status field is explicitly being set. The previous version used
+    // `CASE WHEN $1 = 'approved' THEN NOW() ELSE NULL END` keyed on the
+    // *incoming* status — which meant any partial update (just `notes`
+    // or `expiry_date`, where $1 is null) silently wiped the approval
+    // audit trail. The compliance regulator-readable answer to "who
+    // approved this CNA's license" was being destroyed by harmless
+    // edits. Now: $1 IS NULL → preserve existing values; $1 = 'approved'
+    // → stamp NOW() + actor; $1 = anything else → clear them.
     const result = await query(
       `UPDATE candidate_documents SET
          status = COALESCE($1, status),
          file_url = COALESCE($2, file_url),
          expiry_date = COALESCE($3, expiry_date),
          notes = COALESCE($4, notes),
-         uploaded_at = CASE WHEN $1 IN ('received','approved') THEN NOW() ELSE uploaded_at END,
-         approved_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE NULL END,
-         approved_by = CASE WHEN $1 = 'approved' THEN $5::UUID ELSE NULL END,
+         uploaded_at = CASE
+           WHEN $1 IN ('received','approved') THEN NOW()
+           ELSE uploaded_at
+         END,
+         approved_at = CASE
+           WHEN $1 IS NULL    THEN approved_at
+           WHEN $1 = 'approved' THEN NOW()
+           ELSE NULL
+         END,
+         approved_by = CASE
+           WHEN $1 IS NULL    THEN approved_by
+           WHEN $1 = 'approved' THEN $5::UUID
+           ELSE NULL
+         END,
          updated_at = NOW()
        WHERE id = $6 AND candidate_id = $7 RETURNING *`,
       [status || null, file_url || null, expiry_date || null, notes || null, approvedBy, docId, id]
@@ -575,6 +627,10 @@ router.post('/:id/documents/:docId/review', requireAuth, requirePermission('cred
     const auth = getAuth(req);
     if (!req.file) {
       res.status(400).json({ error: 'No file uploaded (multipart field name: "file")' });
+      return;
+    }
+    if (req.file.size === 0) {
+      res.status(422).json({ error: 'File is empty (0 bytes). Please re-upload the document.' });
       return;
     }
 
@@ -685,14 +741,31 @@ router.post('/:id/onboarding-forms', requireAuth, requirePermission('onboarding_
     return;
   }
   try {
+    // UPSERT: re-sending a form should re-send the same row, not
+    // create a duplicate. Targets the partial unique index added in
+    // onboarding_forms_dedupe.sql. The previous plain INSERT meant
+    // every "Send W-4" click added a new row to the candidate's form
+    // list, breaking reminder counts and bloating the UI.
     const result = await query(
       `INSERT INTO onboarding_forms (candidate_id, form_type, status, sent_at)
-       VALUES ($1, $2, 'sent', NOW()) RETURNING *`,
+       VALUES ($1, $2, 'sent', NOW())
+       ON CONFLICT (candidate_id, form_type) WHERE candidate_id IS NOT NULL
+       DO UPDATE SET
+         status = 'sent',
+         sent_at = NOW(),
+         reminder_count = onboarding_forms.reminder_count + 1,
+         last_reminder_at = NOW(),
+         updated_at = NOW()
+       RETURNING *, (xmax::text::int > 0) AS was_resend`,
       [id, form_type]
     );
-    await logAudit(null, auth?.userId ?? 'unknown', 'candidate.form.sent', id,
-      { form_type }, (req.ip ?? 'unknown'));
-    res.status(201).json(result.rows[0]);
+    const row = result.rows[0] as Record<string, unknown> & { was_resend?: boolean };
+    const wasResend = row?.was_resend === true;
+    await logAudit(null, auth?.userId ?? 'unknown',
+      wasResend ? 'candidate.form.resent' : 'candidate.form.sent', id,
+      { form_type, resend: wasResend }, (req.ip ?? 'unknown'));
+    // 200 on resend, 201 on first send — matches REST semantics.
+    res.status(wasResend ? 200 : 201).json(result.rows[0]);
   } catch (err) {
     console.error('Send form error:', err);
     res.status(500).json({ error: 'Failed to send form' });
