@@ -1,0 +1,3 @@
+Redeploy trigger.
+Last forced redeploy: 2026-04-29 (post #14 merge — Vercel queue stuck).
+Safe to delete on next real frontend change.
