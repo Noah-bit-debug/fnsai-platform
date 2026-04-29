@@ -5,6 +5,7 @@ import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '
 import { query, withTransaction } from '../db/client';
 import { runGate } from '../services/credentialGate';
 import { scoreCandidateForJob, type ScoringCandidate, type ScoringJob } from '../services/candidateScoring';
+import { translateAnthropicError } from '../services/aiErrors';
 import { applyOnboardingBundlesForPlacement } from '../services/complianceAssignment';
 
 const router = Router();
@@ -416,6 +417,16 @@ router.post('/:id/score', requireAuth, requirePermission('candidates_edit'), asy
     res.json({ score });
   } catch (err) {
     console.error('Submission re-score error:', err);
+    // Translate Anthropic-side failures (credits exhausted, rate limit,
+    // auth) into specific user-readable messages instead of the generic
+    // "Failed to score submission" string. The QA-reported "Re-score
+    // failed" was actually an Anthropic 402 — the recruiter never knew
+    // it was a billing issue admin could fix.
+    const ai = translateAnthropicError(err);
+    if (ai) {
+      res.status(ai.status).json({ error: ai.message, code: ai.code });
+      return;
+    }
     res.status(500).json({ error: 'Failed to score submission' });
   }
 });

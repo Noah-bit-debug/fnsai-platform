@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { chatCompletion, analyzeDocument, categorizeEmail, SYSTEM_PROMPT } from '../services/ai';
 import { MODEL_FOR } from '../services/aiModels';
+import { translateAnthropicError } from '../services/aiErrors';
 import { getAuth } from '../middleware/auth';
 import { query } from '../db/client';
 import { guardAIRequest } from '../services/permissions/aiGuard';
@@ -457,8 +458,17 @@ Rules:
     res.json({ suggestions: text });
   } catch (err: any) {
     console.error('suggest-actions error:', err);
-    if (err?.status === 429) { res.status(429).json({ error: 'AI is busy. Please retry.' }); return; }
-    if (err?.status === 529) { res.status(503).json({ error: 'Claude is over capacity. Retry in ~30s.', retry_after_seconds: 30 }); return; }
+    // Translate Anthropic-side failures (credits exhausted, auth, rate
+    // limit, server) into specific user-readable messages so the
+    // recruiter and the admin both know whether to retry, top up
+    // credits, or contact support. Keeps the explicit 529 over-capacity
+    // branch since it carries a retry_after the SDK error doesn't.
+    if (err?.status === 529) {
+      res.status(503).json({ error: 'Claude is over capacity. Retry in ~30s.', retry_after_seconds: 30 });
+      return;
+    }
+    const ai = translateAnthropicError(err);
+    if (ai) { res.status(ai.status).json({ error: ai.message, code: ai.code }); return; }
     res.status(500).json({ error: `AI service error: ${err?.message?.slice(0, 200) ?? 'unknown'}` });
   }
 });

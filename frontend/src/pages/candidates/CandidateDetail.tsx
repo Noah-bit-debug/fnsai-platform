@@ -487,10 +487,17 @@ export default function CandidateDetail() {
   const [showMoveStage, setShowMoveStage] = useState(false);
   const [showAddDoc, setShowAddDoc] = useState(false);
 
-  // Compliance state
+  // Compliance state. `documents` was added in PR #15's backend so the
+  // dashboard counter reflects approved required documents — but the
+  // frontend list rendering lagged. The QA report flagged the
+  // "1 pending" counter contradicting an empty Compliance Items list:
+  // documents weren't being merged into the row list. Type now includes
+  // documents and the render below combines records + documents into
+  // one unified table.
   const [complianceData, setComplianceData] = useState<{
     summary: { total: number; completed: number; pending: number; expired: number; completion_rate: number };
     records: any[];
+    documents?: any[];
     assigned_bundles: Array<{ bundle_id: string; bundle_title: string; item_count: number; assigned_at: string; trigger_type: string }>;
   } | null>(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
@@ -546,16 +553,30 @@ export default function CandidateDetail() {
     if (!selectedBundle || !id) return;
     setAssigningBundle(true);
     try {
-      await api.post(`/compliance/integration/candidate/${id}/assign-bundle`, {
-        bundle_id: selectedBundle,
-        due_date: bundleDueDate || undefined,
-      });
+      const res = await api.post<{ success: boolean; bundle_title?: string; created?: number; skipped?: number }>(
+        `/compliance/integration/candidate/${id}/assign-bundle`,
+        { bundle_id: selectedBundle, due_date: bundleDueDate || undefined },
+      );
+      const r = res.data;
+      const created = r?.created ?? 0;
+      const skipped = r?.skipped ?? 0;
+      const title = r?.bundle_title ?? 'bundle';
+      toast.success(
+        skipped > 0
+          ? `${title} assigned — ${created} new item${created === 1 ? '' : 's'}, ${skipped} already present.`
+          : `${title} assigned with ${created} item${created === 1 ? '' : 's'}.`,
+      );
       setShowBundleModal(false);
       setSelectedBundle('');
       setBundleDueDate('');
       await loadCompliance();
     } catch (e: any) {
-      alert(e.response?.data?.error || 'Failed to assign bundle');
+      // alert() was being silently dropped by browser-automation tools,
+      // which produced the QA-reported "modal stays open with no
+      // feedback" symptom. Toast surfaces the failure visibly even in
+      // those contexts.
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Failed to assign bundle.';
+      toast.error(msg);
     } finally {
       setAssigningBundle(false);
     }
@@ -690,11 +711,24 @@ export default function CandidateDetail() {
   const handleSendForm = async (formType: string) => {
     if (!id) return;
     try {
+      // The /onboarding-forms endpoint UPSERTs (PR #16) — 200 = resend
+      // bumps reminder_count, 201 = first send. The HTTP layer collapses
+      // both into a successful resolved promise, so we use the existing
+      // forms list to detect resend vs first-send for the toast.
+      const wasAlreadySent = forms.some((f: any) => f.form_type === formType);
       await candidatesApi.sendOnboardingForm(id, formType);
       const fRes = await candidatesApi.getOnboardingForms(id);
       setForms(fRes.data?.forms ?? []);
+      const formLabel = formType.toUpperCase().replace('_', '-');
+      toast.success(wasAlreadySent
+        ? `${formLabel} re-sent (reminder count incremented).`
+        : `${formLabel} sent to candidate.`);
     } catch (e: any) {
-      alert(e?.response?.data?.error ?? 'Failed to send form.');
+      // alert() was being silently dropped by browser-automation tools
+      // (QA Phase 5 #8 — Resend button responds but no feedback shown).
+      // Toast surfaces the result visibly even in those contexts.
+      const msg = e?.response?.data?.error ?? e?.message ?? 'Failed to send form.';
+      toast.error(msg);
     }
   };
 
@@ -1223,46 +1257,64 @@ export default function CandidateDetail() {
               </div>
 
               {/* Compliance Records Section */}
-              <div style={cardStyle}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2b3c', marginBottom: 16 }}>Compliance Items</div>
-                {complianceData.records.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8', fontSize: 13 }}>No compliance items assigned</div>
-                ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ borderBottom: '2px solid #e8edf2' }}>
-                          {['Title', 'Type', 'Status', 'Due Date', 'Score'].map((h) => (
-                            <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {complianceData.records.map((rec: any) => (
-                          <tr key={rec.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1a2b3c' }}>{rec.title}</td>
-                            <td style={{ padding: '10px 12px', color: '#64748b', textTransform: 'capitalize' }}>{rec.item_type}</td>
-                            <td style={{ padding: '10px 12px' }}>
-                              <span style={{
-                                background: COMPLIANCE_STATUS_COLORS[rec.status] ?? '#546e7a',
-                                color: '#fff', borderRadius: 8, padding: '2px 10px', fontSize: 11, fontWeight: 700, textTransform: 'capitalize',
-                              }}>
-                                {rec.status?.replace('_', ' ')}
-                              </span>
-                            </td>
-                            <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                              {rec.due_date ? new Date(rec.due_date).toLocaleDateString() : '—'}
-                            </td>
-                            <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                              {rec.score != null ? `${rec.score}%` : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              {(() => {
+                // Unify competency records + required documents into one
+                // list. Pre-fix the list only showed records, contradicting
+                // the summary counter which counts both — QA Phase 5 #7.
+                const docRows = (complianceData.documents ?? [])
+                  .filter((d: any) => d.required !== false)
+                  .map((d: any) => ({
+                    id: `doc-${d.id}`,
+                    title: d.label ?? d.document_type ?? 'Document',
+                    item_type: 'document',
+                    status: d.status,
+                    due_date: d.expiry_date ?? null,
+                    score: null,
+                  }));
+                const allItems = [...complianceData.records, ...docRows];
+                return (
+                  <div style={cardStyle}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2b3c', marginBottom: 16 }}>Compliance Items</div>
+                    {allItems.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8', fontSize: 13 }}>No compliance items assigned</div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid #e8edf2' }}>
+                              {['Title', 'Type', 'Status', 'Due Date', 'Score'].map((h) => (
+                                <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allItems.map((rec: any) => (
+                              <tr key={rec.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1a2b3c' }}>{rec.title}</td>
+                                <td style={{ padding: '10px 12px', color: '#64748b', textTransform: 'capitalize' }}>{rec.item_type}</td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <span style={{
+                                    background: COMPLIANCE_STATUS_COLORS[rec.status] ?? '#546e7a',
+                                    color: '#fff', borderRadius: 8, padding: '2px 10px', fontSize: 11, fontWeight: 700, textTransform: 'capitalize',
+                                  }}>
+                                    {rec.status?.replace('_', ' ')}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '10px 12px', color: '#64748b' }}>
+                                  {rec.due_date ? new Date(rec.due_date).toLocaleDateString() : '—'}
+                                </td>
+                                <td style={{ padding: '10px 12px', color: '#64748b' }}>
+                                  {rec.score != null ? `${rec.score}%` : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
             </>
           ) : (
             <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>No compliance data available.</div>
