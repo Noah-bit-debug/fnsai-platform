@@ -96,6 +96,11 @@ export default function CandidateNew() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Server-side duplicate-candidate 409. Shown as a modal-style banner
+  // listing the matching existing records with a hard "Create anyway"
+  // override — closes the QA-reported gap where matching email/phone
+  // silently created a second record.
+  const [duplicateConflict, setDuplicateConflict] = useState<DuplicateMatch[] | null>(null);
   // Synchronous re-entry guard. React's `saving` state is one render
   // tick behind a click, so a fast double-click can fire submit twice
   // before the button's `disabled` prop catches up.
@@ -163,19 +168,35 @@ export default function CandidateNew() {
   };
 
   const handleNext = () => {
-    if (!form.first_name.trim() || !form.last_name.trim()) {
-      alert('First name and last name are required.');
+    // Per-field inline validation at Step 1 — the previous version used
+    // alert(), which the QA report flagged as silent (popup-blocked
+    // browsers swallow it) and also pushed email validation off to
+    // Step 2 where users had to navigate backward to fix it.
+    const errors: Record<string, string> = {};
+    if (!form.first_name.trim()) errors.first_name = 'First name is required.';
+    if (!form.last_name.trim())  errors.last_name  = 'Last name is required.';
+    // RFC-5322-lite — anything containing "@" with non-empty local + a
+    // dot-bearing domain. Same shape as the backend's z.string().email().
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errors.email = 'Enter a valid email address (e.g. jane@example.com).';
+    }
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setSaveError(summarizeFieldErrors(errors, CANDIDATE_FIELD_LABELS));
       return;
     }
+    setFieldErrors({});
+    setSaveError(null);
     setStep(2);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (opts?: { force?: boolean }) => {
     if (submitInFlight.current || saving) return;
     submitInFlight.current = true;
     setSaving(true);
     setSaveError(null);
     setFieldErrors({});
+    if (!opts?.force) setDuplicateConflict(null);
 
     // Client-side date validation. Browsers normalize <input type="date">
     // to YYYY-MM-DD, so an invalid value would already be empty — but a
@@ -218,21 +239,31 @@ export default function CandidateNew() {
         stage: 'application' as const,
         status: 'active' as const,
       };
-      const res = await candidatesApi.create(payload);
+      const res = await candidatesApi.create(payload, { force: opts?.force });
       toast.success(`Created candidate ${form.first_name} ${form.last_name}.`);
       navigate(`/candidates/${res.data.id}`);
     } catch (err: any) {
-      // Prefer specific zod field-level messages over the generic
-      // "Validation error" shell. Falls through to a top-of-form
-      // message + toast for any other failure mode.
-      const fields = extractFieldErrors(err);
-      if (fields) {
-        setFieldErrors(fields);
-        setSaveError(summarizeFieldErrors(fields, CANDIDATE_FIELD_LABELS));
+      // Server-side duplicate guard returns a 409 with a structured
+      // body — surface it as a confirm-style banner rather than a
+      // toast so the user can see exactly which existing record(s)
+      // matched and consciously decide whether to override.
+      if (err?.response?.status === 409 && err?.response?.data?.error === 'duplicate_candidate') {
+        const dups = (err.response.data?.duplicates ?? []) as DuplicateMatch[];
+        setDuplicateConflict(dups.length > 0 ? dups : []);
+        setSaveError(err.response.data?.message ?? 'A matching candidate already exists.');
       } else {
-        const msg = err?.response?.data?.error ?? err?.message ?? 'Failed to save candidate.';
-        setSaveError(msg);
-        toast.error(msg);
+        // Prefer specific zod field-level messages over the generic
+        // "Validation error" shell. Falls through to a top-of-form
+        // message + toast for any other failure mode.
+        const fields = extractFieldErrors(err);
+        if (fields) {
+          setFieldErrors(fields);
+          setSaveError(summarizeFieldErrors(fields, CANDIDATE_FIELD_LABELS));
+        } else {
+          const msg = err?.response?.data?.error ?? err?.message ?? 'Failed to save candidate.';
+          setSaveError(msg);
+          toast.error(msg);
+        }
       }
     } finally {
       submitInFlight.current = false;
@@ -416,17 +447,36 @@ export default function CandidateNew() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
                 <div style={{ paddingRight: 10 }}>
                   <Field label="First Name" required>
-                    <input style={inputStyle()} value={form.first_name} onChange={set('first_name')} placeholder="Jane" />
+                    <input
+                      style={inputStyle(fieldErrors.first_name ? { borderColor: '#dc2626' } : undefined)}
+                      value={form.first_name}
+                      onChange={(e) => { set('first_name')(e); if (fieldErrors.first_name) setFieldErrors(({ first_name: _, ...r }) => r); }}
+                      placeholder="Jane"
+                    />
+                    {fieldErrors.first_name && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{fieldErrors.first_name}</div>}
                   </Field>
                 </div>
                 <div style={{ paddingLeft: 10 }}>
                   <Field label="Last Name" required>
-                    <input style={inputStyle()} value={form.last_name} onChange={set('last_name')} placeholder="Doe" />
+                    <input
+                      style={inputStyle(fieldErrors.last_name ? { borderColor: '#dc2626' } : undefined)}
+                      value={form.last_name}
+                      onChange={(e) => { set('last_name')(e); if (fieldErrors.last_name) setFieldErrors(({ last_name: _, ...r }) => r); }}
+                      placeholder="Doe"
+                    />
+                    {fieldErrors.last_name && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{fieldErrors.last_name}</div>}
                   </Field>
                 </div>
                 <div style={{ paddingRight: 10 }}>
                   <Field label="Email">
-                    <input style={inputStyle()} type="email" value={form.email} onChange={set('email')} placeholder="jane@example.com" />
+                    <input
+                      style={inputStyle(fieldErrors.email ? { borderColor: '#dc2626' } : undefined)}
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => { set('email')(e); if (fieldErrors.email) setFieldErrors(({ email: _, ...r }) => r); }}
+                      placeholder="jane@example.com"
+                    />
+                    {fieldErrors.email && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{fieldErrors.email}</div>}
                   </Field>
                 </div>
                 <div style={{ paddingLeft: 10 }}>
@@ -545,6 +595,12 @@ export default function CandidateNew() {
             </div>
           )}
 
+          {saveError && step === 1 && (
+            <div style={{ marginTop: 16, color: '#c62828', fontSize: 13, padding: '10px 14px', background: '#fef2f2', borderRadius: 8 }}>
+              {saveError}
+            </div>
+          )}
+
           <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
             <button
               onClick={handleNext}
@@ -646,9 +702,57 @@ export default function CandidateNew() {
             </div>
           </div>
 
-          {saveError && (
+          {saveError && !duplicateConflict && (
             <div style={{ color: '#c62828', fontSize: 13, marginBottom: 12, padding: '10px 14px', background: '#fef2f2', borderRadius: 8 }}>
               {saveError}
+            </div>
+          )}
+
+          {duplicateConflict && (
+            <div style={{ marginBottom: 16, background: '#fff7ed', border: '2px solid #fdba74', borderRadius: 10, padding: 16 }}>
+              <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14, marginBottom: 6 }}>
+                ⚠ Possible duplicate detected
+              </div>
+              <div style={{ fontSize: 13, color: '#7c2d12', marginBottom: 12 }}>
+                {saveError}
+              </div>
+              {duplicateConflict.length > 0 && (
+                <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+                  {duplicateConflict.slice(0, 5).map((d) => (
+                    <div
+                      key={d.id}
+                      onClick={() => navigate(`/candidates/${d.id}`)}
+                      style={{ padding: '10px 14px', background: '#fff', borderRadius: 6, border: '1px solid #fde68a', cursor: 'pointer' }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{d.first_name} {d.last_name}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        {d.email && <span>{d.email}</span>}
+                        {d.email && d.phone && <span> · </span>}
+                        {d.phone && <span>{d.phone}</span>}
+                        {d.role && <span> · {d.role}</span>}
+                        <span> · {d.stage}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateConflict(null)}
+                  style={{ padding: '8px 14px', background: '#fff', color: '#9a3412', border: '1px solid #fdba74', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                >
+                  Cancel — go back to existing record
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void handleSubmit({ force: true }); }}
+                  disabled={saving}
+                  style={{ padding: '8px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+                >
+                  {saving ? 'Creating…' : 'Create anyway (logs override)'}
+                </button>
+              </div>
             </div>
           )}
 

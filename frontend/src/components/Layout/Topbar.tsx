@@ -120,8 +120,9 @@ export default function TopBar({ onMenuClick, showMenuButton }: TopBarProps = {}
             className="ab ab-w"
             onClick={() => navigate('/incidents')}
             type="button"
+            title="Open workplace incident reports"
           >
-            <span>Action Items</span>
+            <span>Open Incidents</span>
             <span className="ab-count">{incidentsOpen}</span>
           </button>
         )}

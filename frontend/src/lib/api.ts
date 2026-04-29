@@ -1106,7 +1106,12 @@ export const candidatesApi = {
   }) =>
     api.get<{ candidates: Candidate[] }>('/candidates', { params }),
   get: (id: string) => api.get<Candidate>(`/candidates/${id}`),
-  create: (data: Partial<Candidate>) => api.post<Candidate>('/candidates', data),
+  // `force=true` bypasses the server-side duplicate-candidate guard
+  // (a 409 with `duplicate_candidate` is returned otherwise). Used by
+  // the create form's "Create anyway" override after the user has seen
+  // the matching candidates and confirmed the new record is intentional.
+  create: (data: Partial<Candidate>, opts?: { force?: boolean }) =>
+    api.post<Candidate>('/candidates', data, opts?.force ? { params: { force: 1 } } : undefined),
   update: (id: string, data: Partial<Candidate>) => api.put<Candidate>(`/candidates/${id}`, data),
   delete: (id: string) => api.delete(`/candidates/${id}`),
   moveStage: (id: string, stage: string, notes?: string) =>
