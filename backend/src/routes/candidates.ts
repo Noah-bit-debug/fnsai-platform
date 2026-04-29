@@ -6,7 +6,7 @@ import { query, withTransaction } from '../db/client';
 import { getAuth } from '../middleware/auth';
 import { parseResume, ResumeParseError } from '../services/resumeParser';
 import { reviewDocument, DocumentReviewError } from '../services/documentReviewer';
-import { parseAvailabilityStart, isParsedDateErr } from '../services/dates';
+import { parseAvailabilityStart, parseFutureAvailabilityStart, isParsedDateErr } from '../services/dates';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -209,6 +209,63 @@ router.post('/', requireAuth, requirePermission('candidates_create'), async (req
   }
   const auth = getAuth(req);
   const d = parse.data;
+
+  // Create-time only: reject past start dates. Updates legitimately may
+  // edit a candidate whose start date is now in the past (they've been
+  // placed for weeks), so this guard runs only on create. Mirrors the
+  // client-side check in CandidateNew but defends against direct API
+  // callers bypassing the UI — the QA report flagged "01012020" being
+  // accepted by the server.
+  if (d.availability_start) {
+    const future = parseFutureAvailabilityStart(d.availability_start);
+    if (isParsedDateErr(future)) {
+      res.status(400).json({
+        error: 'Validation error',
+        details: { fieldErrors: { availability_start: [future.message] }, formErrors: [] },
+      });
+      return;
+    }
+  }
+
+  // Server-side duplicate check. Healthcare staffing is a regulated
+  // domain — two candidates with the same identity create
+  // mis-assignment, compliance-tracking, and HIPAA risk. Block by
+  // default if email OR normalized phone matches an existing
+  // candidate. The frontend already shows a debounced warning UI,
+  // but the previous version had no server-side enforcement so a
+  // recruiter clicking through would still create the duplicate.
+  // Admin override: pass `?force=1` (or body.force=true) to bypass —
+  // logged in audit so the override is auditable.
+  const force = req.query.force === '1' || req.query.force === 'true' || (req.body as Record<string, unknown>)?.force === true;
+  if (!force && (d.email || d.phone)) {
+    const matchConditions: string[] = [];
+    const matchParams: unknown[] = [];
+    let mIdx = 1;
+    if (d.email) {
+      matchConditions.push(`LOWER(email) = LOWER($${mIdx++})`);
+      matchParams.push(d.email);
+    }
+    if (d.phone) {
+      matchConditions.push(`REGEXP_REPLACE(COALESCE(phone,''), '[^0-9]', '', 'g') = REGEXP_REPLACE($${mIdx++}, '[^0-9]', '', 'g')`);
+      matchParams.push(d.phone);
+    }
+    const dupRes = await query<{ id: string; first_name: string; last_name: string; email: string | null; phone: string | null; stage: string; status: string }>(
+      `SELECT id, first_name, last_name, email, phone, stage, status
+         FROM candidates
+        WHERE ${matchConditions.join(' OR ')}
+        LIMIT 5`,
+      matchParams,
+    );
+    if (dupRes.rows.length > 0) {
+      res.status(409).json({
+        error: 'duplicate_candidate',
+        message: `A candidate with this ${d.email && d.phone ? 'email or phone' : d.email ? 'email' : 'phone'} already exists. Open the existing record, or pass force=true to create anyway.`,
+        duplicates: dupRes.rows,
+      });
+      return;
+    }
+  }
+
   try {
     // Auto-assign recruiter: if caller didn't specify one, default to the
     // logged-in user's users.id. Per Phase 1.1A — recruiter creating a

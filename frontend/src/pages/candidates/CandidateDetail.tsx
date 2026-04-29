@@ -6,10 +6,11 @@ import AIActionPanel from '../../components/AI/AIActionPanel';
 import AssignmentPanel from '../../components/AssignmentPanel';
 import CandidateScheduleTimeline from '../../components/CandidateScheduleTimeline';
 import { useParams, useNavigate } from 'react-router-dom';
-import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
+import { candidatesApi, pipelineStagesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
 import { useToast } from '../../components/ToastHost';
+import { useConfirm } from '../../components/ConfirmHost';
 import { extractFieldErrors, summarizeFieldErrors } from '../../lib/formErrors';
 import { CANDIDATE_FIELD_LABELS } from './CandidateNew';
 
@@ -91,7 +92,24 @@ function MoveStageModal({
   // inline. Returning a value is fine; throwing is what matters.
   onMove: (stage: string, notes: string) => Promise<void>;
 }) {
-  const allStages = ['application', 'interview', 'credentialing', 'onboarding', 'placed', 'rejected', 'withdrawn'];
+  // Fetch the live pipeline_stages so the dropdown options match what
+  // the backend will accept. The previous hardcoded list
+  // ['application','interview','credentialing','onboarding','placed',
+  //  'rejected','withdrawn'] caused 100% failure on
+  // 'credentialing'/'onboarding'/'placed' because the backend's dynamic
+  // pipeline (default 12-stage Phase 1.4 set) has different keys
+  // ('screening','internal_review','submitted','client_submitted',
+  //  'offer','confirmed','not_joined', etc.). The QA report's "Unknown
+  // stage 'credentialing'" 400 was the visible symptom.
+  const [stages, setStages] = useState<{ key: string; label: string; is_terminal?: boolean }[]>([]);
+  const [stagesLoading, setStagesLoading] = useState(true);
+  const [stagesError, setStagesError] = useState<string | null>(null);
+  useEffect(() => {
+    pipelineStagesApi.list()
+      .then((r) => setStages((r.data?.stages ?? []).map((s) => ({ key: s.key, label: s.label, is_terminal: s.is_terminal }))))
+      .catch((e: any) => setStagesError(e?.response?.data?.error ?? e?.message ?? 'Failed to load stages.'))
+      .finally(() => setStagesLoading(false));
+  }, []);
   const [stage, setStage] = useState(currentStage);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -143,11 +161,23 @@ function MoveStageModal({
         <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Move Stage</div>
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>New Stage</label>
-          <select style={inputStyle()} value={stage} onChange={(e) => setStage(e.target.value)} disabled={saving}>
-            {allStages.map((s) => (
-              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-            ))}
-          </select>
+          {stagesLoading ? (
+            <div style={{ fontSize: 13, color: '#94a3b8', padding: '8px 12px', background: '#f8fafc', borderRadius: 8 }}>
+              Loading stages…
+            </div>
+          ) : stagesError ? (
+            <div style={{ fontSize: 12, color: '#991b1b', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8 }}>
+              {stagesError}
+            </div>
+          ) : (
+            <select style={inputStyle()} value={stage} onChange={(e) => setStage(e.target.value)} disabled={saving}>
+              {stages.map((s) => (
+                <option key={s.key} value={s.key} disabled={s.key === currentStage}>
+                  {s.label}{s.key === currentStage ? ' (current)' : ''}{s.is_terminal ? ' · terminal' : ''}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Notes (optional)</label>
@@ -387,6 +417,7 @@ export default function CandidateDetail() {
   const navigate = useNavigate();
   const { can } = useRBAC();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
@@ -628,6 +659,24 @@ export default function CandidateDetail() {
     }
   };
 
+  const handleArchive = async () => {
+    if (!id || !candidate) return;
+    const ok = await confirm({
+      title: 'Archive candidate?',
+      description: `This will mark ${candidate.first_name} ${candidate.last_name} as withdrawn and hide them from active lists. Their record (documents, history, submissions) will be preserved for compliance audits and can be restored by an admin. Proceed?`,
+      confirmLabel: 'Archive',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await candidatesApi.delete(id);
+      toast.success('Candidate archived.');
+      navigate('/candidates');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? e?.message ?? 'Failed to archive.');
+    }
+  };
+
   const handleMoveStage = async (stage: string, notes: string) => {
     if (!id) return;
     // Let exceptions propagate to the modal so it can render the
@@ -745,6 +794,15 @@ export default function CandidateDetail() {
                 style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
               >
                 Edit
+              </button>
+            )}
+            {can('candidates_delete') && !editing && (
+              <button
+                onClick={handleArchive}
+                title="Mark withdrawn — preserves the record for audits but removes the candidate from active lists."
+                style={{ background: '#fff', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+              >
+                Archive
               </button>
             )}
           </div>

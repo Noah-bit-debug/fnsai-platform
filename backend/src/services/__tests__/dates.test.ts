@@ -11,7 +11,7 @@
 
 import { test, describe } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { parseAvailabilityStart } from '../dates';
+import { parseAvailabilityStart, parseFutureAvailabilityStart, isParsedDateErr } from '../dates';
 
 describe('parseAvailabilityStart', () => {
   test('blank string parses as null (field is optional)', () => {
@@ -98,5 +98,48 @@ describe('parseAvailabilityStart', () => {
     const r = parseAvailabilityStart('2020-01-01');
     assert.equal(r.ok, true);
     if (r.ok) assert.equal(r.value, '2020-01-01');
+  });
+});
+
+describe('parseFutureAvailabilityStart', () => {
+  test('rejects past dates with a useful message', () => {
+    const r = parseFutureAvailabilityStart('2020-01-01');
+    assert.equal(r.ok, false);
+    if (isParsedDateErr(r)) {
+      assert.ok(r.message.toLowerCase().includes('today or later'));
+    }
+  });
+
+  test('accepts a future date and normalizes to ISO', () => {
+    const r = parseFutureAvailabilityStart('12/31/2099');
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.value, '2099-12-31');
+  });
+
+  test('accepts today (UTC midnight comparison, not strict gt)', () => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const r = parseFutureAvailabilityStart(todayIso);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.value, todayIso);
+  });
+
+  test('null/empty input parses as null (optional field)', () => {
+    assert.equal(parseFutureAvailabilityStart(null).ok, true);
+    assert.equal(parseFutureAvailabilityStart('').ok, true);
+    assert.equal(parseFutureAvailabilityStart(undefined).ok, true);
+  });
+
+  test('non-parseable input still rejected (delegates to parseAvailabilityStart)', () => {
+    const r = parseFutureAvailabilityStart('not a date');
+    assert.equal(r.ok, false);
+  });
+
+  test('boundary: yesterday is rejected', () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const y = yesterday.getUTCFullYear();
+    const m = String(yesterday.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(yesterday.getUTCDate()).padStart(2, '0');
+    const r = parseFutureAvailabilityStart(`${y}-${m}-${d}`);
+    assert.equal(r.ok, false);
   });
 });

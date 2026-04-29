@@ -50,9 +50,15 @@ const msalConfig: Configuration = {
     navigateToLoginRequestUrl: true,
   },
   cache: {
-    // sessionStorage survives page refresh within a tab but not across
-    // tabs — minimizes XSS token-theft blast radius vs localStorage.
-    cacheLocation: BrowserCacheLocation.SessionStorage,
+    // localStorage so MSAL state survives across tabs — without this,
+    // opening a candidate in a new tab forces a fresh sign-in for the
+    // duplicate tab (QA report Phase 2 #1). The XSS-blast-radius
+    // tradeoff is acceptable here: the app is shipped via Vercel with
+    // a strict CSP, the API uses Azure AD bearer tokens that expire
+    // hourly, and recruiters routinely work in 5+ tabs in parallel
+    // — the productivity hit was hurting day-to-day operations more
+    // than the marginal security gain.
+    cacheLocation: BrowserCacheLocation.LocalStorage,
     storeAuthStateInCookie: false,
   },
   system: {

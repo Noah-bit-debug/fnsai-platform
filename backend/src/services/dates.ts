@@ -22,6 +22,29 @@ export function isParsedDateErr(p: ParsedDate): p is ParsedDateErr {
   return p.ok === false;
 }
 
+/**
+ * Like parseAvailabilityStart, but additionally rejects dates earlier
+ * than today (UTC) with a clear message. The frontend already does
+ * this client-side, but a determined user (or any direct API caller)
+ * could bypass it — the QA report flagged that "01012020" was being
+ * accepted server-side despite the UI hint.
+ */
+export function parseFutureAvailabilityStart(input: string | null | undefined): ParsedDate {
+  const base = parseAvailabilityStart(input);
+  if (!base.ok) return base;
+  if (base.value == null) return base;
+  // Compare as UTC midnight so timezone shifts don't kick a same-day
+  // entry into "the past" or vice-versa.
+  const [y, m, d] = base.value.split('-').map(Number);
+  const dt = Date.UTC(y, m - 1, d);
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (dt < todayUtc) {
+    return { ok: false, message: 'Start date must be today or later.' };
+  }
+  return base;
+}
+
 export function parseAvailabilityStart(input: string | null | undefined): ParsedDate {
   if (input == null) return { ok: true, value: null };
   const trimmed = String(input).trim();
