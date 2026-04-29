@@ -1,22 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, getAuth } from '../middleware/auth';
 import { pool } from '../db/client';
+import { buildComplianceSummary as buildSummary } from '../services/compliance/summary';
 
 const router = Router();
-
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
-function buildSummary(records: any[]) {
-  const total = records.length;
-  const completed = records.filter(r => ['completed', 'signed', 'read'].includes(r.status)).length;
-  const pending = records.filter(r => ['not_started', 'in_progress'].includes(r.status)).length;
-  const expired = records.filter(r => r.status === 'expired').length;
-  const failed = records.filter(r => r.status === 'failed').length;
-  const completion_rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-  return { total, completed, pending, expired, failed, completion_rate };
-}
 
 // ---------------------------------------------------------------------------
 // Staff Integration
@@ -45,7 +32,7 @@ router.get('/staff/:staffId/compliance', requireAuth, async (req: Request, res: 
         });
       }
 
-      const [recordsResult, expiringSoonResult] = await Promise.all([
+      const [recordsResult, expiringSoonResult, credentialsResult] = await Promise.all([
         client.query(
           `SELECT * FROM comp_competency_records WHERE user_clerk_id = $1 ORDER BY assigned_date DESC`,
           [staff.clerk_user_id]
@@ -57,10 +44,28 @@ router.get('/staff/:staffId/compliance', requireAuth, async (req: Request, res: 
            ORDER BY expiration_date ASC LIMIT 5`,
           [staff.clerk_user_id]
         ),
+        // Pull staff credentials (RN/LPN licenses, BLS, etc.) from the
+        // `credentials` table so they count toward compliance metrics —
+        // not just competency records. Map the credential status vocab
+        // to the document-status vocab buildSummary expects.
+        client.query(
+          `SELECT id, type AS document_type, type AS label,
+                  CASE
+                    WHEN status IN ('valid','expiring','expiring_soon') THEN 'approved'
+                    WHEN status = 'pending' THEN 'pending'
+                    WHEN status = 'missing' THEN 'missing'
+                    WHEN status = 'expired' THEN 'expired'
+                    ELSE 'pending'
+                  END AS status,
+                  TRUE AS required, expiry_date
+           FROM credentials WHERE staff_id = $1`,
+          [staff.id]
+        ).catch(() => ({ rows: [] as any[] })),
       ]);
 
       const records = recordsResult.rows;
       const expiring_soon = expiringSoonResult.rows;
+      const credentialDocs = credentialsResult.rows;
 
       return res.json({
         linked: true,
@@ -70,8 +75,9 @@ router.get('/staff/:staffId/compliance', requireAuth, async (req: Request, res: 
           last_name: staff.last_name,
           clerk_user_id: staff.clerk_user_id,
         },
-        summary: buildSummary(records),
+        summary: buildSummary(records, credentialDocs),
         records,
+        documents: credentialDocs,
         expiring_soon,
       });
     } finally {
@@ -140,11 +146,20 @@ router.get('/candidate/:candidateId/compliance', requireAuth, async (req: Reques
     const { candidateId } = req.params;
     const client = await pool.connect();
     try {
-      const [recordsResult, assignmentsResult] = await Promise.all([
+      // Fetch competency records, candidate documents, and assigned bundles
+      // in parallel. The docs query may fail on instances that haven't run
+      // candidates_migration.sql yet — fall back to empty so the endpoint
+      // still returns rather than 500'ing.
+      const [recordsResult, documentsResult, assignmentsResult] = await Promise.all([
         client.query(
           `SELECT * FROM comp_competency_records WHERE candidate_id = $1 ORDER BY assigned_date DESC`,
           [candidateId]
         ),
+        client.query(
+          `SELECT id, document_type, label, status, required, expiry_date, approved_at
+           FROM candidate_documents WHERE candidate_id = $1 ORDER BY created_at DESC`,
+          [candidateId]
+        ).catch(() => ({ rows: [] as any[] })),
         client.query(
           `SELECT oa.*, b.title as bundle_title, b.description as bundle_description,
              (SELECT COUNT(*) FROM comp_bundle_items WHERE bundle_id = oa.bundle_id) as item_count
@@ -156,9 +171,14 @@ router.get('/candidate/:candidateId/compliance', requireAuth, async (req: Reques
       ]);
 
       const records = recordsResult.rows;
+      const documents = documentsResult.rows;
       return res.json({
-        summary: buildSummary(records),
+        // Frontend expects `linked` to decide whether to render the
+        // dashboard — candidate compliance is always linkable, so true.
+        linked: true,
+        summary: buildSummary(records, documents),
         records,
+        documents,
         assigned_bundles: assignmentsResult.rows,
       });
     } finally {

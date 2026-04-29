@@ -1,4 +1,4 @@
-import { Pool, QueryResult } from 'pg';
+import { Pool, PoolClient, QueryResult } from 'pg';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -25,6 +25,29 @@ export async function query<T = Record<string, unknown>>(
     console.debug('Query executed', { text: text.slice(0, 80), duration, rows: result.rowCount });
   }
   return result;
+}
+
+// Run `fn` inside a single Postgres transaction. If `fn` throws, the
+// transaction is rolled back. The client is always released. Used by
+// stage-move endpoints so the candidate/submission UPDATE and the
+// stage-history INSERT either both commit or both don't — preventing
+// the "stage changed but history empty" / "history written but stage
+// rolled back" partial-write states the QA report flagged.
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* nested rollback failure isn't useful to surface */ }
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export { pool };

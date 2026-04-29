@@ -2,6 +2,40 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { candidatesApi, usersApi, OrgUser, ParsedResume } from '../../lib/api';
 import { useUser } from '../../lib/auth';
+import { useToast } from '../../components/ToastHost';
+
+// Pull the zod-flatten() shape ({ formErrors: string[], fieldErrors:
+// Record<string, string[]> }) out of a backend 400 response and turn
+// it into a flat per-field map. Returns null if the response isn't a
+// validation error.
+function extractFieldErrors(err: any): Record<string, string> | null {
+  const details = err?.response?.data?.details;
+  if (!details) return null;
+  const out: Record<string, string> = {};
+  if (details.formErrors?.length) {
+    out._form = details.formErrors.join(' ');
+  }
+  if (details.fieldErrors && typeof details.fieldErrors === 'object') {
+    for (const [field, msgs] of Object.entries(details.fieldErrors as Record<string, string[]>)) {
+      if (Array.isArray(msgs) && msgs.length > 0) out[field] = msgs[0];
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Human-readable label for the auto-extracted field errors.
+const FIELD_LABELS: Record<string, string> = {
+  first_name: 'First Name',
+  last_name: 'Last Name',
+  email: 'Email',
+  phone: 'Phone',
+  role: 'Role',
+  years_experience: 'Years of Experience',
+  availability_start: 'Available Start Date',
+  availability_type: 'Availability Type',
+  desired_pay_rate: 'Desired Pay Rate',
+  assigned_recruiter_id: 'Assigned Recruiter',
+};
 
 type DuplicateMatch = { id: string; first_name: string; last_name: string; email?: string; phone?: string; role?: string; stage: string; status: string; created_at: string };
 
@@ -78,6 +112,12 @@ export default function CandidateNew() {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Synchronous re-entry guard. React's `saving` state is one render
+  // tick behind a click, so a fast double-click can fire submit twice
+  // before the button's `disabled` prop catches up.
+  const submitInFlight = useRef(false);
+  const toast = useToast();
 
   // Duplicate detection (Phase 3) — debounced check on email/phone/name
   const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
@@ -148,8 +188,32 @@ export default function CandidateNew() {
   };
 
   const handleSubmit = async () => {
+    if (submitInFlight.current || saving) return;
+    submitInFlight.current = true;
     setSaving(true);
     setSaveError(null);
+    setFieldErrors({});
+
+    // Client-side date validation. Browsers normalize <input type="date">
+    // to YYYY-MM-DD, so an invalid value would already be empty — but a
+    // user could still pick a date in the past, which the backend treats
+    // as valid. Explicitly catch past dates with a clear message.
+    if (form2.availability_start) {
+      const dt = new Date(form2.availability_start + 'T00:00:00Z');
+      if (isNaN(dt.getTime())) {
+        setFieldErrors({ availability_start: 'Please enter a valid future start date in MM/DD/YYYY format.' });
+        setSaving(false); submitInFlight.current = false;
+        return;
+      }
+      const todayUtcMidnight = new Date();
+      todayUtcMidnight.setUTCHours(0, 0, 0, 0);
+      if (dt.getTime() < todayUtcMidnight.getTime()) {
+        setFieldErrors({ availability_start: 'Start date must be today or later.' });
+        setSaving(false); submitInFlight.current = false;
+        return;
+      }
+    }
+
     try {
       const payload = {
         first_name: form.first_name.trim(),
@@ -172,10 +236,27 @@ export default function CandidateNew() {
         status: 'active' as const,
       };
       const res = await candidatesApi.create(payload);
+      toast.success(`Created candidate ${form.first_name} ${form.last_name}.`);
       navigate(`/candidates/${res.data.id}`);
     } catch (err: any) {
-      setSaveError(err?.response?.data?.error ?? 'Failed to save candidate.');
+      // Prefer specific zod field-level messages over the generic
+      // "Validation error" shell. Falls through to a top-of-form
+      // message + toast for any other failure mode.
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        const summary = Object.entries(fields)
+          .filter(([k]) => k !== '_form')
+          .map(([k, v]) => `${FIELD_LABELS[k] ?? k}: ${v}`)
+          .join(' · ');
+        setSaveError(summary || fields._form || 'Please correct the highlighted fields.');
+      } else {
+        const msg = err?.response?.data?.error ?? err?.message ?? 'Failed to save candidate.';
+        setSaveError(msg);
+        toast.error(msg);
+      }
     } finally {
+      submitInFlight.current = false;
       setSaving(false);
     }
   };
@@ -500,7 +581,13 @@ export default function CandidateNew() {
       )}
 
       {step === 2 && (
-        <div style={cardStyle}>
+        <form
+          style={cardStyle}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <Field label="Assigned Recruiter">
@@ -542,7 +629,30 @@ export default function CandidateNew() {
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <Field label="Available Start Date">
-                <input style={inputStyle()} type="date" value={form2.availability_start} onChange={set2('availability_start')} />
+                <input
+                  style={inputStyle(fieldErrors.availability_start ? { borderColor: '#dc2626' } : undefined)}
+                  type="date"
+                  value={form2.availability_start}
+                  onChange={(e) => {
+                    set2('availability_start')(e);
+                    if (fieldErrors.availability_start) {
+                      setFieldErrors((prev) => {
+                        const { availability_start: _, ...rest } = prev;
+                        return rest;
+                      });
+                    }
+                  }}
+                  min={new Date().toISOString().slice(0, 10)}
+                />
+                {fieldErrors.availability_start ? (
+                  <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
+                    {fieldErrors.availability_start}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                    Use the picker, or type MM/DD/YYYY. Must be today or later.
+                  </div>
+                )}
               </Field>
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
@@ -565,16 +675,18 @@ export default function CandidateNew() {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
             <button
+              type="button"
               onClick={() => setStep(1)}
+              disabled={saving}
               style={{
                 background: '#f1f5f9', color: '#374151', border: 'none', borderRadius: 8,
-                padding: '11px 24px', cursor: 'pointer', fontWeight: 600, fontSize: 14,
+                padding: '11px 24px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14,
               }}
             >
               ← Back
             </button>
             <button
-              onClick={handleSubmit}
+              type="submit"
               disabled={saving}
               style={{
                 background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8,
@@ -582,10 +694,10 @@ export default function CandidateNew() {
                 fontWeight: 600, fontSize: 15, opacity: saving ? 0.7 : 1,
               }}
             >
-              {saving ? 'Saving...' : 'Create Candidate'}
+              {saving ? 'Saving…' : 'Create Candidate'}
             </button>
           </div>
-        </div>
+        </form>
       )}
     </div>
   );

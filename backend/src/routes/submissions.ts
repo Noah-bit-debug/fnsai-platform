@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getAuth } from '../middleware/auth';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import { runGate } from '../services/credentialGate';
 import { scoreCandidateForJob, type ScoringCandidate, type ScoringJob } from '../services/candidateScoring';
 import { applyOnboardingBundlesForPlacement } from '../services/complianceAssignment';
@@ -236,20 +236,32 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
     const stageRes = await query(`SELECT key FROM pipeline_stages WHERE key = $1 AND tenant_id = 'default'`, [stage_key]);
     if (stageRes.rows.length === 0) { res.status(400).json({ error: `Unknown stage: ${stage_key}` }); return; }
 
-    const current = await query(`SELECT stage_key FROM submissions WHERE id = $1`, [req.params.id]);
-    if (current.rows.length === 0) { res.status(404).json({ error: 'Submission not found' }); return; }
-    const fromStage = current.rows[0].stage_key as string | null;
-
-    const updated = await query(
-      `UPDATE submissions SET stage_key = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [stage_key, req.params.id]
-    );
-
-    await query(
-      `INSERT INTO submission_stage_history (submission_id, from_stage, to_stage, changed_by, changed_by_name, note)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [req.params.id, fromStage, stage_key, req.userRecord?.id ?? null, req.userRecord?.name ?? getAuth(req).userId ?? 'system', note ?? null]
-    );
+    // Wrap UPDATE + history INSERT in a single transaction so no
+    // partial-write state ("stage moved but history empty" or vice
+    // versa) is visible. SELECT ... FOR UPDATE serializes rapid
+    // consecutive moves on the same submission so every transition
+    // is recorded in order.
+    const txOut = await withTransaction(async (client) => {
+      const cur = await client.query<{ stage_key: string | null }>(
+        `SELECT stage_key FROM submissions WHERE id = $1 FOR UPDATE`,
+        [req.params.id]
+      );
+      if (cur.rows.length === 0) return { found: false as const };
+      const fromStageInner = cur.rows[0].stage_key as string | null;
+      const upd = await client.query(
+        `UPDATE submissions SET stage_key = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+        [stage_key, req.params.id]
+      );
+      await client.query(
+        `INSERT INTO submission_stage_history (submission_id, from_stage, to_stage, changed_by, changed_by_name, note)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [req.params.id, fromStageInner, stage_key, req.userRecord?.id ?? null, req.userRecord?.name ?? getAuth(req).userId ?? 'system', note ?? null]
+      );
+      return { found: true as const, fromStage: fromStageInner, updated: upd };
+    });
+    if (!txOut.found) { res.status(404).json({ error: 'Submission not found' }); return; }
+    const fromStage = txOut.fromStage;
+    const updated = txOut.updated;
 
     // ─── Phase 5: auto-create placement when moving to 'placed' ──────────────
     // Idempotent: only creates a placement row if none exists for this

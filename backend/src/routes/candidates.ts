@@ -2,10 +2,11 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import { requireAuth, requirePermission, logAudit, AuthenticatedRequest } from '../middleware/auth';
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import { getAuth } from '../middleware/auth';
 import { parseResume, ResumeParseError } from '../services/resumeParser';
 import { reviewDocument, DocumentReviewError } from '../services/documentReviewer';
+import { parseAvailabilityStart } from '../services/dates';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -31,7 +32,18 @@ const candidateSchema = z.object({
   target_facility_id: z.string().uuid().optional().nullable(),
   desired_pay_rate: z.number().positive().optional().nullable(),
   offered_pay_rate: z.number().positive().optional().nullable(),
-  availability_start: z.string().optional().nullable(),
+  // Available Start Date — accepts either ISO `YYYY-MM-DD` (what
+  // <input type="date"> produces) or `MM/DD/YYYY` (what users type by
+  // hand). Empty / omitted is allowed. Anything else gets a clear
+  // user-facing message instead of a generic "Validation error".
+  availability_start: z.string().optional().nullable().transform((v, ctx) => {
+    const parsed = parseAvailabilityStart(v);
+    if (!parsed.ok) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.message });
+      return z.NEVER;
+    }
+    return parsed.value;
+  }),
   availability_type: z.enum(['full_time','part_time','per_diem','contract']).optional().nullable(),
   available_shifts: z.array(z.string()).optional().default([]),
   recruiter_notes: z.string().max(5000).optional().nullable(),
@@ -315,21 +327,38 @@ router.post('/:id/move-stage', requireAuth, requirePermission('candidate_stage_m
       return;
     }
 
-    const current = await query(
-      `SELECT stage, target_facility_id FROM candidates WHERE id = $1`,
-      [id]
-    );
-    if (current.rows.length === 0) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    // Run stage UPDATE + history INSERT inside one transaction.
+    // Without this, rapid moves can race (UPDATE for move B commits
+    // before INSERT for move A), and a network blip between the two
+    // statements leaves the candidate in the new stage with no audit
+    // trail. SELECT ... FOR UPDATE serializes concurrent moves on the
+    // same candidate so each transition is recorded in order.
+    const txResult = await withTransaction(async (client) => {
+      const cur = await client.query<{ stage: string; target_facility_id: string | null }>(
+        `SELECT stage, target_facility_id FROM candidates WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      if (cur.rows.length === 0) {
+        return { found: false as const };
+      }
+      const fromStage = cur.rows[0].stage;
+      const targetFacilityId = cur.rows[0].target_facility_id ?? null;
+      await client.query(
+        `UPDATE candidates SET stage = $1, updated_at = NOW() WHERE id = $2`,
+        [stage, id]
+      );
+      await client.query(
+        `INSERT INTO candidate_stage_history (candidate_id, from_stage, to_stage, moved_by, moved_by_name, notes)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, fromStage, stage, req.userRecord?.id ?? null, req.userRecord?.name ?? req.userRecord?.email ?? 'Unknown', notes ?? null]
+      );
+      return { found: true as const, fromStage, targetFacilityId };
+    });
 
-    const fromStage = current.rows[0].stage as string;
-    const targetFacilityId = (current.rows[0].target_facility_id ?? null) as string | null;
+    if (!txResult.found) { res.status(404).json({ error: 'Candidate not found' }); return; }
+    const fromStage = txResult.fromStage;
+    const targetFacilityId = txResult.targetFacilityId;
 
-    await query(`UPDATE candidates SET stage = $1, updated_at = NOW() WHERE id = $2`, [stage, id]);
-    await query(
-      `INSERT INTO candidate_stage_history (candidate_id, from_stage, to_stage, moved_by, moved_by_name, notes)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, fromStage, stage, req.userRecord?.id ?? null, req.userRecord?.name ?? req.userRecord?.email ?? 'Unknown', notes ?? null]
-    );
     await logAudit(null, auth?.userId ?? 'unknown', 'candidate.stageMove', id,
       { from: fromStage, to: stage }, (req.ip ?? 'unknown'));
 

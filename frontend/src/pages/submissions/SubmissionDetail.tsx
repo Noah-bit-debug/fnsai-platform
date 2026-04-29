@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   submissionsApi,
@@ -9,6 +9,7 @@ import {
   FitLabel,
   GateStatus,
 } from '../../lib/api';
+import { useToast } from '../../components/ToastHost';
 
 const FIT_COLOR: Record<FitLabel, string> = {
   excellent: '#059669', strong: '#10b981', moderate: '#f59e0b',
@@ -26,6 +27,11 @@ export default function SubmissionDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'score' | 'gate' | 'stage' | null>(null);
+  // Sync re-entry guard for the stage select. React state is one render
+  // tick behind a click; without the ref a fast double-change can fire
+  // moveStage twice before `busy` propagates to disable the select.
+  const stageInFlight = useRef(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -63,11 +69,33 @@ export default function SubmissionDetail() {
 
   const moveStage = async (newKey: string) => {
     if (!id || !submission || newKey === submission.stage_key) return;
-    const note = window.prompt('Optional note for this transition (press Enter to skip):') ?? '';
+    if (stageInFlight.current || busy === 'stage') return;
+    // Cancel returns null on every browser. Treat that as a real cancel
+    // (don't run the move) so the user gets the dropdown reverted on
+    // the next render and isn't surprised by a silent submission.
+    const note = window.prompt('Optional note for this transition (press Enter to skip):');
+    if (note === null) {
+      // Force the visible select back to its real value by triggering
+      // a refetch — React's controlled select will snap to s.stage_key.
+      void load();
+      return;
+    }
+    stageInFlight.current = true;
     setBusy('stage');
-    try { await submissionsApi.moveStage(id, newKey, note || undefined); await load(); }
-    catch (e) { alert(`Move failed: ${e instanceof Error ? e.message : 'unknown'}`); }
-    finally { setBusy(null); }
+    try {
+      await submissionsApi.moveStage(id, newKey, note.trim() || undefined);
+      await load();
+      toast.success('Submission stage updated.');
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? (e instanceof Error ? e.message : 'Stage move failed.');
+      toast.error(`Move failed: ${msg}`);
+      // Re-pull so the select snaps back to whatever the server actually
+      // has — prevents the dropdown from showing the optimistic value.
+      void load();
+    } finally {
+      stageInFlight.current = false;
+      setBusy(null);
+    }
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Loading…</div>;
