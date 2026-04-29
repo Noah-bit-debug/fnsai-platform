@@ -154,6 +154,7 @@ const UserAuditDetail   = lazy(() => import('./pages/admin/UserAuditDetail'));
 const MyPermissions     = lazy(() => import('./pages/admin/MyPermissions'));
 const NotificationCenter = lazy(() => import('./pages/NotificationCenter'));
 const ApiDocs = lazy(() => import('./pages/admin/ApiDocs'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 import ViewAsRoleBanner from './components/admin/ViewAsRoleBanner';
 
@@ -426,7 +427,12 @@ function AppRoutes() {
           <Route path="notifications" element={<NotificationCenter />} />
           <Route path="settings/api-docs" element={<ApiDocs />} />
 
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          {/* 404 — shows a real "page not found" card instead of silently
+              redirecting to /dashboard. The previous Navigate-to-dashboard
+              behavior masked typos and produced the QA-reported white-screen
+              symptom (malformed URL → /dashboard → auth gate → /sign-in
+              while MSAL ran in the background). */}
+          <Route path="*" element={<NotFound />} />
         </Route>
 
         {/* Public signing page — no auth wrapper */}
