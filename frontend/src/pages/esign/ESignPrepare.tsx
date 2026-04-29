@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { esignApi, ESignDocument } from '../../lib/api';
+import api, { esignApi, ESignDocument } from '../../lib/api';
 // Phase 3.4 — bundle the pdfjs worker statically so Vite processes the
 // ?url suffix at build time. The previous dynamic import with ?url
 // didn't always resolve at runtime, leaving worker undefined.
@@ -225,41 +225,36 @@ export default function ESignPrepare() {
     setPdfLoading(true);
     setPdfError(null);
     try {
-      // Fetch raw PDF from the backend file endpoint
-      const token = await getClerkToken();
-      const resp = await fetch(`/api/v1/esign/documents/${docId}/file`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      // Phase 3.4 — surface file-missing and other fetch errors instead of
-      // silently showing a placeholder. Most common: 404 "No file uploaded"
-      // when a doc was created as a stub but never had a PDF attached.
-      if (!resp.ok) {
-        let msg = `${resp.status} ${resp.statusText}`;
-        try {
-          const body = await resp.json();
-          if (body?.error) msg = body.error;
-        } catch { /* non-json 404 or empty body */ }
+      // Fetch raw PDF through the shared `api` instance so the MSAL bearer
+      // token is auto-attached. Earlier code used a bare `fetch` with a
+      // Clerk token getter — but this app runs on Azure MSAL, so no token
+      // was sent and the endpoint always 401'd.
+      let resp;
+      try {
+        resp = await api.get<ArrayBuffer>(`/esign/documents/${docId}/file`, {
+          responseType: 'arraybuffer',
+        });
+      } catch (e: any) {
+        const status = e?.response?.status ?? 0;
+        let msg = e?.message || `Request failed (${status})`;
+        // Axios returns the body as ArrayBuffer too — decode JSON if it is one.
+        const data = e?.response?.data;
+        if (data instanceof ArrayBuffer) {
+          try {
+            const text = new TextDecoder().decode(new Uint8Array(data));
+            const body = JSON.parse(text);
+            if (body?.error) msg = body.error;
+          } catch { /* non-json body */ }
+        }
         setPdfError(msg);
         setNumPages(1);
         return;
       }
 
-      const contentType = resp.headers.get('content-type') ?? '';
+      const contentType = (resp.headers['content-type'] ?? '').toString();
       console.log('[esign] /file response:', { status: resp.status, contentType });
 
-      // Check content type — if the backend sent back JSON or HTML instead
-      // of a PDF, pdfjs will fail with a confusing error. Catch it here
-      // with a useful message.
-      if (contentType.includes('application/json') || contentType.includes('text/html')) {
-        const text = await resp.text();
-        setPdfError(`Expected a PDF but got ${contentType}. Response: ${text.slice(0, 200)}`);
-        setNumPages(1);
-        return;
-      }
-
-      const arrayBuf = await resp.arrayBuffer();
-      console.log('[esign] received bytes:', arrayBuf.byteLength, 'type:', contentType);
+      const arrayBuf = resp.data;
 
       if (arrayBuf.byteLength === 0) {
         setPdfError('The file endpoint returned an empty response.');
@@ -309,14 +304,6 @@ export default function ESignPrepare() {
     } finally {
       setPdfLoading(false);
     }
-  };
-
-  const getClerkToken = async (): Promise<string> => {
-    try {
-      const clerkSession = (window as any).Clerk?.session;
-      if (clerkSession) return (await clerkSession.getToken()) ?? '';
-    } catch { /* */ }
-    return '';
   };
 
   // ─── Palette drag ──────────────────────────────────────────────────────────

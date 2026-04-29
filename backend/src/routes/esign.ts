@@ -7,6 +7,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { SYSTEM_TEMPLATES, generateSignedPDF } from '../services/esignService';
+import { sendEmail } from '../services/graph';
 
 const router = Router();
 
@@ -294,6 +295,45 @@ function getUserId(req: Request): string {
 function buildSigningUrl(token: string): string {
   const base = process.env.FRONTEND_URL ?? 'http://localhost:5173';
   return `${base}/sign/${token}`;
+}
+
+// Email a signing invitation. Best-effort — returns true on success, false
+// on any failure (missing email, Graph misconfigured, network error). The
+// caller decides how to surface partial failures; we never throw because a
+// failed email must not block a "document sent" status update.
+async function emailSigningInvitation(
+  signer: { name: string; email: string | null; token: string },
+  doc: { title: string; message?: string | null },
+  kind: 'invite' | 'reminder' = 'invite',
+): Promise<boolean> {
+  if (!signer.email) return false;
+  const url = buildSigningUrl(signer.token);
+  const subject = kind === 'reminder'
+    ? `Reminder: please sign "${doc.title}"`
+    : `Action required: sign "${doc.title}"`;
+  const intro = kind === 'reminder'
+    ? `This is a friendly reminder to sign <strong>${doc.title}</strong>.`
+    : `You have been requested to sign <strong>${doc.title}</strong>.`;
+  const message = doc.message ? `<p style="font-style:italic;color:#555">"${doc.message}"</p>` : '';
+  const body = `
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:560px">
+      <p>Hi ${signer.name},</p>
+      <p>${intro}</p>
+      ${message}
+      <p style="margin:24px 0">
+        <a href="${url}" style="background:#1565c0;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Open &amp; Sign</a>
+      </p>
+      <p style="font-size:12px;color:#666">If the button doesn't work, copy this link into your browser:<br/><a href="${url}">${url}</a></p>
+      <p style="font-size:11px;color:#888;margin-top:24px">This signing link is unique to you. Do not forward.</p>
+    </div>
+  `;
+  try {
+    await sendEmail(signer.email, subject, body);
+    return true;
+  } catch (err) {
+    console.error(`[esign] Failed to email signer ${signer.email}:`, err);
+    return false;
+  }
 }
 
 // ─── TEMPLATES ────────────────────────────────────────────────────────────────
@@ -731,6 +771,29 @@ router.post('/documents/:id/send', requireAuth, async (req: Request, res: Respon
       signing_order: doc.signing_order,
     });
 
+    // Email signers with their signing link. For sequential signing, only
+    // notify the first signer — the rest are notified as each prior signer
+    // completes (handled in the signature submission flow). For parallel
+    // signing, notify everyone immediately.
+    const sequential = doc.signing_order === 'sequential';
+    const toNotify = sequential ? signers.slice(0, 1) : signers;
+    const emailResults = await Promise.all(
+      toNotify.map((s) =>
+        emailSigningInvitation(
+          { name: s.name, email: s.email, token: s.token },
+          { title: doc.title, message: doc.message },
+          'invite',
+        ).then((ok) => ({ id: s.id, email: s.email, sent: ok }))
+      )
+    );
+    const emailsSent = emailResults.filter((r) => r.sent).length;
+    const emailsFailed = emailResults.length - emailsSent;
+    if (emailsSent > 0) {
+      await auditLog(id, 'invitation_emailed', userId, getClientIp(req), null, {
+        sent: emailsSent, failed: emailsFailed,
+      });
+    }
+
     const signersWithUrls = signers.map((s) => ({
       ...s,
       signing_url: buildSigningUrl(s.token),
@@ -739,7 +802,11 @@ router.post('/documents/:id/send', requireAuth, async (req: Request, res: Respon
     res.json({
       document: doc,
       signers: signersWithUrls,
-      message: 'Document sent for signing',
+      emails_sent: emailsSent,
+      emails_failed: emailsFailed,
+      message: emailsFailed > 0
+        ? `Document sent. ${emailsSent} of ${emailResults.length} invitation emails delivered; share the links below for the rest.`
+        : `Document sent and ${emailsSent} invitation${emailsSent === 1 ? '' : 's'} emailed.`,
     });
   } catch (err: any) {
     console.error('POST /documents/:id/send error:', err);
@@ -784,7 +851,7 @@ router.post('/documents/:id/remind-all', requireAuth, async (req: Request, res: 
     );
 
     if (signers.length === 0) {
-      return res.json({ pendingSigners: [], message: 'No pending signers found' });
+      return res.json({ pendingSigners: [], emails_sent: 0, message: 'No pending signers found' });
     }
 
     // Bump reminder count
@@ -794,7 +861,28 @@ router.post('/documents/:id/remind-all', requireAuth, async (req: Request, res: 
       [id]
     );
 
-    await auditLog(id, 'reminder_sent', userId, getClientIp(req), null, { count: signers.length });
+    // Look up the document title/message so the reminder email has context.
+    const { rows: [docRow] } = await pool.query(
+      `SELECT title, message FROM esign_documents WHERE id=$1`,
+      [id]
+    );
+    const docInfo = { title: docRow?.title ?? 'Document', message: docRow?.message ?? null };
+
+    const emailResults = await Promise.all(
+      signers.map((s) =>
+        emailSigningInvitation(
+          { name: s.name, email: s.email, token: s.token },
+          docInfo,
+          'reminder',
+        ).then((ok) => ({ id: s.id, sent: ok }))
+      )
+    );
+    const emailsSent = emailResults.filter((r) => r.sent).length;
+
+    await auditLog(id, 'reminder_sent', userId, getClientIp(req), null, {
+      count: signers.length,
+      emails_sent: emailsSent,
+    });
 
     const pendingSigners = signers.map((s) => ({
       id: s.id,
@@ -805,7 +893,14 @@ router.post('/documents/:id/remind-all', requireAuth, async (req: Request, res: 
     }));
 
     // Return as both `signers` and `pendingSigners` for frontend compatibility
-    res.json({ signers: pendingSigners, pendingSigners, message: 'Share these signing links with pending signers' });
+    res.json({
+      signers: pendingSigners,
+      pendingSigners,
+      emails_sent: emailsSent,
+      message: emailsSent > 0
+        ? `Reminders emailed to ${emailsSent} of ${signers.length} pending signers.`
+        : 'Share these signing links with pending signers',
+    });
   } catch (err: any) {
     console.error('POST /documents/:id/remind-all error:', err);
     res.status(500).json({ error: 'Failed to get signing links' });
@@ -1331,6 +1426,26 @@ router.post('/sign/:token/sign', async (req: Request, res: Response) => {
     let allSigned = remaining.length === 0;
     if (allSigned) {
       await finalizeDocument(signer.doc_id, signer.id, ip);
+    } else if (signer.signing_order === 'sequential') {
+      // For sequential signing, the next pending signer wasn't notified at
+      // /send time — email them now that it's their turn.
+      const { rows: [next] } = await pool.query(
+        `SELECT id, name, email, token FROM esign_signers
+         WHERE document_id=$1 AND status IN ('pending','viewed')
+         ORDER BY order_index ASC LIMIT 1`,
+        [signer.doc_id]
+      );
+      if (next) {
+        const { rows: [docRow] } = await pool.query(
+          `SELECT title, message FROM esign_documents WHERE id=$1`,
+          [signer.doc_id]
+        );
+        await emailSigningInvitation(
+          { name: next.name, email: next.email, token: next.token },
+          { title: docRow?.title ?? 'Document', message: docRow?.message ?? null },
+          'invite',
+        );
+      }
     }
 
     res.json({ success: true, message: 'Document signed successfully. Thank you!', allSigned });

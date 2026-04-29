@@ -15,7 +15,7 @@
  *   * AI-generated terms summary displayed in the detail view
  */
 import { Fragment, useEffect, useState } from 'react';
-import { bdApi, facilitiesApi, BDContract, BDContractVersion, BDContractAlert, Facility } from '../lib/api';
+import api, { bdApi, facilitiesApi, BDContract, BDContractVersion, BDContractAlert, Facility } from '../lib/api';
 
 const STATUS_COLORS: Record<BDContract['status'], string> = {
   draft: '#64748b', active: '#2e7d32', expired: '#c62828', terminated: '#991b1b',
@@ -221,12 +221,10 @@ function ContractDetail({ id, onChanged }: { id: string; onChanged: () => void }
 
   async function downloadVersion(vid: string, name: string | null) {
     try {
-      const res = await fetch(`/api/v1/bd/contracts/${id}/versions/${vid}/file`, {
-        headers: { Authorization: `Bearer ${await (window as any).Clerk?.session?.getToken?.() ?? ''}` },
+      const res = await api.get<Blob>(`/bd/contracts/${id}/versions/${vid}/file`, {
+        responseType: 'blob',
       });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url; a.download = name ?? 'contract';
       a.click();
