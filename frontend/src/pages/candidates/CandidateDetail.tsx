@@ -9,6 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
+import { useToast } from '../../components/ToastHost';
 
 const STAGES = ['application', 'interview', 'credentialing', 'onboarding', 'placed'] as const;
 type PipelineStage = typeof STAGES[number];
@@ -84,33 +85,63 @@ function MoveStageModal({
 }: {
   currentStage: string;
   onClose: () => void;
+  // onMove must throw on failure so the modal can surface the error
+  // inline. Returning a value is fine; throwing is what matters.
   onMove: (stage: string, notes: string) => Promise<void>;
 }) {
   const allStages = ['application', 'interview', 'credentialing', 'onboarding', 'placed', 'rejected', 'withdrawn'];
   const [stage, setStage] = useState(currentStage);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Guard against the React 18 batching window where a fast double-click
+  // can fire two onClick handlers before `saving` propagates. The ref
+  // updates synchronously.
+  const inFlight = useRef(false);
 
   const handleSubmit = async () => {
+    if (inFlight.current || saving) return;
     if (stage === currentStage) { onClose(); return; }
+    inFlight.current = true;
     setSaving(true);
+    setError(null);
     try {
       await onMove(stage, notes);
+      // Success: caller handles close + refetch.
+    } catch (e: any) {
+      // Surface the real reason. Keep the modal open so the user can
+      // retry or cancel; clear the saving state so the button re-enables.
+      const details = e?.response?.data?.details;
+      const msg =
+        e?.response?.data?.error ??
+        e?.message ??
+        'Stage move failed. Please try again.';
+      setError(
+        details
+          ? `${msg} — ${Object.entries(details.fieldErrors ?? {})
+              .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`)
+              .join('; ') || JSON.stringify(details)}`
+          : msg
+      );
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   };
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-    }}>
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}
+    >
       <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Move Stage</div>
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>New Stage</label>
-          <select style={inputStyle()} value={stage} onChange={(e) => setStage(e.target.value)}>
+          <select style={inputStyle()} value={stage} onChange={(e) => setStage(e.target.value)} disabled={saving}>
             {allStages.map((s) => (
               <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
@@ -123,18 +154,24 @@ function MoveStageModal({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Reason for moving stage..."
+            disabled={saving}
           />
         </div>
+        {error && (
+          <div style={{ marginBottom: 14, padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 13 }}>
+            {error}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}>
+          <button onClick={onClose} disabled={saving} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, color: '#374151' }}>
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={saving || stage === currentStage}
-            style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving || stage === currentStage ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, opacity: stage === currentStage ? 0.5 : 1 }}
+            style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: saving || stage === currentStage ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, opacity: stage === currentStage ? 0.5 : saving ? 0.7 : 1 }}
           >
-            {saving ? 'Moving...' : 'Move Stage'}
+            {saving ? 'Moving…' : 'Move Stage'}
           </button>
         </div>
       </div>
@@ -347,6 +384,7 @@ export default function CandidateDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { can } = useRBAC();
+  const toast = useToast();
 
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
@@ -579,9 +617,12 @@ export default function CandidateDetail() {
 
   const handleMoveStage = async (stage: string, notes: string) => {
     if (!id) return;
+    // Let exceptions propagate to the modal so it can render the
+    // backend's error message inline. Only close + refetch on success.
     await candidatesApi.moveStage(id, stage, notes);
     setShowMoveStage(false);
     await fetchAll();
+    toast.success(`Moved to ${stage.charAt(0).toUpperCase() + stage.slice(1)}.`);
   };
 
   const handleSendForm = async (formType: string) => {
@@ -601,8 +642,14 @@ export default function CandidateDetail() {
       await candidatesApi.updateDocument(id, docId, { status: status as any });
       const dRes = await candidatesApi.getDocuments(id);
       setDocuments(dRes.data?.documents ?? []);
+      // Approving / rejecting a required document changes the compliance
+      // summary numbers — re-pull so the Compliance tab stays in sync.
+      // Best-effort: a refresh failure here shouldn't break the doc update.
+      void loadCompliance().catch(() => { /* non-fatal */ });
+      toast.success(`Document marked ${status}.`);
     } catch (e: any) {
-      alert(e?.response?.data?.error ?? 'Failed to update document.');
+      const msg = e?.response?.data?.error ?? 'Failed to update document.';
+      toast.error(msg);
     }
   };
 
