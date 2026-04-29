@@ -471,6 +471,7 @@ async function runMigrations(): Promise<void> {
     'ai_team_migration.sql',
     'ai_brain_dedupe_clarifications.sql',
     'email_logs_mailbox.sql',
+    'onboarding_forms_dedupe.sql',
   ];
 
   const client = await pool.connect();

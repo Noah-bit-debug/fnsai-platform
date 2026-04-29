@@ -54,17 +54,27 @@ export default function SubmissionDetail() {
   const rescore = async () => {
     if (!id) return;
     setBusy('score');
-    try { await submissionsApi.rescore(id); await load(); }
-    catch (e) { alert(`Re-score failed: ${e instanceof Error ? e.message : 'unknown'}`); }
-    finally { setBusy(null); }
+    try {
+      await submissionsApi.rescore(id);
+      await load();
+      toast.success('Re-scored.');
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? (e instanceof Error ? e.message : 'unknown');
+      toast.error(`Re-score failed: ${msg}`);
+    } finally { setBusy(null); }
   };
 
   const recheckGate = async () => {
     if (!id) return;
     setBusy('gate');
-    try { await submissionsApi.recheckGate(id); await load(); }
-    catch (e) { alert(`Gate recheck failed: ${e instanceof Error ? e.message : 'unknown'}`); }
-    finally { setBusy(null); }
+    try {
+      await submissionsApi.recheckGate(id);
+      await load();
+      toast.success('Credential gate re-checked.');
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? (e instanceof Error ? e.message : 'unknown');
+      toast.error(`Gate recheck failed: ${msg}`);
+    } finally { setBusy(null); }
   };
 
   const moveStage = async (newKey: string) => {

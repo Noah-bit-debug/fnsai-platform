@@ -10,6 +10,8 @@ import { candidatesApi, Candidate, CandidateDocument, StageHistory, OnboardingFo
 import api from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
 import { useToast } from '../../components/ToastHost';
+import { extractFieldErrors, summarizeFieldErrors } from '../../lib/formErrors';
+import { CANDIDATE_FIELD_LABELS } from './CandidateNew';
 
 const STAGES = ['application', 'interview', 'credentialing', 'onboarding', 'placed'] as const;
 type PipelineStage = typeof STAGES[number];
@@ -608,8 +610,19 @@ export default function CandidateDetail() {
       const res = await candidatesApi.update(id, editForm);
       setCandidate(res.data);
       setEditing(false);
+      toast.success('Profile saved.');
     } catch (e: any) {
-      setSaveError(e?.response?.data?.error ?? 'Failed to save.');
+      // Surface zod field-level errors instead of the generic
+      // "Validation error" shell. Falls through to a top-of-form
+      // message + toast for any other failure mode.
+      const fields = extractFieldErrors(e);
+      if (fields) {
+        setSaveError(summarizeFieldErrors(fields, CANDIDATE_FIELD_LABELS));
+      } else {
+        const msg = e?.response?.data?.error ?? e?.message ?? 'Failed to save.';
+        setSaveError(msg);
+        toast.error(msg);
+      }
     } finally {
       setSaving(false);
     }

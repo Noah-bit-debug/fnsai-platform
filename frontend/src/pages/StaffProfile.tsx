@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { staffApi, Staff, Credential } from '../lib/api';
 import api from '../lib/api';
 import ComplianceWidget from '../components/ComplianceWidget';
+import { useToast } from '../components/ToastHost';
 
 type Tab = 'overview' | 'attendance' | 'writeups' | 'reviews' | 'compliance';
 
@@ -56,6 +57,7 @@ function lsKey(type: 'writeups' | 'reviews', id: string) {
 export default function StaffProfile() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>('overview');
   const [staff, setStaff] = useState<(Staff & { credentials?: Credential[] }) | null>(null);
   const [loading, setLoading] = useState(true);
@@ -147,8 +149,12 @@ export default function StaffProfile() {
       await api.post(`/compliance/integration/staff/${id}/link-user`, { clerk_user_id: selectedClerkUser });
       setSelectedClerkUser('');
       await fetchComplianceData();
-    } catch {
-      // silently fail; user can retry
+      toast.success('User account linked.');
+    } catch (e: any) {
+      // Surface the failure — staff/user linking is mission-critical for
+      // compliance attribution. Silent failures here mean staff appear
+      // unmonitored to the dashboard.
+      toast.error(e?.response?.data?.error ?? e?.message ?? 'Failed to link user.');
     } finally {
       setLinkingUser(false);
     }
@@ -159,7 +165,10 @@ export default function StaffProfile() {
     try {
       await api.post(`/compliance/integration/staff/${id}/unlink-user`, {});
       await fetchComplianceData();
-    } catch {}
+      toast.success('User account unlinked.');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? e?.message ?? 'Failed to unlink user.');
+    }
   }
 
   const saveWriteUps = (updated: WriteUp[]) => {

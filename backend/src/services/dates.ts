@@ -9,9 +9,18 @@
  * Used by the candidate create/edit zod schema. Keeping this pure and
  * exported makes the validation independently unit-testable.
  */
-export type ParsedDate =
-  | { ok: true; value: string | null }
-  | { ok: false; message: string };
+export interface ParsedDateOk  { ok: true;  value: string | null }
+export interface ParsedDateErr { ok: false; message: string }
+export type ParsedDate = ParsedDateOk | ParsedDateErr;
+
+// Type predicate. With `strictNullChecks: false` the project-wide
+// tsconfig weakens discriminated-union narrowing — `if (!parsed.ok)`
+// alone leaves `parsed` typed as the OK branch, so accessing `.message`
+// is a type error. Predicate functions narrow correctly even under
+// loose strictness.
+export function isParsedDateErr(p: ParsedDate): p is ParsedDateErr {
+  return p.ok === false;
+}
 
 export function parseAvailabilityStart(input: string | null | undefined): ParsedDate {
   if (input == null) return { ok: true, value: null };
