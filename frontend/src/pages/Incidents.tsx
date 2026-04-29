@@ -4,6 +4,17 @@ import { incidentsApi, staffApi, facilitiesApi, Incident, Staff, Facility } from
 import QueryState, { EmptyCta } from '../components/QueryState';
 import AIGuidedInterview from '../components/Incidents/AIGuidedInterview';
 import PermissionGate from '../components/PermissionGate';
+import { useToast } from '../components/ToastHost';
+import { todayIso, isIsoDate } from '../lib/isoDate';
+import { extractFieldErrors, summarizeFieldErrors } from '../lib/formErrors';
+
+const INCIDENT_FIELD_LABELS: Record<string, string> = {
+  staff_id: 'Staff Member',
+  facility_id: 'Facility',
+  type: 'Incident Type',
+  description: 'Description',
+  date: 'Date',
+};
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—';
@@ -57,6 +68,7 @@ const EMPTY_FORM: FormState = {
 
 export default function Incidents() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [form, setForm] = useState<FormState>({ ...EMPTY_FORM });
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Phase 4.1 — AI guided interview modal. Fully optional: clicking the
@@ -92,9 +104,19 @@ export default function Incidents() {
       queryClient.invalidateQueries({ queryKey: ['incidents'] });
       setForm({ ...EMPTY_FORM });
       setSubmitError(null);
+      toast.success('Incident reported.');
     },
-    onError: (e: { response?: { data?: { error?: string } }; message?: string }) => {
-      setSubmitError(e?.response?.data?.error ?? e?.message ?? 'Failed to submit');
+    onError: (e: any) => {
+      // Surface zod field-level errors so the user knows which field
+      // tripped (e.g. the date format regex). The previous generic
+      // "Validation error" string left the form looking like it had
+      // submitted successfully — QA bug #12.
+      const fields = extractFieldErrors(e);
+      const msg = fields
+        ? summarizeFieldErrors(fields, INCIDENT_FIELD_LABELS)
+        : (e?.response?.data?.error ?? e?.message ?? 'Failed to submit');
+      setSubmitError(msg);
+      toast.error(msg);
     },
   });
 
@@ -106,12 +128,20 @@ export default function Incidents() {
   const handleSubmit = () => {
     if (!form.staff_id) { setSubmitError('Select a staff member'); return; }
     if (!form.description.trim()) { setSubmitError('Description is required'); return; }
+    // Build the date deterministically. The backend requires strict
+    // YYYY-MM-DD; the previous `toLocaleDateString("en-CA")` fallback
+    // was locale-dependent and produced 400s on some Safari /
+    // Chromium-locale combinations, which manifested as the QA-reported
+    // "form clears, no incident added" symptom. todayIso() always emits
+    // a regex-passing string.
+    const date = form.date && isIsoDate(form.date) ? form.date : todayIso();
+    setSubmitError(null);
     createMut.mutate({
       staff_id: form.staff_id,
       facility_id: form.facility_id || undefined,
       type: form.type,
       description: form.description.trim(),
-      date: form.date || new Date().toLocaleDateString("en-CA"),
+      date,
       workers_comp_claim: form.workers_comp_claim,
     });
   };
