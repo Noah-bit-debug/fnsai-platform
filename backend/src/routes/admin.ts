@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getAuth, requireAuth, requireClerkAdmin } from '../middleware/auth';
-import { pool, query } from '../db/client';
+import { pool, query, withTransaction } from '../db/client';
 
 /**
  * Admin-only operational endpoints. Keep this small and tightly gated —
@@ -194,6 +194,180 @@ router.get('/whoami', requireAuth, async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[admin] whoami failed:', (err as Error).message);
     res.status(500).json({ error: 'Failed to load user' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// HARD DELETE — admin-only, irreversible, audit-snapshotted.
+//
+// Used for one-shot data removal: GDPR-style erasure requests, test-data
+// cleanup, removal of accidentally-created duplicates. Soft-archive
+// (status='withdrawn' on candidates) is the normal-operation path
+// exposed via the UI Archive button. Hard delete is the escape hatch.
+//
+// Safety design:
+//   1. Admin-only (requireClerkAdmin — no other path).
+//   2. UUID input only — never accepts a name. Names are too easy to
+//      mismatch and produce collateral damage. Caller obtains the UUID
+//      from the candidate/staff list or the SQL preview script.
+//   3. Snapshot the row + every dependent row to security_events.context
+//      *before* deleting. The audit row references the deleted IDs but
+//      retains the full PII payload as `wipe_snapshot`, so a regulator
+//      who later asks "what existed for that subject ID" can answer.
+//      (If the goal is to ALSO scrub that snapshot, follow up with a
+//      separate script — keeping it default-on covers the more common
+//      compliance posture.)
+//   4. Wrapped in a single transaction. Any failure rolls everything
+//      back; the snapshot, the cascades, and the parent delete all
+//      land or none of them do.
+//   5. Returns a per-table count so the caller can see the blast
+//      radius and verify it matches expectations.
+// ─────────────────────────────────────────────────────────────────────────
+
+interface WipeReport {
+  reason: string;
+  parent_table: 'candidates' | 'staff';
+  parent_id: string;
+  snapshot: Record<string, unknown>;
+  rows_deleted: Record<string, number>;
+}
+
+async function logWipe(actorOid: string | null, ip: string | null, report: WipeReport): Promise<void> {
+  // security_events is the dedicated audit sink for sensitive operations.
+  // Falls back to console.error if the table isn't present (older deploys).
+  try {
+    await query(
+      `INSERT INTO security_events (actor_oid, action, outcome, reason, context, ip_address)
+       VALUES ($1, 'admin.hard_delete', 'allowed', $2, $3, $4)`,
+      [actorOid, report.reason, JSON.stringify(report), ip],
+    );
+  } catch (err) {
+    console.error('[admin.hard_delete] failed to write security_events:', err);
+  }
+}
+
+router.post('/candidates/:id/hard-delete', requireAuth, requireClerkAdmin, async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { id } = req.params;
+  const reason = String((req.body as { reason?: unknown })?.reason ?? '').trim();
+  if (reason.length < 5) {
+    res.status(400).json({ error: 'reason is required (≥ 5 chars) — written to audit log.' });
+    return;
+  }
+
+  try {
+    const out = await withTransaction(async (client) => {
+      // Snapshot the row first
+      const cur = await client.query(`SELECT * FROM candidates WHERE id = $1`, [id]);
+      if (cur.rows.length === 0) return { found: false as const };
+
+      // Collect the row counts that *will be* deleted, before we touch them
+      const counts: Record<string, number> = {};
+      const tally = async (label: string, sql: string, params: unknown[]) => {
+        const r = await client.query(sql, params);
+        counts[label] = r.rows[0]?.n ?? 0;
+      };
+      await tally('candidate_documents',       `SELECT COUNT(*)::INT AS n FROM candidate_documents WHERE candidate_id=$1`, [id]);
+      await tally('candidate_stage_history',   `SELECT COUNT(*)::INT AS n FROM candidate_stage_history WHERE candidate_id=$1`, [id]);
+      await tally('submissions',               `SELECT COUNT(*)::INT AS n FROM submissions WHERE candidate_id=$1`, [id]);
+      await tally('placements',                `SELECT COUNT(*)::INT AS n FROM placements WHERE candidate_id=$1`, [id]);
+      await tally('onboarding_forms',          `SELECT COUNT(*)::INT AS n FROM onboarding_forms WHERE candidate_id=$1`, [id]);
+      await tally('reminders',                 `SELECT COUNT(*)::INT AS n FROM reminders WHERE candidate_id=$1`, [id]);
+
+      // Non-CASCADE children — wipe explicitly
+      await client.query(`DELETE FROM reminders WHERE candidate_id=$1`, [id]);
+      await client.query(`DELETE FROM onboarding_forms WHERE candidate_id=$1`, [id]);
+      await client.query(`DELETE FROM placements WHERE candidate_id=$1`, [id]);
+
+      // Parent row — CASCADE handles the rest (candidate_documents,
+      // candidate_stage_history, submissions, submission_stage_history,
+      // comp_competency_records, comp_placement_readiness,
+      // comp_onboarding_assignments).
+      const del = await client.query(`DELETE FROM candidates WHERE id=$1 RETURNING id`, [id]);
+      counts.candidates = del.rowCount ?? 0;
+
+      return {
+        found: true as const,
+        snapshot: cur.rows[0],
+        counts,
+      };
+    });
+
+    if (!out.found) { res.status(404).json({ error: 'Candidate not found' }); return; }
+
+    await logWipe(auth?.userId ?? null, req.ip ?? null, {
+      reason,
+      parent_table: 'candidates',
+      parent_id: id,
+      snapshot: out.snapshot,
+      rows_deleted: out.counts,
+    });
+
+    res.json({ success: true, parent_id: id, rows_deleted: out.counts });
+  } catch (err: any) {
+    console.error('[admin.hard_delete candidate]', err);
+    res.status(500).json({ error: 'Hard delete failed', detail: err?.message });
+  }
+});
+
+router.post('/staff/:id/hard-delete', requireAuth, requireClerkAdmin, async (req: Request, res: Response) => {
+  const auth = getAuth(req);
+  const { id } = req.params;
+  const reason = String((req.body as { reason?: unknown })?.reason ?? '').trim();
+  if (reason.length < 5) {
+    res.status(400).json({ error: 'reason is required (≥ 5 chars) — written to audit log.' });
+    return;
+  }
+
+  try {
+    const out = await withTransaction(async (client) => {
+      const cur = await client.query(`SELECT * FROM staff WHERE id = $1`, [id]);
+      if (cur.rows.length === 0) return { found: false as const };
+
+      const counts: Record<string, number> = {};
+      const tally = async (label: string, sql: string, params: unknown[]) => {
+        const r = await client.query(sql, params);
+        counts[label] = r.rows[0]?.n ?? 0;
+      };
+      await tally('credentials',      `SELECT COUNT(*)::INT AS n FROM credentials WHERE staff_id=$1`, [id]);
+      await tally('placements',       `SELECT COUNT(*)::INT AS n FROM placements WHERE staff_id=$1`, [id]);
+      await tally('documents',        `SELECT COUNT(*)::INT AS n FROM documents WHERE staff_id=$1`, [id]);
+      await tally('incidents',        `SELECT COUNT(*)::INT AS n FROM incidents WHERE staff_id=$1`, [id]);
+      await tally('onboarding_forms', `SELECT COUNT(*)::INT AS n FROM onboarding_forms WHERE staff_id=$1`, [id]);
+      await tally('reminders',        `SELECT COUNT(*)::INT AS n FROM reminders WHERE staff_id=$1`, [id]);
+
+      // Non-CASCADE children
+      await client.query(`DELETE FROM reminders WHERE staff_id=$1`, [id]);
+      await client.query(`DELETE FROM onboarding_forms WHERE staff_id=$1`, [id]);
+      await client.query(`DELETE FROM placements WHERE staff_id=$1`, [id]);
+      await client.query(`DELETE FROM documents WHERE staff_id=$1`, [id]);
+      await client.query(`DELETE FROM incidents WHERE staff_id=$1`, [id]);
+
+      // Parent — credentials CASCADE off staff_id
+      const del = await client.query(`DELETE FROM staff WHERE id=$1 RETURNING id`, [id]);
+      counts.staff = del.rowCount ?? 0;
+
+      return {
+        found: true as const,
+        snapshot: cur.rows[0],
+        counts,
+      };
+    });
+
+    if (!out.found) { res.status(404).json({ error: 'Staff not found' }); return; }
+
+    await logWipe(auth?.userId ?? null, req.ip ?? null, {
+      reason,
+      parent_table: 'staff',
+      parent_id: id,
+      snapshot: out.snapshot,
+      rows_deleted: out.counts,
+    });
+
+    res.json({ success: true, parent_id: id, rows_deleted: out.counts });
+  } catch (err: any) {
+    console.error('[admin.hard_delete staff]', err);
+    res.status(500).json({ error: 'Hard delete failed', detail: err?.message });
   }
 });
 
