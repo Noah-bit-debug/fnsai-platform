@@ -235,19 +235,36 @@ router.post('/candidate/:candidateId/assign-bundle', requireAuth, async (req: Re
         [candidateId, bundle_id, auth.userId]
       );
 
-      // For each bundle item, create competency record if not already present
+      // For each bundle item, create competency record if not already
+      // present. The QA report's "Assign Bundle button does nothing"
+      // bug came from this INSERT: comp_competency_records.user_clerk_id
+      // is VARCHAR(255) NOT NULL with no default, but the previous INSERT
+      // omitted it, so every assign-bundle call 500'd with a NOT-NULL
+      // constraint violation. The frontend's alert() error path was
+      // silently blocked by the QA's browser-automation tool, which
+      // produced the visible "modal stays open, no feedback" symptom.
+      //
+      // user_clerk_id is required by the comp_competency_records schema
+      // but candidates aren't IdP-linked yet (the candidates table has
+      // no clerk_user_id column — they get one only when promoted to
+      // staff). Use a synthetic identifier so the not-null constraint
+      // is satisfied without putting a real IdP id we don't have. The
+      // `candidate:<uuid>` shape makes the dependency explicit when
+      // reviewing the table later.
+      const candidateClerkId = `candidate:${candidateId}`;
+
       let created = 0;
       let skipped = 0;
       for (const item of itemsResult.rows) {
         const insertResult = await client.query(
           `INSERT INTO comp_competency_records
-             (candidate_id, item_type, item_id, title, status, due_date, assigned_by)
-           SELECT $1, $2, $3, $4, 'not_started', $5, $6
+             (user_clerk_id, candidate_id, item_type, item_id, title, status, due_date, assigned_by)
+           SELECT $1, $2, $3, $4, $5, 'not_started', $6, $7
            WHERE NOT EXISTS (
              SELECT 1 FROM comp_competency_records
-             WHERE candidate_id = $1 AND item_type = $2 AND item_id = $3
+             WHERE candidate_id = $2 AND item_type = $3 AND item_id = $4
            )`,
-          [candidateId, item.item_type, item.item_id, item.title, due_date ?? null, auth.userId]
+          [candidateClerkId, candidateId, item.item_type, item.item_id, item.title, due_date ?? null, auth.userId]
         );
         if (insertResult.rowCount && insertResult.rowCount > 0) {
           created++;

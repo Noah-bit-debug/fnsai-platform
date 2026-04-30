@@ -84,9 +84,32 @@ export async function sendSMS(to: string, message: string): Promise<SMSSendResul
       ?? 'unknown error';
     const identifier = axiosErr.response?.status
       ? `HTTP ${axiosErr.response.status}`
-      : (axiosErr.code ?? 'error');  // shows "EAI_AGAIN" instead of "???"
+      : (axiosErr.code ?? 'error');
     console.error('ClerkChat sendSMS error:', { to, identifier, providerMsg, data: axiosErr.response?.data });
-    throw new Error(`ClerkChat ${identifier}: ${providerMsg}`);
+
+    // Translate the most common transient infra failures into a user-
+    // readable message rather than the cryptic `EAI_AGAIN: getaddrinfo`
+    // string. The QA report Phase 5 #4 flagged this exact text. Code
+    // can't fix the DNS itself — Railway's DNS to api.clerkchat.com is
+    // intermittent — but the operator who sees this in the UI deserves
+    // to know whether to retry, escalate, or check billing.
+    const dnsLikely = new Set(['EAI_AGAIN', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED']);
+    if (axiosErr.code && dnsLikely.has(axiosErr.code)) {
+      throw new Error(
+        `SMS service unreachable (${axiosErr.code} after 3 retries). The Railway server couldn't contact api.clerkchat.com. ` +
+        `This is usually transient — wait a minute and retry. If it persists, contact your admin to check the deploy's outbound DNS.`,
+      );
+    }
+    if (axiosErr.response?.status === 401 || axiosErr.response?.status === 403) {
+      throw new Error('SMS service authentication failed. The CLERKCHAT_API_KEY may be missing or revoked — contact your admin.');
+    }
+    if (axiosErr.response?.status === 429) {
+      throw new Error('SMS service is rate-limited. Wait a moment and retry.');
+    }
+    if (axiosErr.response?.status && axiosErr.response.status >= 500) {
+      throw new Error(`SMS provider is having trouble (HTTP ${axiosErr.response.status}). Retry in a moment.`);
+    }
+    throw new Error(`SMS send failed: ${providerMsg}`);
   }
 }
 
