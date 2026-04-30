@@ -165,12 +165,21 @@ export default function ESignTemplatePrepare() {
         cMapPacked:          true,
         standardFontDataUrl: '/pdfjs/standard_fonts/',
       }).promise;
-      const dpr = Math.max(window.devicePixelRatio || 1, 1);
-      const renderScale = 1.6 * dpr;
+
+      // Render each page at exactly the resolution the browser will
+      // paint — 840 CSS px × DPR × small supersample. Keeps logos
+      // and text crisp without being upscaled from a too-small source.
+      // Mirrors ESignPrepare so doc + template builders look identical.
+      const TARGET_CSS_WIDTH = 840;
+      const SUPERSAMPLE = 1.5;
+      const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+
       const rendered: string[] = [];
       for (let i = 1; i <= pdf.numPages; i++) {
         try {
           const page = await pdf.getPage(i);
+          const baseViewport = page.getViewport({ scale: 1 });
+          const renderScale  = (TARGET_CSS_WIDTH * dpr * SUPERSAMPLE) / baseViewport.width;
           const viewport = page.getViewport({ scale: renderScale });
           const canvas = document.createElement('canvas');
           canvas.width  = Math.ceil(viewport.width);
