@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useUser, SignIn, RedirectToSignIn } from './lib/auth';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { RBACProvider } from './contexts/RBACContext';
@@ -190,11 +190,38 @@ void DocumentQA;
 
 function App() {
   const { isLoaded, isSignedIn } = useUser();
+  // If we've been "loading" too long, MSAL's inProgress is wedged in
+  // 'startup'. Show a recovery card instead of an infinite spinner —
+  // see the QA report on intermittent white-page sign-ins.
+  const [authStuck, setAuthStuck] = useState(false);
+  useEffect(() => {
+    if (isLoaded) { setAuthStuck(false); return; }
+    const t = setTimeout(() => setAuthStuck(true), 12_000);
+    return () => clearTimeout(t);
+  }, [isLoaded]);
 
   // DEV bypass — skip auth entirely for pressure testing
   if (DEV_BYPASS) return <RBACProvider><AppRoutes /></RBACProvider>;
 
   if (!isLoaded) {
+    if (authStuck) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24, fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }}>
+          <div style={{ maxWidth: 460, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: '28px 32px', boxShadow: '0 12px 32px rgba(15,23,42,0.08)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 8 }}>Sign-in stuck</div>
+            <h1 style={{ margin: '0 0 10px', fontSize: 20, fontWeight: 700, color: '#111827' }}>Still checking your sign-in…</h1>
+            <p style={{ margin: '0 0 18px', fontSize: 14, color: '#475569', lineHeight: 1.55 }}>
+              This usually clears up with a reload. If it keeps happening, your browser may be blocking third-party cookies for Microsoft sign-in.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ background: '#1565c0', color: '#fff', border: 0, borderRadius: 8, padding: '10px 18px', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+              Reload page
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         style={{

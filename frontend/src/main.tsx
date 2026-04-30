@@ -23,14 +23,26 @@ installErrorReporting();
 // LOGIN_SUCCESS event to set the active account, which is what React's
 // useAccount() reads.
 //
-// CRITICAL: this promise MUST have a .catch(). If initialize() rejects
-// (bad tenant ID, popup blocker, third-party-cookie block, transient
-// network), without a catch nothing renders — React never mounts —
-// and the user sees a permanent white screen with no error message
-// and no way to recover. This was the QA-reported "white screen on
-// /sign-in" bug. The catch path mounts a minimal recovery card
-// directly to #root, since the React tree isn't available yet.
-msalInstance.initialize().then(() => {
+// CRITICAL: this promise MUST have a .catch() AND a timeout. If
+// initialize() rejects (bad tenant ID, popup blocker, third-party-cookie
+// block, transient network), without a catch nothing renders — React
+// never mounts — and the user sees a permanent white screen with no
+// error message and no way to recover. If initialize() *hangs* (network
+// stall, slow DNS, Azure outage), neither .then nor .catch ever fires,
+// which produced the same white-screen symptom for a different reason.
+// The Promise.race below caps the wait at 12s and surfaces a recovery
+// card via renderInitFallback so the user always lands on something
+// actionable rather than a blank page.
+const MSAL_INIT_TIMEOUT_MS = 12_000;
+
+const initTimeout = new Promise<never>((_resolve, reject) => {
+  setTimeout(
+    () => reject(new Error(`MSAL initialize() exceeded ${MSAL_INIT_TIMEOUT_MS}ms — likely a network or Azure AD issue.`)),
+    MSAL_INIT_TIMEOUT_MS,
+  );
+});
+
+Promise.race([msalInstance.initialize(), initTimeout]).then(() => {
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
     msalInstance.setActiveAccount(accounts[0]);

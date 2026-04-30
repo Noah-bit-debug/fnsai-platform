@@ -328,14 +328,101 @@ export function SignIn(_props: { routing?: string }): React.ReactElement {
 
 // ─── <RedirectToSignIn /> — Clerk-compat ────────────────────────────────
 // Mimics Clerk's RedirectToSignIn. On mount, kicks the MSAL redirect flow.
-// Renders nothing visible — the browser navigates to Microsoft login.
-export function RedirectToSignIn(): React.ReactElement | null {
+//
+// Used to render `null` and rely on loginRedirect() actually navigating
+// the browser. When loginRedirect() failed silently (popup blocker,
+// third-party cookie block, network stall) the user was left staring at
+// a blank white page with no way to recover — that was the QA-reported
+// "sometimes the sign-in is a white page" bug.
+//
+// Now: render a visible "Redirecting…" splash immediately, and after
+// REDIRECT_TIMEOUT_MS without the browser actually leaving, surface a
+// fallback card with an explicit retry button. The retry calls
+// loginRedirect() again, which works most of the time once whatever
+// transient issue (popup blocker prompt, network blip) is resolved.
+const REDIRECT_TIMEOUT_MS = 8_000;
+
+export function RedirectToSignIn(): React.ReactElement {
   const isAuthed = useIsAuthenticated();
-  useEffect(() => {
-    if (isAuthed) return;
+  const [error, setError] = React.useState<Error | null>(null);
+  const [stuck, setStuck] = React.useState(false);
+
+  const startRedirect = React.useCallback(() => {
+    setError(null);
+    setStuck(false);
     msalInstance.loginRedirect(loginRequest).catch((err) => {
       console.error('[auth] RedirectToSignIn failed:', err);
+      setError(err instanceof Error ? err : new Error(String(err)));
     });
-  }, [isAuthed]);
-  return null;
+  }, []);
+
+  useEffect(() => {
+    if (isAuthed) return;
+    startRedirect();
+    // If the browser hasn't actually navigated within the timeout, it
+    // likely never will (popup blocked, deep linking issue, etc.).
+    // Show the retry UI.
+    const t = setTimeout(() => setStuck(true), REDIRECT_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [isAuthed, startRedirect]);
+
+  // If something definitive went wrong OR we've been waiting too long,
+  // give the user actionable UI instead of a blank screen.
+  if (error || stuck) {
+    return (
+      <div style={signInFallbackWrap}>
+        <div style={signInFallbackCard}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 8 }}>
+            {error ? 'Sign-in error' : 'Taking longer than expected'}
+          </div>
+          <h1 style={{ margin: '0 0 12px', fontSize: 20, fontWeight: 700, color: '#111827' }}>
+            {error ? "We couldn't reach Microsoft sign-in." : "Still redirecting…"}
+          </h1>
+          <p style={{ margin: '0 0 16px', fontSize: 14, color: '#475569', lineHeight: 1.55 }}>
+            {error
+              ? "This is usually a popup blocker, third-party cookies disabled, or a network blip. Click below to retry."
+              : "If nothing happens, your browser may be blocking the redirect. Click below to try again."}
+          </p>
+          {error && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 8, padding: '10px 12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#991b1b', marginBottom: 16, wordBreak: 'break-word' }}>
+              {error.message}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={startRedirect} style={signInFallbackBtn}>Sign in</button>
+            <button onClick={() => window.location.reload()} style={signInFallbackBtnGhost}>Reload page</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Normal path — visible "Redirecting…" splash so the user never sees
+  // a blank screen during the (typically sub-second) redirect.
+  return (
+    <div style={signInFallbackWrap}>
+      <div style={{ ...signInFallbackCard, textAlign: 'center' }}>
+        <div style={{ width: 32, height: 32, margin: '0 auto 14px', border: '3px solid #e5e7eb', borderTopColor: '#1565c0', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>Redirecting to sign in…</div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    </div>
+  );
 }
+
+const signInFallbackWrap: React.CSSProperties = {
+  minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  background: '#f8fafc', fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", padding: 24,
+};
+const signInFallbackCard: React.CSSProperties = {
+  maxWidth: 480, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14,
+  padding: '28px 32px', boxShadow: '0 12px 32px rgba(15,23,42,0.08)',
+};
+const signInFallbackBtn: React.CSSProperties = {
+  background: '#1565c0', color: '#fff', border: 0, borderRadius: 8,
+  padding: '10px 18px', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+};
+const signInFallbackBtnGhost: React.CSSProperties = {
+  background: '#f5f7fa', color: '#444', border: '1px solid #e5e7eb', borderRadius: 8,
+  padding: '10px 18px', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+};
