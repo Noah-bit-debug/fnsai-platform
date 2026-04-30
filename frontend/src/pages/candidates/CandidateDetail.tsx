@@ -749,6 +749,26 @@ export default function CandidateDetail() {
     }
   };
 
+  const handleDeleteDocument = async (docId: string, label: string) => {
+    if (!id) return;
+    const ok = await confirm({
+      title: 'Delete this document?',
+      description: `This permanently removes "${label}" from the candidate's record. The audit log retains a snapshot for compliance, but the document itself is gone. Continue?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await candidatesApi.deleteDocument(id, docId);
+      const dRes = await candidatesApi.getDocuments(id);
+      setDocuments(dRes.data?.documents ?? []);
+      void loadCompliance().catch(() => { /* non-fatal */ });
+      toast.success('Document deleted.');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Failed to delete document.');
+    }
+  };
+
   const cardStyle: React.CSSProperties = { background: '#fff', borderRadius: 12, border: '1px solid #e8edf2', padding: 24, marginBottom: 16 };
   const tabBtn = (tab: string): React.CSSProperties => ({
     padding: '9px 20px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -1116,6 +1136,7 @@ export default function CandidateDetail() {
                   canManage={can('credentialing_manage')}
                   candidateId={candidate.id}
                   onStatusChange={handleUpdateDocStatus}
+                  onDelete={handleDeleteDocument}
                   onReviewed={() => {
                     // Refresh docs after AI review so status + expiry update immediately
                     void candidatesApi.getDocuments(candidate.id).then((r) => setDocuments(r.data?.documents ?? []));
@@ -1515,16 +1536,32 @@ export default function CandidateDetail() {
             <div style={{ fontSize: 18, fontWeight: 700, color: '#1a2b3c', marginBottom: 20 }}>Assign Compliance Bundle</div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Bundle *</label>
-              <select
-                style={inputStyle()}
-                value={selectedBundle}
-                onChange={(e) => setSelectedBundle(e.target.value)}
-              >
-                <option value="">— Select a bundle —</option>
-                {availableBundles.map((b) => (
-                  <option key={b.id} value={b.id}>{b.title}</option>
-                ))}
-              </select>
+              {availableBundles.length === 0 ? (
+                // QA Phase 2 #10 — empty bundle dropdown was a dead end.
+                // Now: explain why and link to where the user creates one.
+                <div style={{ padding: '12px 14px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, fontSize: 13, color: '#7c2d12', lineHeight: 1.5 }}>
+                  No published compliance bundles yet.{' '}
+                  <a
+                    href="/compliance/admin/bundles"
+                    onClick={(e) => { e.preventDefault(); navigate('/compliance/admin/bundles'); }}
+                    style={{ color: '#1565c0', fontWeight: 600 }}
+                  >
+                    Create one in Compliance Admin → Bundles
+                  </a>
+                  , publish it, then come back to assign it here.
+                </div>
+              ) : (
+                <select
+                  style={inputStyle()}
+                  value={selectedBundle}
+                  onChange={(e) => setSelectedBundle(e.target.value)}
+                >
+                  <option value="">— Select a bundle —</option>
+                  {availableBundles.map((b) => (
+                    <option key={b.id} value={b.id}>{b.title}</option>
+                  ))}
+                </select>
+              )}
             </div>
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Due Date (optional)</label>
@@ -1563,12 +1600,13 @@ export default function CandidateDetail() {
 // inline. High-confidence reviews auto-approve; low-confidence ones stay
 // pending and display the AI's summary + issues for human review.
 function DocumentRow({
-  doc, canManage, candidateId, onStatusChange, onReviewed,
+  doc, canManage, candidateId, onStatusChange, onDelete, onReviewed,
 }: {
   doc: CandidateDocument;
   canManage: boolean;
   candidateId: string;
   onStatusChange: (docId: string, status: string) => void;
+  onDelete?: (docId: string, label: string) => void;
   onReviewed: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1655,6 +1693,16 @@ function DocumentRow({
                   <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                 ))}
               </select>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(doc.id, doc.label)}
+                  title="Delete this document. Audit log retains a snapshot."
+                  style={{ padding: '4px 8px', background: 'transparent', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Delete
+                </button>
+              )}
             </>
           )}
         </div>

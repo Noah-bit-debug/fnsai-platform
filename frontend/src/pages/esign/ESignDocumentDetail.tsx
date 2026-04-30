@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { esignApi } from '../../lib/api';
+import { useToast } from '../../components/ToastHost';
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   draft:            { label: 'Draft',             color: '#666',    bg: '#f5f5f5' },
@@ -100,6 +101,7 @@ function SendBackModal({
 export default function ESignDocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
+  const toast = useToast();
   const location = useLocation();
   const [doc, setDoc] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
@@ -160,13 +162,19 @@ export default function ESignDocumentDetail() {
       const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/pdf' }));
       const a = document.createElement('a'); a.href = url; a.download = `${doc?.title}_signed.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert('Download not available yet.'); }
+    } catch { toast.error('Download not available yet.'); }
     finally { setDownloading(false); }
   };
 
   const handleVoid = async () => {
     setVoiding(true);
-    try { await esignApi.voidDocument(id!, 'Voided by administrator'); load(); }
+    try {
+      await esignApi.voidDocument(id!, 'Voided by administrator');
+      load();
+      toast.success('Document voided.');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Failed to void document.');
+    }
     finally { setVoiding(false); setShowVoidConfirm(false); }
   };
 
@@ -175,14 +183,20 @@ export default function ESignDocumentDetail() {
       const resp = await esignApi.remind(id!);
       const links = (resp.data as any).signers ?? (resp.data as any).pendingSigners ?? [];
       setSigningLinks(links);
-    } catch { alert('Failed to get signing links.'); }
+      toast.success('Reminder sent.');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Failed to get signing links.');
+    }
   };
 
   const handleSend = async () => {
     try {
       const resp = await esignApi.sendDocument2(id!);
       setSigningLinks(resp.data.signers ?? []);
-    } catch { alert('Failed to send.'); }
+      toast.success('Document sent for signature.');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Failed to send.');
+    }
   };
 
   const flash = (text: string, ok = true) => {
