@@ -329,27 +329,41 @@ export function SignIn(_props: { routing?: string }): React.ReactElement {
 // ─── <RedirectToSignIn /> — Clerk-compat ────────────────────────────────
 // Mimics Clerk's RedirectToSignIn. On mount, kicks the MSAL redirect flow.
 //
-// Used to render `null` and rely on loginRedirect() actually navigating
-// the browser. When loginRedirect() failed silently (popup blocker,
-// third-party cookie block, network stall) the user was left staring at
-// a blank white page with no way to recover — that was the QA-reported
-// "sometimes the sign-in is a white page" bug.
+// Two bugs informed the current shape:
 //
-// Now: render a visible "Redirecting…" splash immediately, and after
-// REDIRECT_TIMEOUT_MS without the browser actually leaving, surface a
-// fallback card with an explicit retry button. The retry calls
-// loginRedirect() again, which works most of the time once whatever
-// transient issue (popup blocker prompt, network blip) is resolved.
+//  1. PR #32 — used to return `null`, so when loginRedirect() failed
+//     silently (popup blocker, 3rd-party cookies, network blip) the
+//     user got a blank page. Now renders visible UI always, with an
+//     8s fallback after which an explicit retry button appears.
+//
+//  2. *This* fix — the previous version called loginRedirect() the
+//     moment isAuthed was false, even when MSAL's inProgress state
+//     was still 'startup' (booting) or 'handleRedirect' (processing
+//     the response from Microsoft). Calling loginRedirect() during
+//     handleRedirect throws MSAL into a loop: navigate to MS → come
+//     back → render → fire redirect again before MSAL finishes
+//     handling the previous one → user is stuck on "Redirecting…".
+//     Now we only call loginRedirect when MSAL's queue is genuinely
+//     empty (`inProgress === 'none'`), and we don't start the
+//     "stuck" timer until that gate has passed — so a slow
+//     handleRedirect never false-positives the fallback.
 const REDIRECT_TIMEOUT_MS = 8_000;
 
 export function RedirectToSignIn(): React.ReactElement {
   const isAuthed = useIsAuthenticated();
+  const { inProgress } = useMsal();
   const [error, setError] = React.useState<Error | null>(null);
   const [stuck, setStuck] = React.useState(false);
+  // Track whether we've ever actually fired loginRedirect so the retry
+  // button (and the "stuck" timer) are gated on a real attempt rather
+  // than just "MSAL is taking a while to boot". Ref because the
+  // callback closes over it without needing a re-render.
+  const attemptedRef = React.useRef(false);
 
   const startRedirect = React.useCallback(() => {
     setError(null);
     setStuck(false);
+    attemptedRef.current = true;
     msalInstance.loginRedirect(loginRequest).catch((err) => {
       console.error('[auth] RedirectToSignIn failed:', err);
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -358,13 +372,17 @@ export function RedirectToSignIn(): React.ReactElement {
 
   useEffect(() => {
     if (isAuthed) return;
+    // Only call loginRedirect when MSAL is genuinely idle. Firing it
+    // during 'startup' or 'handleRedirect' produces the redirect-loop
+    // ("stuck on Redirecting…") that surfaced after PR #32 deployed.
+    if (inProgress !== 'none') return;
+    if (attemptedRef.current) return; // already kicked off — don't retry every render
     startRedirect();
-    // If the browser hasn't actually navigated within the timeout, it
-    // likely never will (popup blocked, deep linking issue, etc.).
-    // Show the retry UI.
+    // Start the stuck-timer only AFTER an attempt was made. Otherwise
+    // a slow handleRedirect would false-trip the fallback.
     const t = setTimeout(() => setStuck(true), REDIRECT_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, [isAuthed, startRedirect]);
+  }, [isAuthed, inProgress, startRedirect]);
 
   // If something definitive went wrong OR we've been waiting too long,
   // give the user actionable UI instead of a blank screen.
@@ -389,7 +407,15 @@ export function RedirectToSignIn(): React.ReactElement {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={startRedirect} style={signInFallbackBtn}>Sign in</button>
+            {/* The retry button has to reset attemptedRef so the
+                effect treats this as a fresh attempt — without that,
+                the gate above (`if (attemptedRef.current) return`)
+                would block subsequent retries. */}
+            <button
+              onClick={() => { attemptedRef.current = false; startRedirect(); }}
+              style={signInFallbackBtn}>
+              Sign in
+            </button>
             <button onClick={() => window.location.reload()} style={signInFallbackBtnGhost}>Reload page</button>
           </div>
         </div>
@@ -397,13 +423,18 @@ export function RedirectToSignIn(): React.ReactElement {
     );
   }
 
-  // Normal path — visible "Redirecting…" splash so the user never sees
-  // a blank screen during the (typically sub-second) redirect.
+  // Splash. Message differentiates between "MSAL is still booting /
+  // processing the response from Microsoft" (waiting on inProgress)
+  // and "we just fired the redirect" (browser is leaving) so the user
+  // can tell whether something's happening.
+  const splashLabel = inProgress === 'none' && attemptedRef.current
+    ? 'Redirecting to sign in…'
+    : 'Checking your sign-in…';
   return (
     <div style={signInFallbackWrap}>
       <div style={{ ...signInFallbackCard, textAlign: 'center' }}>
         <div style={{ width: 32, height: 32, margin: '0 auto 14px', border: '3px solid #e5e7eb', borderTopColor: '#1565c0', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>Redirecting to sign in…</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>{splashLabel}</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     </div>
