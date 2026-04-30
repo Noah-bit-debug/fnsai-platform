@@ -508,6 +508,12 @@ export default function ESignTemplates() {
                           { label: '📋 Duplicate',    action: () => { handleDuplicate(t.id); setActionMenu(null); }, disabled: duplicating === t.id },
                           ...(!isSystem ? [
                             { label: '✏️ Edit',       action: () => { setEditTarget(t); setModalOpen(true); setActionMenu(null); } },
+                            // Stage 2 — only meaningful for templates that
+                            // have a PDF attached. Hidden for code-only or
+                            // un-uploaded templates.
+                            ...((t as any).file_path ? [
+                              { label: '🎯 Place Fields', action: () => { navigate(`/esign/templates/${t.id}/prepare`); setActionMenu(null); } },
+                            ] : []),
                             { label: '🗑 Delete',      action: () => { handleDelete(t.id); setActionMenu(null); }, danger: true, disabled: deleting === t.id },
                           ] : []),
                         ].map((item, i) => (
@@ -551,6 +557,15 @@ export default function ESignTemplates() {
                   >
                     Use Template
                   </button>
+                  {!isSystem && (t as any).file_path && (
+                    <button
+                      onClick={() => navigate(`/esign/templates/${t.id}/prepare`)}
+                      title="Place fields on the PDF"
+                      style={{ padding: '8px 12px', background: '#e3f2fd', color: '#1565c0', border: '1px solid #bbdefb', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}
+                    >
+                      🎯 Fields
+                    </button>
+                  )}
                   {!isSystem && (
                     <button
                       onClick={() => { setEditTarget(t); setModalOpen(true); }}
