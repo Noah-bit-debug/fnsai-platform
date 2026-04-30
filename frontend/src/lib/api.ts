@@ -973,6 +973,10 @@ export const esignApi = {
       { headers: { 'Content-Type': 'multipart/form-data' } },
     );
   },
+  // Streams the attached PDF as raw bytes — used by the template
+  // visual builder (Stage 2) to feed pdf.js for field placement.
+  getTemplateFile: (id: string) =>
+    api.get<ArrayBuffer>(`/esign/templates/${id}/file`, { responseType: 'arraybuffer' }),
 
   // Documents
   listDocuments: (params?: { status?: string; staff_id?: string; search?: string }) =>

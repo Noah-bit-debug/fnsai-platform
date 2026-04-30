@@ -62,6 +62,7 @@ const ESignDocumentDetail = lazy(() => import('./pages/esign/ESignDocumentDetail
 const ESignAnalytics = lazy(() => import('./pages/esign/ESignAnalytics'));
 const ESignPrepare = lazy(() => import('./pages/esign/ESignPrepare'));
 const ESignTemplates = lazy(() => import('./pages/esign/ESignTemplates'));
+const ESignTemplatePrepare = lazy(() => import('./pages/esign/ESignTemplatePrepare'));
 const ESignForms = lazy(() => import('./pages/esign/ESignForms'));
 
 // Compliance — 25+ pages, all lazy
@@ -390,6 +391,7 @@ function AppRoutes() {
           <Route path="esign/documents/:id" element={<ESignDocumentDetail />} />
           <Route path="esign/documents/:id/prepare" element={<ESignPrepare />} />
           <Route path="esign/templates" element={<ESignTemplates />} />
+          <Route path="esign/templates/:id/prepare" element={<ESignTemplatePrepare />} />
           <Route path="esign/forms" element={<ESignForms />} />
           <Route path="esign/analytics" element={<ESignAnalytics />} />
 

@@ -285,16 +285,34 @@ export default function ESignPrepare() {
       console.log('[esign] PDF parsed, pages:', pdf.numPages);
       setNumPages(pdf.numPages);
 
+      // Render at devicePixelRatio so the rasterised image stays crisp
+      // when the browser scales it down for display. With the previous
+      // fixed scale=1.6 the text could look fuzzy on Hi-DPI screens and
+      // — combined with sub-pixel canvas dimensions — the very top row
+      // of pixels could fail to paint, which matched the "top of the
+      // document is missing" report from the QA screenshots.
+      const dpr = Math.max(window.devicePixelRatio || 1, 1);
+      const cssScale = 1.6;
+      const renderScale = cssScale * dpr;
+
       const rendered: string[] = [];
       for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.6 });
-        const canvas = document.createElement('canvas');
-        canvas.width  = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d')!;
-        await (page.render as any)({ canvasContext: ctx, viewport, canvas }).promise;
-        rendered.push(canvas.toDataURL('image/png'));
+        try {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: renderScale });
+          const canvas = document.createElement('canvas');
+          // Round up so we never truncate a row/column of pixels.
+          canvas.width  = Math.ceil(viewport.width);
+          canvas.height = Math.ceil(viewport.height);
+          const ctx = canvas.getContext('2d')!;
+          await (page.render as any)({ canvasContext: ctx, viewport, canvas }).promise;
+          rendered.push(canvas.toDataURL('image/png'));
+        } catch (pageErr) {
+          // Don't kill the whole document because one page failed —
+          // push a placeholder and keep going. Surfaced in the page UI.
+          console.error(`[esign] page ${i} render failed`, pageErr);
+          rendered.push('');
+        }
       }
       setPdfPages(rendered);
     } catch (e) {
@@ -1148,7 +1166,9 @@ export default function ESignPrepare() {
                   <img
                     src={bgImg}
                     alt={`Page ${pageIdx + 1}`}
-                    style={{ width: '100%', display: 'block', pointerEvents: 'none' }}
+                    // verticalAlign: 'top' eliminates the baseline gap
+                    // some browsers leave above an inline-level image.
+                    style={{ width: '100%', display: 'block', verticalAlign: 'top', pointerEvents: 'none' }}
                     draggable={false}
                   />
                 ) : (
