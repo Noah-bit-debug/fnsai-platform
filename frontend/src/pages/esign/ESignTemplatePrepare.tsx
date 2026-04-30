@@ -577,6 +577,14 @@ export default function ESignTemplatePrepare() {
                   return (
                     <div key={f.id}
                       onMouseDown={(e) => { if (e.button === 0) startMove(f.id, e); }}
+                      // Without this, the synthesised click that follows
+                      // a mousedown+mouseup on the field bubbles up to
+                      // <main onClick={() => setSelectedId(null)}> and
+                      // immediately deselects the field — making it look
+                      // like clicking a field stops you editing it.
+                      // mousedown's stopPropagation doesn't cover click,
+                      // they're separate events.
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         position: 'absolute',
                         left:   `${f.x}%`,
