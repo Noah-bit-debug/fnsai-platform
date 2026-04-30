@@ -8,6 +8,14 @@ import path from 'path';
 import fs from 'fs';
 import { SYSTEM_TEMPLATES, generateSignedPDF } from '../services/esignService';
 import { sendEmail } from '../services/graph';
+import {
+  DEFAULT_TEMPLATE_ROLES,
+  validateRoles,
+  isRolesValidationErr,
+  isSigningOrder,
+  SIGNING_ORDER_VALUES,
+  type TemplateRole,
+} from '../services/templateRoles';
 
 const router = Router();
 
@@ -206,6 +214,15 @@ async function initEsignTables() {
     `ALTER TABLE esign_documents ADD COLUMN IF NOT EXISTS void_reason TEXT`,
     `ALTER TABLE esign_templates ADD COLUMN IF NOT EXISTS content TEXT DEFAULT ''`,
     `ALTER TABLE esign_documents ADD COLUMN IF NOT EXISTS correction_reason TEXT`,
+    // Phase: template-roles rework. Templates now own a PDF (file_path)
+    // so every document built from a template starts visually identical.
+    // Roles is a JSON array of {key, label, order} — used to ask for
+    // one signer per role at send time instead of one signer per
+    // document. signing_order on the template is the default for any
+    // document built from it.
+    `ALTER TABLE esign_templates ADD COLUMN IF NOT EXISTS file_path VARCHAR(500)`,
+    `ALTER TABLE esign_templates ADD COLUMN IF NOT EXISTS roles JSONB DEFAULT '[]'`,
+    `ALTER TABLE esign_templates ADD COLUMN IF NOT EXISTS signing_order VARCHAR(50) DEFAULT 'parallel'`,
   ];
   for (const q of alterQueries) {
     try { await pool.query(q); } catch (_) { /* column already exists */ }
@@ -342,7 +359,8 @@ async function emailSigningInvitation(
 router.get('/templates', requireAuth, async (req: Request, res: Response) => {
   try {
     const { rows: customTemplates } = await pool.query(
-      `SELECT id, name, category, description, fields, is_system, is_active, created_by, created_at, updated_at
+      `SELECT id, name, category, description, fields, is_system, is_active, created_by,
+              file_path, roles, signing_order, created_at, updated_at
        FROM esign_templates WHERE is_active = true ORDER BY category, name`
     );
 
@@ -352,6 +370,12 @@ router.get('/templates', requireAuth, async (req: Request, res: Response) => {
       category: t.category,
       description: t.description,
       fields: t.fields,
+      // Roles are part of the system-template definition (see
+      // services/esignService.ts). Default to the org-wide DEFAULT
+      // for any system template that hasn't been migrated yet.
+      roles: (t as any).roles ?? DEFAULT_TEMPLATE_ROLES,
+      signing_order: (t as any).signing_order ?? 'parallel',
+      file_path: null,
       is_system: true,
       is_active: true,
       created_by: null,
@@ -371,7 +395,17 @@ router.get('/templates/:id', requireAuth, async (req: Request, res: Response) =>
   try {
     const { id } = req.params;
     const sys = SYSTEM_TEMPLATES.find((t) => t.id === id);
-    if (sys) return res.json({ template: { ...sys, is_system: true } });
+    if (sys) {
+      return res.json({
+        template: {
+          ...sys,
+          is_system: true,
+          roles: (sys as any).roles ?? DEFAULT_TEMPLATE_ROLES,
+          signing_order: (sys as any).signing_order ?? 'parallel',
+          file_path: null,
+        },
+      });
+    }
 
     const { rows } = await pool.query(`SELECT * FROM esign_templates WHERE id = $1 AND is_active = true`, [id]);
     if (!rows[0]) return res.status(404).json({ error: 'Template not found' });
@@ -385,14 +419,26 @@ router.get('/templates/:id', requireAuth, async (req: Request, res: Response) =>
 // POST /esign/templates — create custom template
 router.post('/templates', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { name, category, description, content, fields } = req.body;
+    const { name, category, description, content, fields, roles, signing_order } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const userId = getUserId(req);
 
+    // Validate roles up front. New templates default to the org-wide
+    // role set ([HR, Candidate]) if the caller didn't pass any —
+    // matches the editor's "starts with the defaults" UX.
+    const rolesIn = roles === undefined ? DEFAULT_TEMPLATE_ROLES : roles;
+    const rolesV = validateRoles(rolesIn);
+    if (isRolesValidationErr(rolesV)) return res.status(400).json({ error: rolesV.message });
+    const so = signing_order ?? 'parallel';
+    if (!isSigningOrder(so)) return res.status(400).json({ error: `signing_order must be one of: ${SIGNING_ORDER_VALUES.join(', ')}` });
+
     const { rows } = await pool.query(
-      `INSERT INTO esign_templates (name, category, description, content, fields, is_system, created_by)
-       VALUES ($1, $2, $3, $4, $5, false, $6) RETURNING *`,
-      [name, category ?? 'Custom', description ?? '', content ?? '', JSON.stringify(fields ?? []), userId]
+      `INSERT INTO esign_templates
+         (name, category, description, content, fields, is_system, created_by, roles, signing_order)
+       VALUES ($1, $2, $3, $4, $5, false, $6, $7::jsonb, $8) RETURNING *`,
+      [name, category ?? 'Custom', description ?? '', content ?? '',
+       JSON.stringify(fields ?? []), userId,
+       JSON.stringify(rolesV.roles), so]
     );
     res.status(201).json({ template: rows[0] });
   } catch (err: any) {
@@ -408,14 +454,30 @@ router.put('/templates/:id', requireAuth, async (req: Request, res: Response) =>
     if (SYSTEM_TEMPLATES.find((t) => t.id === id)) {
       return res.status(400).json({ error: 'Cannot edit system templates. Duplicate it first.' });
     }
-    const { name, category, description, content, fields, is_active } = req.body;
+    const { name, category, description, content, fields, is_active, roles, signing_order } = req.body;
+
+    let rolesJson: string | null = null;
+    if (roles !== undefined) {
+      const rolesV = validateRoles(roles);
+      if (isRolesValidationErr(rolesV)) return res.status(400).json({ error: rolesV.message });
+      rolesJson = JSON.stringify(rolesV.roles);
+    }
+    if (signing_order !== undefined && !isSigningOrder(signing_order)) {
+      return res.status(400).json({ error: `signing_order must be one of: ${SIGNING_ORDER_VALUES.join(', ')}` });
+    }
+
     const { rows } = await pool.query(
       `UPDATE esign_templates
        SET name=COALESCE($1,name), category=COALESCE($2,category), description=COALESCE($3,description),
            content=COALESCE($4,content), fields=COALESCE($5,fields),
-           is_active=COALESCE($6,is_active), updated_at=NOW()
+           is_active=COALESCE($6,is_active),
+           roles=COALESCE($8::jsonb, roles),
+           signing_order=COALESCE($9, signing_order),
+           updated_at=NOW()
        WHERE id=$7 AND is_active=true RETURNING *`,
-      [name, category, description, content, fields ? JSON.stringify(fields) : null, is_active, id]
+      [name, category, description, content,
+       fields ? JSON.stringify(fields) : null, is_active, id,
+       rolesJson, signing_order ?? null]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Template not found' });
     res.json({ template: rows[0] });
@@ -457,9 +519,12 @@ router.post('/templates/:id/duplicate', requireAuth, async (req: Request, res: R
     }
     if (!tmpl) return res.status(404).json({ error: 'Template not found' });
 
+    const dupRoles = (tmpl as any).roles ?? DEFAULT_TEMPLATE_ROLES;
+    const dupSigningOrder = (tmpl as any).signing_order ?? 'parallel';
+
     const { rows } = await pool.query(
-      `INSERT INTO esign_templates (name, category, description, content, fields, is_system, created_by)
-       VALUES ($1, $2, $3, $4, $5, false, $6) RETURNING *`,
+      `INSERT INTO esign_templates (name, category, description, content, fields, is_system, created_by, roles, signing_order)
+       VALUES ($1, $2, $3, $4, $5, false, $6, $7::jsonb, $8) RETURNING *`,
       [
         `${tmpl.name} (Copy)`,
         tmpl.category,
@@ -467,12 +532,101 @@ router.post('/templates/:id/duplicate', requireAuth, async (req: Request, res: R
         tmpl.content ?? '',
         JSON.stringify(tmpl.fields ?? []),
         userId,
+        JSON.stringify(dupRoles),
+        dupSigningOrder,
       ]
     );
     res.status(201).json({ template: rows[0] });
   } catch (err: any) {
     console.error('POST /templates/:id/duplicate error:', err);
     res.status(500).json({ error: 'Failed to duplicate template' });
+  }
+});
+
+// POST /esign/templates/:id/upload-file — attach a PDF to a custom template.
+//
+// Templates that bundle a PDF mean the visual field-placement
+// experience (stage 2) starts from the same canvas every time a
+// document is built. The PDF is stored next to docs in
+// ESIGN_UPLOAD_DIR; subsequent doc creations either copy it or
+// reference it depending on the workflow.
+//
+// System templates remain content-text only — they're managed in
+// code (services/esignService.ts) and shouldn't accept user uploads.
+router.post('/templates/:id/upload-file', requireAuth, upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = getUserId(req);
+
+    if (SYSTEM_TEMPLATES.find((t) => t.id === id)) {
+      // Reject and clean up the temp upload — system templates are
+      // code-defined and don't accept user uploads.
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch { /* best effort */ }
+      }
+      return res.status(400).json({ error: 'Cannot upload a file to a system template. Duplicate it first.' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded (multipart field name: "file")' });
+    if (req.file.size === 0) {
+      try { fs.unlinkSync(req.file.path); } catch { /* */ }
+      return res.status(422).json({ error: 'File is empty (0 bytes). Please re-upload.' });
+    }
+
+    // Resolve to a stable path the file-serve endpoint can find.
+    const stored = path.relative(process.cwd(), req.file.path);
+    const { rows } = await pool.query(
+      `UPDATE esign_templates
+         SET file_path = $1, updated_at = NOW()
+       WHERE id = $2 AND is_active = true
+       RETURNING *`,
+      [stored, id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Template not found' });
+    res.json({ template: rows[0] });
+  } catch (err: any) {
+    console.error('POST /templates/:id/upload-file error:', err);
+    res.status(500).json({ error: 'Failed to attach file to template' });
+  }
+});
+
+// GET /esign/templates/:id/file — serve the PDF attached to a template.
+// Mirrors GET /documents/:id/file's path-resolution heuristics so a move
+// from ephemeral cwd/uploads to ESIGN_UPLOAD_DIR doesn't orphan stored
+// templates.
+router.get('/templates/:id/file', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (SYSTEM_TEMPLATES.find((t) => t.id === id)) {
+      return res.status(404).json({ error: 'System templates do not have an attached PDF.' });
+    }
+    const { rows } = await pool.query(
+      `SELECT name, file_path FROM esign_templates WHERE id=$1 AND is_active=true`,
+      [id]
+    );
+    const tmpl = rows[0];
+    if (!tmpl) return res.status(404).json({ error: 'Template not found' });
+    if (!tmpl.file_path) return res.status(404).json({ error: 'No file uploaded for this template' });
+
+    const filename = path.basename(tmpl.file_path);
+    const candidates = [
+      path.isAbsolute(tmpl.file_path) ? tmpl.file_path : null,
+      path.join(process.cwd(), tmpl.file_path.replace(/^\//, '')),
+      path.join(uploadDir, filename),
+    ].filter((p): p is string => !!p);
+    const absPath = candidates.find((p) => fs.existsSync(p));
+    if (!absPath) {
+      return res.status(404).json({
+        error: `Template file not found on disk. (tried: ${candidates.join(', ')})`,
+      });
+    }
+    const ext = path.extname(tmpl.file_path) || '.pdf';
+    const safeName = (tmpl.name ?? 'template').replace(/[^a-z0-9]/gi, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}${ext}"`);
+    res.sendFile(absPath);
+  } catch (err: any) {
+    console.error('GET /templates/:id/file error:', err);
+    res.status(500).json({ error: 'Failed to serve template file' });
   }
 });
 
@@ -558,31 +712,53 @@ router.get('/documents', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// POST /esign/documents — create document (with signers array, fields optional)
+// POST /esign/documents — create document (with signers array, fields optional).
+//
+// Accepts EITHER:
+//   - `signers: [{ name, email, role, ... }]` — legacy direct list,
+//     used by ad-hoc uploads where there are no role definitions.
+//   - `role_signers: { hr: { name, email, auth_method }, candidate: {...} }`
+//     — new role-mapping mode used when the template defines roles.
+//     The backend resolves the template's roles, sorts them by
+//     role.order, and creates one esign_signers row per role with
+//     order_index inherited from the role. signing_order on the doc
+//     defaults to the template's signing_order if not specified.
 router.post('/documents', requireAuth, async (req: Request, res: Response) => {
   try {
     const {
-      template_id, title, field_values, signers, fields,
+      template_id, title, field_values, signers, role_signers, fields,
       staff_id, expires_days, signing_order, message,
-    } = req.body;
+    } = req.body as Record<string, any>;
 
     if (!title) return res.status(400).json({ error: 'title is required' });
     const userId = getUserId(req);
 
-    // Validate template if provided
+    // Validate template if provided AND grab its roles + signing_order
+    // for the role-mapping mode below.
+    let templateRoles: TemplateRole[] = [];
+    let templateSigningOrder: string | null = null;
     if (template_id) {
       const sys = SYSTEM_TEMPLATES.find((t) => t.id === template_id);
-      if (!sys) {
-        const { rows } = await pool.query(
-          `SELECT id FROM esign_templates WHERE id=$1 AND is_active=true`,
+      if (sys) {
+        templateRoles = ((sys as any).roles ?? DEFAULT_TEMPLATE_ROLES) as TemplateRole[];
+        templateSigningOrder = (sys as any).signing_order ?? 'parallel';
+      } else {
+        const { rows } = await pool.query<{ id: string; roles: TemplateRole[] | null; signing_order: string | null }>(
+          `SELECT id, roles, signing_order FROM esign_templates WHERE id=$1 AND is_active=true`,
           [template_id]
         );
         if (!rows[0]) return res.status(400).json({ error: 'Template not found' });
+        templateRoles = Array.isArray(rows[0].roles) ? rows[0].roles : [];
+        templateSigningOrder = rows[0].signing_order;
       }
     }
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + (Number(expires_days) || 30));
+
+    // Doc-level signing_order falls back to the template's, then to
+    // 'parallel' if neither is set.
+    const effSigningOrder = signing_order ?? templateSigningOrder ?? 'parallel';
 
     const { rows: [doc] } = await pool.query(
       `INSERT INTO esign_documents
@@ -594,7 +770,7 @@ router.post('/documents', requireAuth, async (req: Request, res: Response) => {
         JSON.stringify(field_values ?? {}),
         staff_id ?? null,
         userId,
-        signing_order ?? 'parallel',
+        effSigningOrder,
         message ?? null,
         expiresAt,
       ]
@@ -602,23 +778,61 @@ router.post('/documents', requireAuth, async (req: Request, res: Response) => {
 
     await auditLog(doc.id, 'document_created', userId, getClientIp(req));
 
-    // Create signers
+    // Create signers — role-mapping path takes precedence when available.
     const createdSigners: any[] = [];
-    for (let i = 0; i < (signers ?? []).length; i++) {
-      const signer = signers[i];
-      if (!signer.name) continue;
-      const token = generateSigningToken();
-      const { rows: [s] } = await pool.query(
-        `INSERT INTO esign_signers
-           (document_id, name, email, role, order_index, group_id, token, auth_method)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [
-          doc.id, signer.name, signer.email ?? null,
-          signer.role ?? 'signer', signer.order_index ?? i,
-          signer.group_id ?? null, token, signer.auth_method ?? 'email_link',
-        ]
-      );
-      createdSigners.push(s);
+
+    if (role_signers && typeof role_signers === 'object' && templateRoles.length > 0) {
+      // Role-based path: one signer per template role, ordered by role.order.
+      const sortedRoles = [...templateRoles].sort((a, b) => a.order - b.order);
+      const missing: string[] = [];
+      for (const role of sortedRoles) {
+        const m = role_signers[role.key];
+        if (!m || typeof m !== 'object' || !m.name) {
+          missing.push(role.label);
+          continue;
+        }
+        const token = generateSigningToken();
+        const { rows: [s] } = await pool.query(
+          `INSERT INTO esign_signers
+             (document_id, name, email, role, order_index, group_id, token, auth_method)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          [
+            doc.id, m.name, m.email ?? null,
+            role.key,                 // store role.key in the signer.role column
+            role.order,               // sequential ordering inherited from role
+            null, token,
+            m.auth_method ?? 'email_link',
+          ]
+        );
+        createdSigners.push(s);
+      }
+      if (missing.length > 0) {
+        // Roll back the doc — we won't ship a half-mapped document.
+        await pool.query(`DELETE FROM esign_documents WHERE id=$1`, [doc.id]);
+        return res.status(400).json({
+          error: 'incomplete_role_mapping',
+          message: `Missing signer(s) for role(s): ${missing.join(', ')}.`,
+          missing_roles: missing,
+        });
+      }
+    } else {
+      // Legacy direct-signers path.
+      for (let i = 0; i < (signers ?? []).length; i++) {
+        const signer = signers[i];
+        if (!signer.name) continue;
+        const token = generateSigningToken();
+        const { rows: [s] } = await pool.query(
+          `INSERT INTO esign_signers
+             (document_id, name, email, role, order_index, group_id, token, auth_method)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          [
+            doc.id, signer.name, signer.email ?? null,
+            signer.role ?? 'signer', signer.order_index ?? i,
+            signer.group_id ?? null, token, signer.auth_method ?? 'email_link',
+          ]
+        );
+        createdSigners.push(s);
+      }
     }
 
     // Create fields if provided

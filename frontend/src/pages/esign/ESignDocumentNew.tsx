@@ -8,6 +8,11 @@ const SIGNER_ROLES = ['Signer', 'Approver', 'Viewer (CC)', 'Witness'];
 
 interface SignerRow { name: string; email: string; role: string; auth_method: string; }
 
+// One row per template-role, keyed by role.key. Used when the chosen
+// template defines roles (HR, Candidate, …) so we collect a real signer
+// per role instead of asking the user to add arbitrary names.
+interface RoleSignerRow { name: string; email: string; auth_method: string; }
+
 export default function ESignDocumentNew() {
   const nav = useNavigate();
   const location = useLocation();
@@ -30,8 +35,20 @@ export default function ESignDocumentNew() {
 
   // Signers step
   const [signers, setSigners] = useState<SignerRow[]>([{ name: '', email: '', role: 'Signer', auth_method: 'email_link' }]);
+  // role_signers — used when the chosen template defines roles. Map
+  // from role.key → { name, email, auth_method }.
+  const [roleSigners, setRoleSigners] = useState<Record<string, RoleSignerRow>>({});
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+
+  // True iff we're in template-mode AND the template has roles defined.
+  // Drives whether step 2 shows the role-mapping panel or the legacy
+  // free-form signers panel.
+  const useRoleSigners =
+    templateMode === 'template' &&
+    !!selectedTemplate &&
+    Array.isArray(selectedTemplate.roles) &&
+    selectedTemplate.roles.length > 0;
 
   const [searchParams] = useSearchParams();
 
@@ -109,7 +126,18 @@ export default function ESignDocumentNew() {
 
   const handleSend = async () => {
     setError('');
-    if (signers.filter(s => s.name).length === 0) { setError('Add at least one signer.'); return; }
+    if (useRoleSigners) {
+      const roles = selectedTemplate!.roles ?? [];
+      for (const r of roles) {
+        const m = roleSigners[r.key];
+        if (!m || !m.name.trim()) {
+          setError(`Please fill in the ${r.label} signer.`);
+          return;
+        }
+      }
+    } else {
+      if (signers.filter(s => s.name).length === 0) { setError('Add at least one signer.'); return; }
+    }
     setSending(true);
     try {
       const validSigners = signers.filter(s => s.name).map((s, i) => ({ name: s.name, email: s.email || undefined, role: s.role.toLowerCase().replace(/\s.*/, ''), order_index: i, auth_method: s.auth_method }));
@@ -145,14 +173,22 @@ export default function ESignDocumentNew() {
         // Template flow — POST /documents creates the draft with signers
         // attached in one shot. Preserve pre-existing behavior: user lands
         // on the detail page where they can send it.
-        const resp = await esignApi.sendDocument({
+        // When the template defines roles, send `role_signers` (a
+        // role.key → {name,email,auth_method} map) instead of `signers`.
+        // The backend resolves it to one row per role.
+        const body: Record<string, unknown> = {
           template_id: selectedTemplate!.id,
           title,
           field_values: fieldValues,
-          signers: validSigners,
           signing_order: signingOrder,
           expires_days: expiresDays,
-        });
+        };
+        if (useRoleSigners) {
+          body.role_signers = roleSigners;
+        } else {
+          body.signers = validSigners;
+        }
+        const resp = await (esignApi.sendDocument as unknown as (b: any) => Promise<any>)(body);
         targetDocId = resp.data.document.id;
         returnedSigners = resp.data.signers ?? [];
       }
@@ -245,6 +281,22 @@ export default function ESignDocumentNew() {
                             if (f.type === 'date') defaults[f.id] = new Date().toISOString().split('T')[0];
                           });
                           setFieldValues(defaults);
+                          // Inherit the template's signing_order so the
+                          // user doesn't have to re-pick it. The control
+                          // remains editable below.
+                          if (t.signing_order) setSigningOrder(t.signing_order);
+                          // Seed an empty role-signer row for each role
+                          // so the inputs render in step 2 without an
+                          // extra add-row click.
+                          if (t.roles && t.roles.length > 0) {
+                            const seeded: Record<string, RoleSignerRow> = {};
+                            for (const r of t.roles) {
+                              seeded[r.key] = { name: '', email: '', auth_method: 'email_link' };
+                            }
+                            setRoleSigners(seeded);
+                          } else {
+                            setRoleSigners({});
+                          }
                         }}
                         style={{ border: `2px solid ${selectedTemplate?.id === t.id ? '#1565c0' : '#e3e8f0'}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', background: selectedTemplate?.id === t.id ? '#f0f4ff' : '#fff', transition: 'all 0.12s' }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{t.name}</div>
@@ -323,11 +375,42 @@ export default function ESignDocumentNew() {
       {step === 'signers' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ background: '#fff', border: '1px solid #e3e8f0', borderRadius: 14, padding: 24 }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700 }}>Add Signers</h3>
+            <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700 }}>
+              {useRoleSigners ? 'Assign Signers to Roles' : 'Add Signers'}
+            </h3>
             <p style={{ margin: '0 0 20px', fontSize: 13, color: '#666' }}>
-              {signingOrder === 'sequential' ? '⚡ Sequential order — signers will receive the document one at a time, in the order listed below.' : '⚡ Parallel — all signers will receive the document at the same time.'}
+              {useRoleSigners
+                ? `This template defines ${selectedTemplate!.roles!.length} role${selectedTemplate!.roles!.length !== 1 ? 's' : ''}. Assign one signer per role.`
+                : signingOrder === 'sequential'
+                  ? '⚡ Sequential order — signers will receive the document one at a time, in the order listed below.'
+                  : '⚡ Parallel — all signers will receive the document at the same time.'}
             </p>
 
+            {useRoleSigners ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[...selectedTemplate!.roles!].sort((a, b) => a.order - b.order).map((role) => {
+                  const m = roleSigners[role.key] ?? { name: '', email: '', auth_method: 'email_link' };
+                  const update = (patch: Partial<RoleSignerRow>) =>
+                    setRoleSigners(prev => ({ ...prev, [role.key]: { ...m, ...patch } }));
+                  return (
+                    <div key={role.key} style={{ display: 'grid', gridTemplateColumns: signingOrder === 'sequential' ? '28px 120px 1fr 1fr 1fr' : '120px 1fr 1fr 1fr', gap: 8, alignItems: 'center', padding: '12px 14px', border: '1px solid #e8edf5', borderRadius: 10, background: '#fafbff' }}>
+                      {signingOrder === 'sequential' && (
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1565c0', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{role.order}</div>
+                      )}
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#1565c0' }}>{role.label}</div>
+                      <input placeholder="Full Name *" value={m.name} onChange={(e) => update({ name: e.target.value })} style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: 7, fontSize: 12 }} />
+                      <input placeholder="Email address" type="email" value={m.email} onChange={(e) => update({ email: e.target.value })} style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: 7, fontSize: 12 }} />
+                      <select value={m.auth_method} onChange={(e) => update({ auth_method: e.target.value })} style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: 7, fontSize: 12 }}>
+                        <option value="email_link">Email Link</option>
+                        <option value="sms_otp">SMS OTP</option>
+                        <option value="access_code">Access Code</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+            <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {signers.map((s, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: signingOrder === 'sequential' ? '24px 1fr 1fr 1fr 1fr auto' : '1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'center', padding: '12px 14px', border: '1px solid #e8edf5', borderRadius: 10, background: '#fafbff' }}>
@@ -355,11 +438,15 @@ export default function ESignDocumentNew() {
               style={{ marginTop: 12, fontSize: 12, color: '#1565c0', background: 'none', border: '1px dashed #1565c0', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 600 }}>
               + Add Another Signer
             </button>
+            </>
+            )}
           </div>
 
           {/* Summary */}
           <div style={{ background: '#f8f9fc', border: '1px solid #e3e8f0', borderRadius: 12, padding: '16px 20px', fontSize: 13, color: '#555' }}>
-            <strong>{title}</strong> will be sent to <strong>{signers.filter(s => s.name).length} signer{signers.filter(s => s.name).length !== 1 ? 's' : ''}</strong> and expires in <strong>{expiresDays} days</strong>.
+            {useRoleSigners
+              ? <><strong>{title}</strong> will be sent to <strong>{Object.values(roleSigners).filter(r => r.name).length} of {selectedTemplate!.roles!.length} role{selectedTemplate!.roles!.length !== 1 ? 's' : ''}</strong> and expires in <strong>{expiresDays} days</strong>.</>
+              : <><strong>{title}</strong> will be sent to <strong>{signers.filter(s => s.name).length} signer{signers.filter(s => s.name).length !== 1 ? 's' : ''}</strong> and expires in <strong>{expiresDays} days</strong>.</>}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>

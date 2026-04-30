@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from 'pdf-lib';
+import { DEFAULT_TEMPLATE_ROLES, type TemplateRole } from './templateRoles';
 
 export interface TemplateField {
   id: string;
@@ -8,6 +9,10 @@ export interface TemplateField {
   default_value?: string;
   options?: string[]; // for select type
   placeholder?: string;
+  // Optional role this field is bound to. When set, document-from-
+  // template uses this to wire the field to the right signer. Mirrors
+  // the PR scope: HR signs HR-bound fields, Candidate signs the rest.
+  role_key?: string;
 }
 
 export interface SystemTemplate {
@@ -17,7 +22,19 @@ export interface SystemTemplate {
   description: string;
   content: string;
   fields: TemplateField[];
+  // Roles + signing_order ship as part of every system template.
+  // Healthcare staffing flows are HR + Candidate by default; some
+  // templates (e.g. handbook ack) are candidate-only. Sequential
+  // ordering uses role.order.
+  roles?: TemplateRole[];
+  signing_order?: 'parallel' | 'sequential';
 }
+
+// Convenience: a candidate-only role list. Used by templates the
+// candidate signs without HR (e.g. handbook acknowledgment).
+const CANDIDATE_ONLY: TemplateRole[] = [
+  { key: 'candidate', label: 'Candidate', order: 1 },
+];
 
 // ─── 12 Pre-built Healthcare Compliance Templates ────────────────────────────
 export const SYSTEM_TEMPLATES: SystemTemplate[] = [
@@ -690,6 +707,59 @@ If declining TB testing, I understand this may affect my ability to accept place
 By signing below, I consent to TB testing as described above and certify that the information provided is accurate.`,
   },
 ];
+
+// ─── Role overlays for system templates ───────────────────────────────────────
+//
+// Each healthcare-staffing form has a different signing pattern. Rather
+// than threading a `roles` field through 12 inline definitions (which
+// invites copy-paste errors), the assignments live in this single map
+// and are overlaid onto SYSTEM_TEMPLATES at load time.
+//
+// Sequencing rationale:
+//   - `parallel` is the default — both parties sign whenever they get to it.
+//   - `sequential` is used where the upstream party's signature is a
+//     precondition (offer letter: HR signs first to lock the offer, THEN
+//     the candidate sees and accepts).
+
+type RoleOverlay = { roles: TemplateRole[]; signing_order: 'parallel' | 'sequential' };
+
+const HR_AND_CANDIDATE: TemplateRole[] = [
+  { key: 'hr',        label: 'HR',        order: 1 },
+  { key: 'candidate', label: 'Candidate', order: 2 },
+];
+
+const SYSTEM_TEMPLATE_ROLES: Record<string, RoleOverlay> = {
+  'hipaa-acknowledgment':    { roles: HR_AND_CANDIDATE, signing_order: 'parallel' },
+  'background-check-auth':   { roles: HR_AND_CANDIDATE, signing_order: 'parallel' },
+  'drug-screen-consent':     { roles: HR_AND_CANDIDATE, signing_order: 'parallel' },
+  'handbook-receipt':        { roles: CANDIDATE_ONLY,    signing_order: 'parallel' },
+  'direct-deposit':          { roles: CANDIDATE_ONLY,    signing_order: 'parallel' },
+  // Offer letter is the canonical sequential case: HR drafts + signs to
+  // lock the offer terms, then the candidate sees the locked offer and
+  // accepts.
+  'offer-letter':            { roles: HR_AND_CANDIDATE, signing_order: 'sequential' },
+  'nda-confidentiality':     { roles: HR_AND_CANDIDATE, signing_order: 'parallel' },
+  'facility-assignment':     { roles: HR_AND_CANDIDATE, signing_order: 'parallel' },
+  'emergency-contact':       { roles: CANDIDATE_ONLY,    signing_order: 'parallel' },
+  'at-will-acknowledgment':  { roles: CANDIDATE_ONLY,    signing_order: 'parallel' },
+  'workers-comp-notice':     { roles: CANDIDATE_ONLY,    signing_order: 'parallel' },
+  'tb-test-consent':         { roles: CANDIDATE_ONLY,    signing_order: 'parallel' },
+};
+
+// Apply the overlays once at module-load. Templates without an overlay
+// fall back to the org-wide DEFAULT_TEMPLATE_ROLES — preserves the
+// "sensible default" promise and means new system templates added
+// later still work even if someone forgets to update the overlay map.
+for (const t of SYSTEM_TEMPLATES) {
+  const overlay = SYSTEM_TEMPLATE_ROLES[t.id];
+  if (overlay) {
+    t.roles = overlay.roles;
+    t.signing_order = overlay.signing_order;
+  } else {
+    t.roles = DEFAULT_TEMPLATE_ROLES;
+    t.signing_order = 'parallel';
+  }
+}
 
 // ─── PDF Generation ───────────────────────────────────────────────────────────
 
