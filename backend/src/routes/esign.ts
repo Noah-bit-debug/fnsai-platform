@@ -16,15 +16,24 @@ import {
   SIGNING_ORDER_VALUES,
   type TemplateRole,
 } from '../services/templateRoles';
+import {
+  initEsignFileStore,
+  saveBlob,
+  loadBlob,
+} from '../services/esignFileStore';
 
 const router = Router();
 
 // ─── Multer file upload config ────────────────────────────────────────────────
-// Uploads go to ESIGN_UPLOAD_DIR if set (pointing at a Railway volume mount
-// or similar persistent storage) — otherwise fall back to cwd/uploads which
-// is ephemeral on Railway and wipes on every deploy.
-// Set ESIGN_UPLOAD_DIR=/app/persistent/esign on Railway after creating a
-// volume mounted at /app/persistent to keep uploaded PDFs between deploys.
+// Uploads now go to PostgreSQL (esign_file_blobs) via memoryStorage —
+// Railway's container filesystem is ephemeral, so anything written to
+// /uploads/esign/<file>.pdf disappeared on deploy and orphaned every
+// previously-uploaded document. Bytes survive there because the DB is
+// durable. See services/esignFileStore.ts.
+//
+// The legacy disk paths below are kept ONLY so the GET file routes
+// can serve already-uploaded files that pre-date this change (until
+// they get re-uploaded). New uploads do not touch disk.
 const uploadRootOverride = process.env.ESIGN_UPLOAD_DIR;
 const uploadDir = uploadRootOverride
   ? path.join(uploadRootOverride, 'originals')
@@ -32,16 +41,10 @@ const uploadDir = uploadRootOverride
 const signedDir = uploadRootOverride
   ? path.join(uploadRootOverride, 'signed')
   : path.join(process.cwd(), 'uploads', 'esign', 'signed');
-[uploadDir, signedDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
-console.log(`[esign] Upload dir: ${uploadDir}${uploadRootOverride ? ' (persistent)' : ' (EPHEMERAL — files wipe on deploy. Set ESIGN_UPLOAD_DIR env var to use persistent storage.)'}`);
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${uuidv4()}${ext}`);
-  },
-});
+// These mkdirs are best-effort for backwards compat — even if they
+// fail, uploads still work because they go through the blob store.
+try { [uploadDir, signedDir].forEach((d) => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); }); }
+catch { /* ignore — DB is the source of truth now */ }
 
 const ALLOWED_MIMETYPES = [
   'application/pdf',
@@ -54,7 +57,7 @@ const ALLOWED_MIMETYPES = [
 ];
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIMETYPES.includes(file.mimetype)) cb(null, true);
@@ -229,6 +232,7 @@ async function initEsignTables() {
   }
 }
 initEsignTables().catch(console.error);
+initEsignFileStore().catch(console.error);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -557,31 +561,35 @@ router.post('/templates/:id/upload-file', requireAuth, upload.single('file'), as
   try {
     const { id } = req.params;
     const userId = getUserId(req);
+    void userId; // currently unused — audit log on templates lives elsewhere.
 
     if (SYSTEM_TEMPLATES.find((t) => t.id === id)) {
-      // Reject and clean up the temp upload — system templates are
-      // code-defined and don't accept user uploads.
-      if (req.file?.path && fs.existsSync(req.file.path)) {
-        try { fs.unlinkSync(req.file.path); } catch { /* best effort */ }
-      }
+      // System templates are code-defined and don't accept uploads.
+      // memoryStorage means there's no temp file on disk to clean up.
       return res.status(400).json({ error: 'Cannot upload a file to a system template. Duplicate it first.' });
     }
     if (!req.file) return res.status(400).json({ error: 'No file uploaded (multipart field name: "file")' });
-    if (req.file.size === 0) {
-      try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    if (!req.file.buffer || req.file.buffer.length === 0) {
       return res.status(422).json({ error: 'File is empty (0 bytes). Please re-upload.' });
     }
 
-    // Resolve to a stable path the file-serve endpoint can find.
-    const stored = path.relative(process.cwd(), req.file.path);
+    // Bytes go to the durable blob store. file_path stays as a marker
+    // so the rest of the API ("does this template have a PDF?") and
+    // any pre-existing disk-backed templates keep working.
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.pdf';
+    const virtualPath = `/uploads/esign/${uuidv4()}${ext}`;
+
     const { rows } = await pool.query(
       `UPDATE esign_templates
          SET file_path = $1, updated_at = NOW()
        WHERE id = $2 AND is_active = true
        RETURNING *`,
-      [stored, id]
+      [virtualPath, id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Template not found' });
+
+    await saveBlob('template', id, 'original', req.file.mimetype, req.file.buffer);
+
     res.json({ template: rows[0] });
   } catch (err: any) {
     console.error('POST /templates/:id/upload-file error:', err);
@@ -607,6 +615,19 @@ router.get('/templates/:id/file', requireAuth, async (req: Request, res: Respons
     if (!tmpl) return res.status(404).json({ error: 'Template not found' });
     if (!tmpl.file_path) return res.status(404).json({ error: 'No file uploaded for this template' });
 
+    const ext = path.extname(tmpl.file_path) || '.pdf';
+    const safeName = (tmpl.name ?? 'template').replace(/[^a-z0-9]/gi, '_');
+
+    // Prefer the durable blob — that's where every upload after this
+    // change lives. Fall back to disk for legacy templates whose disk
+    // file may still exist.
+    const blob = await loadBlob('template', id, 'original');
+    if (blob) {
+      res.setHeader('Content-Type', blob.mime || 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}${ext}"`);
+      return res.send(blob.bytes);
+    }
+
     const filename = path.basename(tmpl.file_path);
     const candidates = [
       path.isAbsolute(tmpl.file_path) ? tmpl.file_path : null,
@@ -616,11 +637,9 @@ router.get('/templates/:id/file', requireAuth, async (req: Request, res: Respons
     const absPath = candidates.find((p) => fs.existsSync(p));
     if (!absPath) {
       return res.status(404).json({
-        error: `Template file not found on disk. (tried: ${candidates.join(', ')})`,
+        error: 'Template PDF is missing — please re-upload it from the template editor.',
       });
     }
-    const ext = path.extname(tmpl.file_path) || '.pdf';
-    const safeName = (tmpl.name ?? 'template').replace(/[^a-z0-9]/gi, '_');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${safeName}${ext}"`);
     res.sendFile(absPath);
@@ -641,15 +660,26 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      if (!req.file.buffer || req.file.buffer.length === 0) {
+        return res.status(422).json({ error: 'File is empty (0 bytes). Please re-upload.' });
+      }
       const userId = getUserId(req);
       const { title } = req.body;
-      const filePath = `/uploads/esign/${req.file.filename}`;
+
+      // file_path is kept as a stable virtual marker so downstream
+      // code that checks "does this doc have a file?" still works,
+      // and so legacy disk-backed docs continue to resolve. The bytes
+      // themselves live in the durable blob store.
+      const ext = path.extname(req.file.originalname).toLowerCase() || '.pdf';
+      const virtualPath = `/uploads/esign/${uuidv4()}${ext}`;
 
       const { rows: [doc] } = await pool.query(
         `INSERT INTO esign_documents (title, file_path, status, created_by)
          VALUES ($1, $2, 'draft', $3) RETURNING *`,
-        [title ?? req.file.originalname, filePath, userId]
+        [title ?? req.file.originalname, virtualPath, userId]
       );
+
+      await saveBlob('document', doc.id, 'original', req.file.mimetype, req.file.buffer);
 
       await auditLog(doc.id, 'document_uploaded', userId, getClientIp(req), null, {
         filename: req.file.originalname,
@@ -661,7 +691,7 @@ router.post(
         document: doc,
         file: {
           originalName: req.file.originalname,
-          path: filePath,
+          path: virtualPath,
           size: req.file.size,
           mimetype: req.file.mimetype,
         },
@@ -1148,12 +1178,18 @@ router.get('/documents/:id/download', requireAuth, async (req: Request, res: Res
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     if (!doc.signed_file_path) return res.status(404).json({ error: 'Signed PDF not yet available' });
 
-    const absPath = path.join(process.cwd(), doc.signed_file_path.replace(/^\//, ''));
-    if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Signed file not found on disk' });
-
     const safeName = (doc.title ?? 'document').replace(/[^a-z0-9]/gi, '_');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}_signed.pdf"`);
+
+    // Prefer the durable blob.
+    const blob = await loadBlob('document', req.params.id, 'signed');
+    if (blob) return res.send(blob.bytes);
+
+    const absPath = path.join(process.cwd(), doc.signed_file_path.replace(/^\//, ''));
+    if (!fs.existsSync(absPath)) {
+      return res.status(404).json({ error: 'Signed file is no longer available — please re-sign the document.' });
+    }
     res.sendFile(absPath);
   } catch (err: any) {
     console.error('GET /documents/:id/download error:', err);
@@ -1171,9 +1207,19 @@ router.get('/documents/:id/file', requireAuth, async (req: Request, res: Respons
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     if (!doc.file_path) return res.status(404).json({ error: 'No file uploaded for this document' });
 
-    // Try multiple candidate paths so moving from ephemeral cwd/uploads
-    // to a persistent ESIGN_UPLOAD_DIR doesn't orphan every existing doc.
-    // Also accepts the stored path directly if it's already absolute.
+    const safeName = (doc.title ?? 'document').replace(/[^a-z0-9]/gi, '_');
+    const ext = path.extname(doc.file_path) || '.pdf';
+
+    // Prefer the durable blob — every upload after this change lands
+    // there and survives Railway deploys. Disk fallback only matters
+    // for legacy uploads from before this change.
+    const blob = await loadBlob('document', req.params.id, 'original');
+    if (blob) {
+      res.setHeader('Content-Type', blob.mime || 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}${ext}"`);
+      return res.send(blob.bytes);
+    }
+
     const filename = path.basename(doc.file_path);
     const candidates = [
       path.isAbsolute(doc.file_path) ? doc.file_path : null,
@@ -1184,7 +1230,7 @@ router.get('/documents/:id/file', requireAuth, async (req: Request, res: Respons
     const absPath = candidates.find((p) => fs.existsSync(p));
     if (!absPath) {
       return res.status(404).json({
-        error: `File not found on disk. Original upload may have been wiped by an ephemeral filesystem reset. Re-upload the PDF via + New Document. (tried: ${candidates.join(', ')})`,
+        error: 'Original upload is no longer available — please create a new document and re-upload the PDF.',
       });
     }
 
@@ -1193,8 +1239,6 @@ router.get('/documents/:id/file', requireAuth, async (req: Request, res: Respons
       '.doc': 'application/msword', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     };
     const mime = extMimeMap[path.extname(doc.file_path).toLowerCase()] ?? 'application/octet-stream';
-    const safeName = (doc.title ?? 'document').replace(/[^a-z0-9]/gi, '_');
-    const ext = path.extname(doc.file_path) || '.pdf';
     res.setHeader('Content-Type', mime);
     res.setHeader('Content-Disposition', `inline; filename="${safeName}${ext}"`);
     res.sendFile(absPath);
@@ -1421,10 +1465,21 @@ async function finalizeDocument(docId: string, lastSignerId: string, ip: string)
       })),
     });
 
+    // Persist the signed PDF to the durable blob store. signed_file_path
+    // is kept as a "we have a signed PDF" marker so the rest of the
+    // pipeline (download endpoint, JSON responses) keeps working.
+    // Disk write is best-effort and only useful for legacy fallback.
     const signedFileName = `signed_${docId}_${Date.now()}.pdf`;
-    const signedFileFsPath = path.join(signedDir, signedFileName);
-    fs.writeFileSync(signedFileFsPath, Buffer.from(pdfBytes));
     signedFilePath = `/uploads/esign/signed/${signedFileName}`;
+    try {
+      await saveBlob('document', docId, 'signed', 'application/pdf', Buffer.from(pdfBytes));
+    } catch (blobErr) {
+      console.error('Failed to persist signed PDF to blob store', blobErr);
+    }
+    try {
+      const signedFileFsPath = path.join(signedDir, signedFileName);
+      fs.writeFileSync(signedFileFsPath, Buffer.from(pdfBytes));
+    } catch { /* ignore — DB is the source of truth */ }
   } catch (err) {
     console.error('PDF generation failed for document', docId, err);
     // Continue with finalization even if PDF generation fails
