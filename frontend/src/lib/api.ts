@@ -1132,6 +1132,33 @@ export interface Reminder {
   created_at: string;
 }
 
+// One row from candidate_upload_links. The `token` is the secret
+// piece that gets pasted into the public URL — treat it like a
+// password.
+export interface CandidateUploadLink {
+  id: string;
+  token: string;
+  label: string | null;
+  created_by: string | null;
+  expires_at: string | null;     // ISO timestamp or null = no expiry
+  max_uses: number | null;       // null = unlimited
+  used_count: number;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+// Public landing page metadata returned by GET /uploads/:token.
+// Reveals only the candidate's first name so the URL doesn't leak
+// PII to anyone who finds it.
+export interface CandidateUploadLinkPublic {
+  first_name: string;
+  label: string | null;
+  expires_at: string | null;
+  max_uses: number | null;
+  uses_remaining: number | null;
+}
+
 export const candidatesApi = {
   list: (params?: {
     stage?: string; status?: string; search?: string;
@@ -1167,6 +1194,17 @@ export const candidatesApi = {
     api.put<CandidateDocument>(`/candidates/${id}/documents/${docId}`, data),
   deleteDocument: (id: string, docId: string) =>
     api.delete<{ success: boolean }>(`/candidates/${id}/documents/${docId}`),
+
+  // ─── Tokenised candidate upload links ──────────────────────────
+  // Recruiter generates a public URL the candidate can use without
+  // logging in. Uploaded files attach to the candidate's documents
+  // automatically. See backend services/candidateUploadLinks.ts.
+  listUploadLinks: (id: string) =>
+    api.get<{ links: CandidateUploadLink[] }>(`/candidates/${id}/upload-links`),
+  createUploadLink: (id: string, data: { label?: string; expires_days?: number; max_uses?: number }) =>
+    api.post<{ link: CandidateUploadLink }>(`/candidates/${id}/upload-links`, data),
+  revokeUploadLink: (linkId: string) =>
+    api.delete<{ success: boolean }>(`/candidates/upload-links/${linkId}`),
   // Phase 1.3B — upload a file and run AI credential review on an existing
   // candidate_documents row. The backend stores the review JSON in notes,
   // updates expiry_date if readable, and auto-advances status when
@@ -1224,6 +1262,28 @@ export const candidatesApi = {
     api.post<{ summary: string }>(`/candidates/${id}/ai/recruiter-summary`, { job_id }),
   aiClientSummary: (id: string, job_id?: string) =>
     api.post<{ summary: string }>(`/candidates/${id}/ai/client-summary`, { job_id }),
+};
+
+// Public, token-gated candidate upload API. Called from /upload/:token —
+// the token IS the auth, so these requests are sent without a bearer.
+// We use the same axios instance so the base URL + interceptors apply,
+// but don't pass any auth-required helpers here.
+export const candidateUploadPublicApi = {
+  // Fetch the landing-page metadata. 404 means the token is bad,
+  // expired, revoked, or exhausted — the page renders the error.
+  info: (token: string) =>
+    api.get<CandidateUploadLinkPublic>(`/uploads/${token}`),
+  upload: (token: string, file: File, opts?: { document_type?: string; label?: string }) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (opts?.document_type) form.append('document_type', opts.document_type);
+    if (opts?.label)         form.append('label', opts.label);
+    return api.post<{ ok: true; document_id: string; filename: string; size: number }>(
+      `/uploads/${token}`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
 };
 
 // Candidate-kanban types — Phase 1.4 Pipeline rewrite with drag-drop.
