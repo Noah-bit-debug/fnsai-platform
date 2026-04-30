@@ -81,7 +81,10 @@ function inputStyle(extra?: React.CSSProperties): React.CSSProperties {
 }
 
 // ─── Move Stage Modal ─────────────────────────────────────────────────────────
-function MoveStageModal({
+// Exported for component-level regression tests — pins the QA-reported
+// freeze-on-error behavior fixed in PR #15 + the dynamic-stage list
+// from PR #18. See CandidateDetail.test.tsx.
+export function MoveStageModal({
   currentStage,
   onClose,
   onMove,
