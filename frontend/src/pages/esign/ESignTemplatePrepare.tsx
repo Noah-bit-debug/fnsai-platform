@@ -154,7 +154,17 @@ export default function ESignTemplatePrepare() {
       const pdfjsLib = await import('pdfjs-dist');
       pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
-      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      // wasmUrl + cMaps + standard fonts come from public/pdfjs/ which
+      // the prebuild copies out of node_modules/pdfjs-dist. The wasm
+      // decoders are what make JPEG2000 / JBIG2 images render — without
+      // them, government letterheads (HCSO logo, etc.) come back blank.
+      const pdf = await pdfjsLib.getDocument({
+        data: bytes,
+        wasmUrl:             '/pdfjs/wasm/',
+        cMapUrl:             '/pdfjs/cmaps/',
+        cMapPacked:          true,
+        standardFontDataUrl: '/pdfjs/standard_fonts/',
+      }).promise;
       const dpr = Math.max(window.devicePixelRatio || 1, 1);
       const renderScale = 1.6 * dpr;
       const rendered: string[] = [];
