@@ -892,6 +892,15 @@ export const checklistsApi = {
 };
 
 // ─── eSign ────────────────────────────────────────────────────────────────────
+// One signing role on a template — see backend services/templateRoles.ts.
+// Role.key is stable, label is the display name, order is used for
+// sequential signing.
+export interface ESignTemplateRole {
+  key: string;
+  label: string;
+  order: number;
+}
+
 export interface ESignTemplate {
   id: string;
   name: string;
@@ -906,7 +915,16 @@ export interface ESignTemplate {
     default_value?: string;
     options?: string[];
     placeholder?: string;
+    /** Role this field is bound to (stage 2 visual builder uses this). */
+    role_key?: string;
   }>;
+  // Roles + signing order live on the template now (PR scope: roles
+  // rework). Defaults to [HR, Candidate] for system templates that
+  // don't have an explicit overlay.
+  roles?: ESignTemplateRole[];
+  signing_order?: 'parallel' | 'sequential';
+  /** Server-relative path to the uploaded PDF, if attached. */
+  file_path?: string | null;
   is_system: boolean;
   is_active: boolean;
   created_at: string | null;
@@ -943,6 +961,18 @@ export const esignApi = {
   updateTemplate: (id: string, data: Partial<ESignTemplate>) => api.put<{ template: ESignTemplate }>(`/esign/templates/${id}`, data),
   deleteTemplate: (id: string) => api.delete(`/esign/templates/${id}`),
   duplicateTemplate: (id: string) => api.post<{ template: ESignTemplate }>(`/esign/templates/${id}/duplicate`),
+  // PR scope: template-roles rework. Attaches a PDF to a custom
+  // template so document-from-template flows always start from the
+  // same canvas. System templates are code-defined and reject this.
+  uploadTemplateFile: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post<{ template: ESignTemplate }>(
+      `/esign/templates/${id}/upload-file`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
 
   // Documents
   listDocuments: (params?: { status?: string; staff_id?: string; search?: string }) =>

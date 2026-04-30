@@ -1,9 +1,22 @@
 /**
- * ESignTemplates — Browse, create, edit, duplicate & delete templates
+ * ESignTemplates — Browse, create, edit, duplicate & delete templates.
+ *
+ * PR scope: template-roles rework. Templates now own a PDF + a list
+ * of roles (HR, Candidate, …) + a signing_order. The editor lets
+ * recruiters define those once per template; later when a real
+ * document is sent from this template, the new-document flow asks
+ * for one signer (name + email) per role rather than one signer
+ * per document.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { esignApi, ESignTemplate } from '../../lib/api';
+import { esignApi, ESignTemplate, ESignTemplateRole } from '../../lib/api';
+import { useToast } from '../../components/ToastHost';
+
+const DEFAULT_ROLES: ESignTemplateRole[] = [
+  { key: 'hr',        label: 'HR',        order: 1 },
+  { key: 'candidate', label: 'Candidate', order: 2 },
+];
 
 const CATEGORY_COLORS: Record<string, string> = {
   Compliance:       '#1565c0',
@@ -34,10 +47,14 @@ interface TemplateForm {
   category: string;
   content: string;
   fields: string; // JSON string
+  roles: ESignTemplateRole[];
+  signing_order: 'parallel' | 'sequential';
 }
 
 const BLANK_FORM: TemplateForm = {
   name: '', description: '', category: 'Custom', content: '', fields: '[]',
+  roles: DEFAULT_ROLES,
+  signing_order: 'parallel',
 };
 
 function TemplateModal({
@@ -46,7 +63,7 @@ function TemplateModal({
   onClose,
 }: {
   initial?: ESignTemplate | null;
-  onSave: (data: TemplateForm) => Promise<void>;
+  onSave: (data: TemplateForm, file: File | null) => Promise<void>;
   onClose: () => void;
 }) {
   const [form, setForm] = useState<TemplateForm>(
@@ -57,18 +74,74 @@ function TemplateModal({
           category: initial.category ?? 'Custom',
           content: (initial as any).content ?? '',
           fields: JSON.stringify((initial as any).fields ?? [], null, 2),
+          roles: initial.roles && initial.roles.length > 0
+            ? initial.roles.map(r => ({ ...r }))
+            : DEFAULT_ROLES.map(r => ({ ...r })),
+          signing_order: initial.signing_order ?? 'parallel',
         }
-      : BLANK_FORM
+      : { ...BLANK_FORM, roles: DEFAULT_ROLES.map(r => ({ ...r })) }
   );
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState<string | null>(null);
+
+  const isSystem = !!(initial as any)?.is_system;
 
   const set = (k: keyof TemplateForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(prev => ({ ...prev, [k]: e.target.value }));
 
+  // Slugify the same way the backend does so the preview key matches
+  // what the server will store. See backend/src/services/templateRoles.ts.
+  const slugify = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+  const updateRole = (idx: number, patch: Partial<ESignTemplateRole>) => {
+    setForm(prev => {
+      const roles = prev.roles.map((r, i) => (i === idx ? { ...r, ...patch } : r));
+      // Keep key in sync with label when the user is editing the label.
+      if (patch.label !== undefined) {
+        roles[idx].key = slugify(patch.label) || roles[idx].key;
+      }
+      return { ...prev, roles };
+    });
+  };
+  const addRole = () => {
+    setForm(prev => ({
+      ...prev,
+      roles: [
+        ...prev.roles,
+        { key: '', label: '', order: prev.roles.length + 1 },
+      ],
+    }));
+  };
+  const removeRole = (idx: number) => {
+    setForm(prev => {
+      const next = prev.roles.filter((_, i) => i !== idx).map((r, i) => ({ ...r, order: i + 1 }));
+      return { ...prev, roles: next };
+    });
+  };
+  const moveRole = (idx: number, dir: -1 | 1) => {
+    setForm(prev => {
+      const next = [...prev.roles];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= next.length) return prev;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return { ...prev, roles: next.map((r, i) => ({ ...r, order: i + 1 })) };
+    });
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { setErr('Name is required.'); return; }
+    if (form.roles.length === 0) { setErr('Add at least one signing role.'); return; }
+    for (const r of form.roles) {
+      if (!r.label.trim()) { setErr('Every role needs a label.'); return; }
+    }
+    const keys = form.roles.map(r => slugify(r.label));
+    if (new Set(keys).size !== keys.length) {
+      setErr('Role labels must be unique (case-insensitive).');
+      return;
+    }
     try {
       JSON.parse(form.fields);
     } catch {
@@ -76,7 +149,7 @@ function TemplateModal({
       return;
     }
     setSaving(true); setErr(null);
-    try { await onSave(form); }
+    try { await onSave(form, pdfFile); }
     catch { setErr('Save failed. Please try again.'); }
     finally { setSaving(false); }
   };
@@ -104,6 +177,94 @@ function TemplateModal({
             <select style={inp} value={form.category} onChange={set('category')}>
               {ALL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+          </Field>
+
+          {!isSystem && (
+            <Field label="PDF File">
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+                style={{ ...inp, padding: '7px 10px' } as React.CSSProperties}
+              />
+              <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>
+                {initial?.file_path
+                  ? 'A PDF is attached. Choose a new file to replace it.'
+                  : 'Optional. Attach a PDF that signers will fill out.'}
+              </div>
+            </Field>
+          )}
+
+          {/* Roles editor — defines who signs this template by ROLE,
+              not by name. Each role gets a stable key (auto-slugged
+              from label). The order column matters when signing_order
+              is "sequential". */}
+          <Field label="Signing Roles">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {form.roles.map((r, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{
+                    width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: '50%', background: '#e3f2fd', color: '#1565c0', fontWeight: 700, fontSize: 12,
+                  }}>{r.order}</span>
+                  <input
+                    style={{ ...inp, flex: 1 }}
+                    value={r.label}
+                    onChange={(e) => updateRole(idx, { label: e.target.value })}
+                    placeholder="e.g. HR, Candidate, Manager"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => moveRole(idx, -1)}
+                    disabled={idx === 0}
+                    title="Move up"
+                    style={{ padding: '6px 9px', background: '#f5f5f5', border: '1px solid #e3e8f0', borderRadius: 6, cursor: idx === 0 ? 'not-allowed' : 'pointer', fontSize: 12, opacity: idx === 0 ? 0.4 : 1 }}
+                  >↑</button>
+                  <button
+                    type="button"
+                    onClick={() => moveRole(idx, 1)}
+                    disabled={idx === form.roles.length - 1}
+                    title="Move down"
+                    style={{ padding: '6px 9px', background: '#f5f5f5', border: '1px solid #e3e8f0', borderRadius: 6, cursor: idx === form.roles.length - 1 ? 'not-allowed' : 'pointer', fontSize: 12, opacity: idx === form.roles.length - 1 ? 0.4 : 1 }}
+                  >↓</button>
+                  <button
+                    type="button"
+                    onClick={() => removeRole(idx)}
+                    title="Remove role"
+                    style={{ padding: '6px 9px', background: '#fef2f2', color: '#c62828', border: '1px solid #fecaca', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                  >×</button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addRole}
+                style={{ alignSelf: 'flex-start', padding: '6px 12px', background: '#e3f2fd', color: '#1565c0', border: '1px solid #bbdefb', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+              >+ Add role</button>
+            </div>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 5 }}>
+              Each document sent from this template will collect a signer (name + email) for every role.
+            </div>
+          </Field>
+
+          <Field label="Signing Order">
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['parallel', 'sequential'] as const).map(v => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, signing_order: v }))}
+                  style={{
+                    padding: '8px 14px',
+                    background: form.signing_order === v ? '#1565c0' : '#fff',
+                    color: form.signing_order === v ? '#fff' : '#555',
+                    border: '1.5px solid ' + (form.signing_order === v ? '#1565c0' : '#e3e8f0'),
+                    borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  }}
+                >
+                  {v === 'parallel' ? 'Parallel — all sign at once' : 'Sequential — one after another'}
+                </button>
+              ))}
+            </div>
           </Field>
 
           <Field label="Document Content">
@@ -195,18 +356,32 @@ export default function ESignTemplates() {
     return matchSearch && matchCat && matchType;
   });
 
-  const handleSave = async (form: TemplateForm) => {
+  const toast = useToast();
+
+  const handleSave = async (form: TemplateForm, file: File | null) => {
     const payload = {
       name:           form.name,
       description:    form.description,
       category:       form.category,
       content:        form.content,
       fields: JSON.parse(form.fields),
+      roles:          form.roles,
+      signing_order:  form.signing_order,
     };
+    let savedId: string | undefined;
     if (editTarget) {
-      await esignApi.updateTemplate(editTarget.id, payload);
+      const res = await esignApi.updateTemplate(editTarget.id, payload as any);
+      savedId = res.data?.template?.id ?? editTarget.id;
     } else {
-      await esignApi.createTemplate(payload);
+      const res = await esignApi.createTemplate(payload as any);
+      savedId = res.data?.template?.id;
+    }
+    if (file && savedId) {
+      try {
+        await esignApi.uploadTemplateFile(savedId, file);
+      } catch {
+        toast.error('Template saved, but PDF upload failed.');
+      }
     }
     setModalOpen(false);
     setEditTarget(null);
