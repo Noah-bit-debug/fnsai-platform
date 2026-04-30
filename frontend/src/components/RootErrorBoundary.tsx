@@ -34,7 +34,9 @@ interface State {
 // Firefox: "error loading dynamically imported module"
 // Safari: "Importing a module script failed."
 // Vite ships its own ChunkLoadError class on some configs.
-function isChunkLoadError(error: Error): boolean {
+//
+// Exported for testing — see RootErrorBoundary.test.tsx.
+export function isChunkLoadError(error: Error): boolean {
   const name = error.name ?? '';
   const msg = error.message ?? '';
   return (
