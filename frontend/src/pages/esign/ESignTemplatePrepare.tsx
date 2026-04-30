@@ -75,6 +75,18 @@ const colorForRole = (roles: ESignTemplateRole[], key: string): string => {
 // single editing session, so a timestamp+random is enough.
 const newId = () => `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
+// Mouse-driven move/resize state. Lives in a ref so the high-frequency
+// mousemove handler doesn't trip a re-render — only the final field
+// position is committed via setFields.
+type ResizeCorner = 'tl' | 'tr' | 'bl' | 'br';
+type Interaction =
+  | { kind: 'move';   id: string; startX: number; startY: number; startFieldX: number; startFieldY: number; pageRect: DOMRect }
+  | { kind: 'resize'; id: string; corner: ResizeCorner; startX: number; startY: number; startField: VisualField; pageRect: DOMRect };
+
+// Minimum field size in percent. Below this, fields become unclickable
+// and the resize handles overlap each other so you can't escape.
+const MIN_FIELD_PCT = 1.5;
+
 export default function ESignTemplatePrepare() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -89,6 +101,17 @@ export default function ESignTemplatePrepare() {
   const [draggingType, setDraggingType] = useState<FieldType | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Per-page DOM nodes — needed to convert mouse coordinates into the
+  // field's % space during drag/resize. Indexed by page number - 1.
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Live interaction info (move or resize). Held in a ref so we don't
+  // re-render on every mousemove; field position is committed via
+  // setFields, which is rate-limited by React's batching anyway.
+  const interactionRef = useRef<Interaction | null>(null);
+  // Mirrors `interaction` for cursor styling — single re-render at start
+  // and end of an interaction. Used purely for visual feedback.
+  const [interactingKind, setInteractingKind] = useState<'move' | 'resize' | null>(null);
 
   const roles = template?.roles ?? [];
 
@@ -240,6 +263,101 @@ export default function ESignTemplatePrepare() {
     setFields(prev => prev.filter(f => f.id !== id));
     if (selectedId === id) setSelectedId(null);
   };
+
+  // ── Drag-to-move + corner resize ────────────────────────────────────────
+  // Captures (clientX, clientY) at mousedown, then on every mousemove
+  // computes the delta in % units and patches the field. Bounds keep
+  // the field inside the page; min size keeps handles reachable.
+  const startMove = (fieldId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return;
+    const pageEl = pageRefs.current[field.page - 1];
+    if (!pageEl) return;
+    interactionRef.current = {
+      kind: 'move', id: fieldId,
+      startX: e.clientX, startY: e.clientY,
+      startFieldX: field.x, startFieldY: field.y,
+      pageRect: pageEl.getBoundingClientRect(),
+    };
+    setSelectedId(fieldId);
+    setInteractingKind('move');
+  };
+
+  const startResize = (fieldId: string, corner: ResizeCorner, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return;
+    const pageEl = pageRefs.current[field.page - 1];
+    if (!pageEl) return;
+    interactionRef.current = {
+      kind: 'resize', id: fieldId, corner,
+      startX: e.clientX, startY: e.clientY,
+      startField: { ...field },
+      pageRect: pageEl.getBoundingClientRect(),
+    };
+    setSelectedId(fieldId);
+    setInteractingKind('resize');
+  };
+
+  useEffect(() => {
+    if (!interactingKind) return;
+    const onMouseMove = (e: MouseEvent) => {
+      const it = interactionRef.current;
+      if (!it) return;
+      e.preventDefault();
+      const dxPct = ((e.clientX - it.startX) / it.pageRect.width)  * 100;
+      const dyPct = ((e.clientY - it.startY) / it.pageRect.height) * 100;
+
+      if (it.kind === 'move') {
+        setFields(prev => prev.map(f => {
+          if (f.id !== it.id) return f;
+          return {
+            ...f,
+            x: Math.max(0, Math.min(100 - f.width,  it.startFieldX + dxPct)),
+            y: Math.max(0, Math.min(100 - f.height, it.startFieldY + dyPct)),
+          };
+        }));
+      } else {
+        // Resize. Each corner anchors the opposite corner — dragging the
+        // BR corner only changes width/height; dragging TL changes x/y
+        // AND width/height inversely.
+        const sf = it.startField;
+        let nx = sf.x, ny = sf.y, nw = sf.width, nh = sf.height;
+        if (it.corner === 'br' || it.corner === 'tr') nw = sf.width  + dxPct;
+        if (it.corner === 'br' || it.corner === 'bl') nh = sf.height + dyPct;
+        if (it.corner === 'bl' || it.corner === 'tl') { nw = sf.width  - dxPct; nx = sf.x + dxPct; }
+        if (it.corner === 'tr' || it.corner === 'tl') { nh = sf.height - dyPct; ny = sf.y + dyPct; }
+
+        // Enforce min size while preserving the anchor point.
+        if (nw < MIN_FIELD_PCT) {
+          if (it.corner === 'bl' || it.corner === 'tl') nx = sf.x + sf.width - MIN_FIELD_PCT;
+          nw = MIN_FIELD_PCT;
+        }
+        if (nh < MIN_FIELD_PCT) {
+          if (it.corner === 'tr' || it.corner === 'tl') ny = sf.y + sf.height - MIN_FIELD_PCT;
+          nh = MIN_FIELD_PCT;
+        }
+        // Keep inside the page.
+        nx = Math.max(0, Math.min(100 - nw, nx));
+        ny = Math.max(0, Math.min(100 - nh, ny));
+        nw = Math.min(nw, 100 - nx);
+        nh = Math.min(nh, 100 - ny);
+
+        setFields(prev => prev.map(f => f.id === it.id ? { ...f, x: nx, y: ny, width: nw, height: nh } : f));
+      }
+    };
+    const onMouseUp = () => {
+      interactionRef.current = null;
+      setInteractingKind(null);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   onMouseUp);
+    };
+  }, [interactingKind]);
 
   // Delete-key shortcut on the selected field. Same gesture as
   // ESignPrepare so muscle memory carries over.
@@ -414,6 +532,7 @@ export default function ESignTemplatePrepare() {
             <div key={pageIdx} style={{ width: '100%', maxWidth: 840 }}>
               <div style={{ fontSize: 11, color: '#999', fontWeight: 600, marginBottom: 4 }}>Page {pageIdx + 1}</div>
               <div
+                ref={(el) => { pageRefs.current[pageIdx] = el; }}
                 style={{
                   position: 'relative', background: '#fff',
                   boxShadow: '0 3px 20px rgba(0,0,0,0.10)', borderRadius: 3,
@@ -441,9 +560,23 @@ export default function ESignTemplatePrepare() {
                   const c = colorForRole(roles, f.role_key);
                   const sel = selectedId === f.id;
                   const role = roles.find(r => r.key === f.role_key);
+                  // Resize handles are 8px squares anchored to the
+                  // field's corners. Cursor matches the corner so the
+                  // direction it's about to grow in is unambiguous.
+                  const handleStyle = (corner: ResizeCorner): React.CSSProperties => ({
+                    position: 'absolute',
+                    width: 9, height: 9,
+                    background: '#fff',
+                    border: `1.5px solid ${c}`,
+                    borderRadius: 2,
+                    boxSizing: 'border-box',
+                    [corner.includes('t') ? 'top'    : 'bottom']: -5,
+                    [corner.includes('l') ? 'left'   : 'right']:  -5,
+                    cursor: corner === 'tl' || corner === 'br' ? 'nwse-resize' : 'nesw-resize',
+                  });
                   return (
                     <div key={f.id}
-                      onClick={(e) => { e.stopPropagation(); setSelectedId(f.id); }}
+                      onMouseDown={(e) => { if (e.button === 0) startMove(f.id, e); }}
                       style={{
                         position: 'absolute',
                         left:   `${f.x}%`,
@@ -454,14 +587,14 @@ export default function ESignTemplatePrepare() {
                         background: `${c}1f`,
                         boxShadow: sel ? `0 0 0 3px ${c}55` : 'none',
                         borderRadius: 3,
-                        cursor: 'pointer',
+                        cursor: interactingKind === 'move' && sel ? 'grabbing' : 'grab',
                         display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
                         padding: '0 4px',
                         fontSize: 10, fontWeight: 600, color: c,
                         boxSizing: 'border-box',
                         userSelect: 'none',
                       }}
-                      title={`${f.label} — ${role?.label ?? f.role_key}`}>
+                      title={`${f.label} — ${role?.label ?? f.role_key}. Drag to move, corners to resize.`}>
                       <span style={{ marginRight: 4 }}>{TYPE_ICON[f.type]}</span>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                         {f.label}
@@ -469,6 +602,12 @@ export default function ESignTemplatePrepare() {
                       <span style={{ fontSize: 9, opacity: 0.8, marginLeft: 4 }}>
                         {role?.label ?? f.role_key}
                       </span>
+
+                      {sel && (['tl', 'tr', 'bl', 'br'] as ResizeCorner[]).map(corner => (
+                        <div key={corner}
+                          onMouseDown={(e) => startResize(f.id, corner, e)}
+                          style={handleStyle(corner)} />
+                      ))}
                     </div>
                   );
                 })}
