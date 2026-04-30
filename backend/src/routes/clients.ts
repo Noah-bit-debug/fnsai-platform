@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, logAudit } from '../middleware/auth';
 import { query } from '../db/client';
 import { getAuth } from '../middleware/auth';
+import { findNearDuplicates } from '../services/facilityMatch';
 
 const router = Router();
 
@@ -116,6 +117,29 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
   const auth = getAuth(req);
   const data = parse.data;
 
+  // Near-duplicate name guard (QA Phase 4 #7). The QA tester created
+  // "Sunrise Medical Center" and then "Sunrise Medical Ctr" — both
+  // accepted, both indistinguishable to a busy recruiter. Now: 409
+  // 'duplicate_facility_name' if a normalized-name match or close
+  // typo exists. Override via ?force=1 for legitimate cases (e.g.
+  // a facility chain with two locations sharing a brand name —
+  // distinguished by city/address).
+  const force = req.query.force === '1' || req.query.force === 'true' || (req.body as Record<string, unknown>)?.force === true;
+  if (!force) {
+    const existing = await query<{ id: string; name: string }>(
+      `SELECT id, name FROM facilities`,
+    );
+    const matches = findNearDuplicates(data.name, existing.rows);
+    if (matches.length > 0) {
+      res.status(409).json({
+        error: 'duplicate_facility_name',
+        message: `A facility with a similar name already exists. Open the existing record, or pass force=true to create anyway.`,
+        duplicates: matches,
+      });
+      return;
+    }
+  }
+
   try {
     const result = await query(
       `INSERT INTO facilities
@@ -140,7 +164,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       auth?.userId ?? 'unknown',
       'facility.create',
       result.rows[0].id as string,
-      { name: data.name },
+      { name: data.name, force },
       (req.ip ?? 'unknown')
     );
 

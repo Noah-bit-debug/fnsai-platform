@@ -7,6 +7,7 @@ import { getAuth } from '../middleware/auth';
 import { parseResume, ResumeParseError } from '../services/resumeParser';
 import { reviewDocument, DocumentReviewError } from '../services/documentReviewer';
 import { parseAvailabilityStart, parseFutureAvailabilityStart, isParsedDateErr } from '../services/dates';
+import { validateAddDocumentBody, isAddDocumentValidationErr, isForceOverride } from '../services/candidateDocumentValidation';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -603,23 +604,21 @@ router.get('/:id/documents', requireAuth, requirePermission('credentialing_view'
 router.post('/:id/documents', requireAuth, requirePermission('credentialing_manage'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const auth = getAuth(req);
-  const { document_type, label, required = true, expiry_date, notes } = req.body;
-  if (!document_type || !label) {
-    res.status(400).json({ error: 'document_type and label are required' });
+  const { required = true, expiry_date } = req.body;
+
+  // Pure-function validation — bounds free-text fields (QA Phase 4 #17:
+  // Label ≤ 200, Notes ≤ 5000). Tested independently in
+  // services/__tests__/candidateDocumentValidation.test.ts.
+  const v = validateAddDocumentBody(req.body);
+  if (isAddDocumentValidationErr(v)) {
+    res.status(v.status).json({
+      error: 'Validation error',
+      details: { fieldErrors: { [v.field]: [v.message] } },
+    });
     return;
   }
-  // QA Phase 4 #17 — bound free-text fields. Without these the endpoint
-  // accepts megabytes of pasted text into the row, bloating the table
-  // and leaking past sane limits in audit logs. 5000 is generous for a
-  // doc note (~750 words) without inviting abuse.
-  if (typeof label === 'string' && label.length > 200) {
-    res.status(400).json({ error: 'Validation error', details: { fieldErrors: { label: ['Label must be 200 characters or less.'] } } });
-    return;
-  }
-  if (notes != null && typeof notes === 'string' && notes.length > 5000) {
-    res.status(400).json({ error: 'Validation error', details: { fieldErrors: { notes: ['Notes must be 5000 characters or less.'] } } });
-    return;
-  }
+  const { document_type, label, notes } = v;
+
   try {
     // Duplicate-document-type guard. QA Phase 4 #8 flagged that adding
     // "ACLS Certification" twice silently created two rows — both could
@@ -630,7 +629,7 @@ router.post('/:id/documents', requireAuth, requirePermission('credentialing_mana
     // available via `?force=1` for legitimate edge cases (a candidate
     // who legitimately holds two of the same cert from different
     // states, e.g. dual-licensed RN).
-    const force = req.query.force === '1' || req.query.force === 'true' || (req.body as Record<string, unknown>)?.force === true;
+    const force = isForceOverride(req.query, req.body);
     if (!force) {
       const dupRes = await query<{ id: string; status: string; label: string }>(
         `SELECT id, status, label FROM candidate_documents
