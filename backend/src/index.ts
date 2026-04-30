@@ -26,6 +26,7 @@ import clientsRouter from './routes/clients';
 import learningRouter from './routes/learning';
 import esignRouter from './routes/esign';
 import candidatesRouter from './routes/candidates';
+import candidateUploadsRouter from './routes/candidateUploads';
 import remindersRouter from './routes/reminders';
 import pipelineRouter from './routes/pipeline';
 import integrationsRouter from './routes/integrations';
@@ -360,6 +361,9 @@ app.use('/api/v1/clients', clientsRouter);
 app.use('/api/v1/learning', learningRouter);
 app.use('/api/v1/esign', esignRouter);
 app.use('/api/v1/candidates', candidatesRouter);
+// Public, token-gated candidate document upload — no requireAuth
+// because the URL token IS the auth (same model as eSign signing).
+app.use('/api/v1/uploads', candidateUploadsRouter);
 app.use('/api/v1/reminders', remindersRouter);
 app.use('/api/v1/pipeline', pipelineRouter);
 app.use('/api/v1/integrations', integrationsRouter);

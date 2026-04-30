@@ -71,6 +71,8 @@ const MyCertificates = lazy(() => import('./pages/compliance/MyCertificates'));
 const CertificateVerify = lazy(() => import('./pages/compliance/CertificateVerify'));
 // Phase 6.5 — public client portal (token-auth, no sign-in required)
 const ClientPortalView = lazy(() => import('./pages/ClientPortalView'));
+// Public candidate document upload (token-auth via URL)
+const CandidateUpload = lazy(() => import('./pages/CandidateUpload'));
 const ComplianceAdminHub = lazy(() => import('./pages/compliance/ComplianceAdminHub'));
 const CategoryManager = lazy(() => import('./pages/compliance/CategoryManager'));
 const PolicyList = lazy(() => import('./pages/compliance/PolicyList'));
@@ -446,6 +448,11 @@ function AppRoutes() {
         {/* Phase 6.5 — Public client portal view. Token in URL is the
             only credential. Backend validates + revokes + expires. */}
         <Route path="/client-view/:token" element={<ClientPortalView />} />
+
+        {/* Public candidate document upload — recruiter generates a
+            tokenised link and the candidate uploads without logging in.
+            Same trust model as the eSign /sign/:token flow. */}
+        <Route path="/upload/:token" element={<CandidateUpload />} />
 
         <Route path="/sign-in/*" element={<RedirectToSignIn />} />
       </Routes>

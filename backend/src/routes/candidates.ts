@@ -8,6 +8,15 @@ import { parseResume, ResumeParseError } from '../services/resumeParser';
 import { reviewDocument, DocumentReviewError } from '../services/documentReviewer';
 import { parseAvailabilityStart, parseFutureAvailabilityStart, isParsedDateErr } from '../services/dates';
 import { validateAddDocumentBody, isAddDocumentValidationErr, isForceOverride } from '../services/candidateDocumentValidation';
+import {
+  initCandidateUploadLinks,
+  generateUploadToken,
+  loadCandidateDocumentBlob,
+} from '../services/candidateUploadLinks';
+
+// Init the upload-links + blob tables once at boot. Same pattern as
+// initEsignTables(). Idempotent.
+initCandidateUploadLinks().catch(console.error);
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -744,6 +753,128 @@ router.delete('/:id/documents/:docId', requireAuth, requirePermission('credentia
   } catch (err) {
     console.error('Delete document error:', err);
     res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
+// ─── Candidate upload links ───────────────────────────────────────────────────
+// Recruiters generate tokenised URLs the candidate can use (without
+// logging in) to upload documents straight onto their record. Files
+// land in candidate_documents + candidate_document_blobs via the
+// public POST /api/v1/uploads/:token endpoint. See routes/candidateUploads.ts
+// and services/candidateUploadLinks.ts.
+
+// POST /:id/upload-links — generate a new link.
+router.post('/:id/upload-links', requireAuth, requirePermission('credentialing_manage'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const auth = getAuth(req);
+  const { label, expires_days, max_uses } = req.body as {
+    label?: string;
+    expires_days?: number;
+    max_uses?: number;
+  };
+  try {
+    const cand = await query(`SELECT id FROM candidates WHERE id = $1`, [id]);
+    if (cand.rows.length === 0) { res.status(404).json({ error: 'Candidate not found' }); return; }
+
+    let expiresAt: Date | null = null;
+    if (typeof expires_days === 'number' && expires_days > 0) {
+      expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + Math.floor(expires_days));
+    }
+    const token = generateUploadToken();
+
+    const { rows } = await query(
+      `INSERT INTO candidate_upload_links
+         (candidate_id, token, label, created_by, expires_at, max_uses)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, token, label, expires_at, max_uses, used_count, created_at`,
+      [
+        id,
+        token,
+        label?.trim() || null,
+        auth?.userId ?? null,
+        expiresAt,
+        typeof max_uses === 'number' && max_uses > 0 ? Math.floor(max_uses) : null,
+      ]
+    );
+
+    await logAudit(null, auth?.userId ?? 'unknown', 'candidate.upload_link.created', id, {
+      link_id: rows[0].id,
+      expires_at: expiresAt,
+      max_uses: rows[0].max_uses,
+    }, (req.ip ?? 'unknown'));
+
+    res.status(201).json({ link: rows[0] });
+  } catch (err: any) {
+    console.error('POST /:id/upload-links error:', err);
+    res.status(500).json({ error: err?.message ?? 'Failed to generate upload link' });
+  }
+});
+
+// GET /:id/upload-links — list links for this candidate (active first).
+router.get('/:id/upload-links', requireAuth, requirePermission('credentialing_view'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await query(
+      `SELECT id, token, label, created_by, expires_at, max_uses, used_count,
+              revoked_at, last_used_at, created_at
+         FROM candidate_upload_links
+        WHERE candidate_id = $1
+        ORDER BY (revoked_at IS NULL) DESC, created_at DESC`,
+      [id]
+    );
+    res.json({ links: rows });
+  } catch (err: any) {
+    console.error('GET /:id/upload-links error:', err);
+    res.status(500).json({ error: 'Failed to load upload links' });
+  }
+});
+
+// DELETE /upload-links/:linkId — revoke. Doesn't delete the row so
+// the audit trail (who used it, when) stays intact.
+router.delete('/upload-links/:linkId', requireAuth, requirePermission('credentialing_manage'), async (req: Request, res: Response) => {
+  const { linkId } = req.params;
+  const auth = getAuth(req);
+  try {
+    const { rows } = await query(
+      `UPDATE candidate_upload_links
+          SET revoked_at = NOW()
+        WHERE id = $1 AND revoked_at IS NULL
+        RETURNING candidate_id`,
+      [linkId]
+    );
+    if (rows.length === 0) { res.status(404).json({ error: 'Link not found or already revoked' }); return; }
+    await logAudit(null, auth?.userId ?? 'unknown', 'candidate.upload_link.revoked', String(rows[0].candidate_id), { link_id: linkId }, (req.ip ?? 'unknown'));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('DELETE /upload-links/:linkId error:', err);
+    res.status(500).json({ error: 'Failed to revoke upload link' });
+  }
+});
+
+// GET /:id/documents/:docId/file — serve the bytes of an uploaded
+// document. Mirrors the eSign file-serve pattern (DB blob first,
+// inline content-disposition).
+router.get('/:id/documents/:docId/file', requireAuth, requirePermission('credentialing_view'), async (req: Request, res: Response) => {
+  const { id, docId } = req.params;
+  try {
+    const docRow = await query(
+      `SELECT label FROM candidate_documents WHERE id = $1 AND candidate_id = $2`,
+      [docId, id]
+    );
+    if (docRow.rows.length === 0) { res.status(404).json({ error: 'Document not found' }); return; }
+
+    const blob = await loadCandidateDocumentBlob(docId);
+    if (!blob) { res.status(404).json({ error: 'No file attached to this document' }); return; }
+
+    const rawName = (blob.filename || docRow.rows[0].label || 'document') as string;
+    const safeName = rawName.replace(/[^a-z0-9._-]/gi, '_');
+    res.setHeader('Content-Type', blob.mime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    res.send(blob.bytes);
+  } catch (err: any) {
+    console.error('GET /:id/documents/:docId/file error:', err);
+    res.status(500).json({ error: 'Failed to serve document file' });
   }
 });
 

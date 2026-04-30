@@ -6,7 +6,7 @@ import AIActionPanel from '../../components/AI/AIActionPanel';
 import AssignmentPanel from '../../components/AssignmentPanel';
 import CandidateScheduleTimeline from '../../components/CandidateScheduleTimeline';
 import { useParams, useNavigate } from 'react-router-dom';
-import { candidatesApi, pipelineStagesApi, Candidate, CandidateDocument, StageHistory, OnboardingForm } from '../../lib/api';
+import { candidatesApi, pipelineStagesApi, Candidate, CandidateDocument, CandidateUploadLink, StageHistory, OnboardingForm } from '../../lib/api';
 import api from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
 import { useToast } from '../../components/ToastHost';
@@ -208,6 +208,190 @@ export function MoveStageModal({
           >
             {saving ? 'Moving…' : 'Move Stage'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Upload Links Modal ───────────────────────────────────────────────────────
+// Generates a public, tokenised upload URL the candidate can use to
+// drop documents straight onto their record without logging in. The
+// URL hits /upload/:token in the frontend, which posts to
+// /api/v1/uploads/:token (no auth — the token IS the auth, same model
+// as the eSign /sign/:token signing flow). Files land in
+// candidate_documents + candidate_document_blobs and surface in the
+// Documents tab once the modal is closed.
+function UploadLinksModal({
+  candidateId,
+  candidateName,
+  onClose,
+  onChanged,
+}: {
+  candidateId: string;
+  candidateName: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [links, setLinks] = useState<CandidateUploadLink[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [label, setLabel] = useState('');
+  const [expiresDays, setExpiresDays] = useState<number | ''>(7);
+  const [maxUses, setMaxUses] = useState<number | ''>('');
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await candidatesApi.listUploadLinks(candidateId);
+      setLinks(r.data?.links ?? []);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      await candidatesApi.createUploadLink(candidateId, {
+        label: label.trim() || undefined,
+        expires_days: typeof expiresDays === 'number' ? expiresDays : undefined,
+        max_uses:     typeof maxUses     === 'number' ? maxUses     : undefined,
+      });
+      setLabel('');
+      await load();
+      onChanged();
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Failed to generate link.');
+    } finally { setGenerating(false); }
+  };
+
+  const revoke = async (linkId: string) => {
+    if (!window.confirm('Revoke this link? Anyone holding the URL will no longer be able to upload.')) return;
+    try {
+      await candidatesApi.revokeUploadLink(linkId);
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error ?? 'Failed to revoke.');
+    }
+  };
+
+  const buildUrl = (token: string) => `${window.location.origin}/upload/${token}`;
+  const copyUrl = async (token: string) => {
+    const url = buildUrl(token);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(token);
+      setTimeout(() => setCopied((c) => (c === token ? null : c)), 1500);
+    } catch {
+      // Fallback for non-secure contexts.
+      window.prompt('Copy this link:', url);
+    }
+  };
+
+  const statusOf = (l: CandidateUploadLink): { label: string; color: string } => {
+    if (l.revoked_at) return { label: 'Revoked', color: '#888' };
+    if (l.expires_at && new Date(l.expires_at) < new Date()) return { label: 'Expired', color: '#888' };
+    if (l.max_uses != null && l.used_count >= l.max_uses) return { label: 'Used up', color: '#888' };
+    return { label: 'Active', color: '#1b5e20' };
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 580, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>Upload Links</div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>For {candidateName}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#aaa' }}>×</button>
+        </div>
+
+        <div style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 12, borderBottom: '1px solid #f0f0f0', background: '#fafbfd' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Generate New Link</div>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Optional note shown to the candidate (e.g. 'Please upload your TB test')"
+            style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e3e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Expires after</div>
+              <select value={expiresDays} onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e3e8f0', borderRadius: 8, fontSize: 13 }}>
+                <option value={1}>1 day</option>
+                <option value={3}>3 days</option>
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+                <option value="">Never</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Max uses</div>
+              <select value={maxUses} onChange={(e) => setMaxUses(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e3e8f0', borderRadius: 8, fontSize: 13 }}>
+                <option value="">Unlimited</option>
+                <option value={1}>1 upload</option>
+                <option value={5}>5 uploads</option>
+                <option value={10}>10 uploads</option>
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={generate}
+            disabled={generating}
+            style={{ alignSelf: 'flex-start', padding: '8px 18px', background: generating ? '#aaa' : '#1565c0', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: generating ? 'not-allowed' : 'pointer', fontSize: 13 }}>
+            {generating ? 'Generating…' : '+ Generate Link'}
+          </button>
+        </div>
+
+        <div style={{ padding: '14px 24px 22px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+            Existing Links
+          </div>
+          {loading ? (
+            <div style={{ color: '#888', fontSize: 13, padding: 12 }}>Loading…</div>
+          ) : links.length === 0 ? (
+            <div style={{ color: '#888', fontSize: 13, padding: 12, textAlign: 'center' }}>No upload links yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {links.map((l) => {
+                const st = statusOf(l);
+                const url = buildUrl(l.token);
+                const isActive = st.label === 'Active';
+                return (
+                  <div key={l.id} style={{ border: '1px solid #e3e8f0', borderRadius: 10, padding: '10px 12px', background: isActive ? '#fff' : '#fafbfd' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: st.color, textTransform: 'uppercase', letterSpacing: 0.5 }}>● {st.label}</span>
+                      <span style={{ fontSize: 11, color: '#888' }}>
+                        {l.used_count} use{l.used_count === 1 ? '' : 's'}
+                        {l.max_uses != null && ` / ${l.max_uses}`}
+                        {l.expires_at && ` · expires ${new Date(l.expires_at).toLocaleDateString()}`}
+                      </span>
+                    </div>
+                    {l.label && <div style={{ fontSize: 12, color: '#444', marginBottom: 6 }}>{l.label}</div>}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        readOnly
+                        value={url}
+                        style={{ flex: 1, padding: '6px 10px', border: '1px solid #e3e8f0', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', background: '#fafafa', color: '#444' }}
+                        onFocus={(e) => e.currentTarget.select()}
+                      />
+                      <button onClick={() => copyUrl(l.token)} style={{ padding: '6px 12px', background: copied === l.token ? '#1b5e20' : '#f5f7fa', color: copied === l.token ? '#fff' : '#444', border: '1px solid #e3e8f0', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                        {copied === l.token ? '✓ Copied' : 'Copy'}
+                      </button>
+                      {isActive && (
+                        <button onClick={() => revoke(l.id)} style={{ padding: '6px 10px', background: '#fef2f2', color: '#c62828', border: '1px solid #fecaca', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                          Revoke
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -489,6 +673,7 @@ export default function CandidateDetail() {
   // Modals
   const [showMoveStage, setShowMoveStage] = useState(false);
   const [showAddDoc, setShowAddDoc] = useState(false);
+  const [showUploadLinks, setShowUploadLinks] = useState(false);
 
   // Compliance state. `documents` was added in PR #15's backend so the
   // dashboard counter reflects approved required documents — but the
@@ -1112,12 +1297,19 @@ export default function CandidateDetail() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#1a2b3c' }}>Credentialing Documents</div>
             {can('credentialing_manage') && (
-              <button
-                onClick={() => setShowAddDoc(true)}
-                style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
-              >
-                + Add Document
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setShowUploadLinks(true)}
+                  title="Generate a secure link the candidate can use to upload documents themselves — no login required."
+                  style={{ background: '#e3f2fd', color: '#1565c0', border: '1px solid #bbdefb', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                  🔗 Upload Link
+                </button>
+                <button
+                  onClick={() => setShowAddDoc(true)}
+                  style={{ background: '#1565c0', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                  + Add Document
+                </button>
+              </div>
             )}
           </div>
           {/* Phase 1.1F — Nursys license lookup helper. Shows above the
@@ -1526,6 +1718,14 @@ export default function CandidateDetail() {
           candidateId={candidate.id}
           onClose={() => setShowAddDoc(false)}
           onAdded={() => candidatesApi.getDocuments(candidate.id).then((r) => setDocuments(r.data?.documents ?? []))}
+        />
+      )}
+      {showUploadLinks && (
+        <UploadLinksModal
+          candidateId={candidate.id}
+          candidateName={`${candidate.first_name} ${candidate.last_name}`}
+          onClose={() => setShowUploadLinks(false)}
+          onChanged={() => candidatesApi.getDocuments(candidate.id).then((r) => setDocuments(r.data?.documents ?? []))}
         />
       )}
 
