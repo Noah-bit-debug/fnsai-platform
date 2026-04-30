@@ -296,20 +296,28 @@ export default function ESignPrepare() {
       console.log('[esign] PDF parsed, pages:', pdf.numPages);
       setNumPages(pdf.numPages);
 
-      // Render at devicePixelRatio so the rasterised image stays crisp
-      // when the browser scales it down for display. With the previous
-      // fixed scale=1.6 the text could look fuzzy on Hi-DPI screens and
-      // — combined with sub-pixel canvas dimensions — the very top row
-      // of pixels could fail to paint, which matched the "top of the
-      // document is missing" report from the QA screenshots.
-      const dpr = Math.max(window.devicePixelRatio || 1, 1);
-      const cssScale = 1.6;
-      const renderScale = cssScale * dpr;
+      // Compute the render scale per page from the actual on-screen
+      // size we'll display at — 840 CSS px wide (the page card's
+      // maxWidth) × DPR × a small supersample factor. PDF.js then
+      // rasterises at exactly the resolution the browser will paint,
+      // so text and embedded logos stay crisp instead of being
+      // upscaled by the browser from a too-small source bitmap.
+      //
+      // DPR is clamped to 2: rendering at 4x on a phantom DPR=4
+      // monitor blows up RAM with no visible improvement.
+      const TARGET_CSS_WIDTH = 840;
+      const SUPERSAMPLE = 1.5;
+      const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
 
       const rendered: string[] = [];
       for (let i = 1; i <= pdf.numPages; i++) {
         try {
           const page = await pdf.getPage(i);
+          // Pages can have wildly different intrinsic widths (8.5x11
+          // vs A4 vs legal vs scans). Tune scale per page so they
+          // all come out at the same on-screen sharpness.
+          const baseViewport = page.getViewport({ scale: 1 });
+          const renderScale  = (TARGET_CSS_WIDTH * dpr * SUPERSAMPLE) / baseViewport.width;
           const viewport = page.getViewport({ scale: renderScale });
           const canvas = document.createElement('canvas');
           // Round up so we never truncate a row/column of pixels.
