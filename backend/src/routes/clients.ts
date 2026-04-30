@@ -425,14 +425,23 @@ router.put('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /orgs/:id — soft delete (set status='churned')
+// DELETE /orgs/:id — hard delete the client and everything that
+// belongs to it. The schema already has ON DELETE CASCADE on
+// facilities, client_contacts, client_requirement_templates and
+// submissions, so a single DELETE here purges the lot.
+//
+// Soft delete (status='churned') is still available via PUT /orgs/:id
+// for recoverable archive — see ClientOrgDetail's "Archive" button.
+// This endpoint is for "I made a typo / wrong record / GDPR remove"
+// permanent deletion. The frontend gates it behind a type-to-confirm
+// modal so the destruction is intentional.
 router.delete('/orgs/:id', requireAuth, async (req: Request, res: Response) => {
   try {
-    const result = await query(
-      `UPDATE clients SET status = 'churned', updated_at = NOW() WHERE id = $1 RETURNING id`,
+    const { rowCount } = await query(
+      `DELETE FROM clients WHERE id = $1`,
       [req.params.id]
     );
-    if (result.rows.length === 0) { res.status(404).json({ error: 'Client not found' }); return; }
+    if (rowCount === 0) { res.status(404).json({ error: 'Client not found' }); return; }
     res.json({ success: true });
   } catch (err) {
     console.error('Client delete error:', err);

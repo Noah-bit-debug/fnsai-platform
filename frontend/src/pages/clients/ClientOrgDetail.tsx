@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   clientsOrgsApi,
   ClientOrg,
@@ -12,6 +12,7 @@ interface FacilityStub { id: string; name: string; type?: string; address?: stri
 
 export default function ClientOrgDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [client, setClient] = useState<ClientOrg | null>(null);
   const [facilities, setFacilities] = useState<FacilityStub[]>([]);
   const [contacts, setContacts] = useState<ClientContact[]>([]);
@@ -24,6 +25,14 @@ export default function ClientOrgDetail() {
 
   const [addingContact, setAddingContact] = useState(false);
   const [newContact, setNewContact] = useState<Partial<ClientContact>>({});
+
+  // Delete-client confirm modal state. We require the user to type
+  // the client's exact name before the Delete button enables, because
+  // this is a hard delete that cascades through facilities, contacts,
+  // requirement templates and submissions.
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -71,6 +80,20 @@ export default function ClientOrgDetail() {
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Failed'); }
   };
 
+  const deleteClient = async () => {
+    if (!id || !client) return;
+    if (deleteConfirmText.trim() !== client.name) return;
+    setDeleting(true);
+    try {
+      await clientsOrgsApi.delete(id);
+      // Bounce to the list — the detail page would 404 otherwise.
+      navigate('/clients-orgs');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Delete failed');
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Loading…</div>;
   if (error) return <div style={{ padding: 20, color: '#991b1b', background: '#fee2e2', margin: 20, borderRadius: 8 }}>{error}</div>;
   if (!client) return null;
@@ -91,7 +114,10 @@ export default function ClientOrgDetail() {
           </div>
         </div>
         {!editing ? (
-          <button onClick={startEdit} style={btnSecondary}>Edit</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setShowDelete(true)} style={btnDanger}>Delete</button>
+            <button onClick={startEdit} style={btnSecondary}>Edit</button>
+          </div>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setEditing(false)} style={btnSecondary}>Cancel</button>
@@ -211,6 +237,51 @@ export default function ClientOrgDetail() {
             org so all facilities under it appear in the portal view. */}
         {id && <ClientPortalManager clientId={id} scopeLabel={client?.name ?? 'this client'} />}
       </div>
+
+      {/* Hard-delete confirmation modal. The user must type the
+          client's exact name to enable Delete — protects against
+          mis-clicks on a destructive cascade. */}
+      {showDelete && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 460, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 32, marginBottom: 8, textAlign: 'center' }}>⚠️</div>
+            <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 10, textAlign: 'center', color: '#991b1b' }}>
+              Delete this client?
+            </div>
+            <div style={{ fontSize: 13, color: '#444', marginBottom: 14, lineHeight: 1.5 }}>
+              This permanently deletes <strong>{client.name}</strong> along with all of its facilities, contacts, requirement templates, and submissions. This cannot be undone.
+            </div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
+              Type <strong>{client.name}</strong> to confirm:
+            </div>
+            <input
+              autoFocus
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={client.name}
+              style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e3e8f0', borderRadius: 8, fontSize: 13, marginBottom: 16, boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowDelete(false); setDeleteConfirmText(''); }}
+                style={btnSecondary}
+                disabled={deleting}>
+                Cancel
+              </button>
+              <button
+                onClick={deleteClient}
+                disabled={deleting || deleteConfirmText.trim() !== client.name}
+                style={{
+                  ...btnDanger,
+                  opacity: (deleting || deleteConfirmText.trim() !== client.name) ? 0.5 : 1,
+                  cursor:  (deleting || deleteConfirmText.trim() !== client.name) ? 'not-allowed' : 'pointer',
+                }}>
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -255,6 +326,10 @@ const btnPrimary: React.CSSProperties = {
 };
 const btnSecondary: React.CSSProperties = {
   background: 'var(--sf2)', color: 'var(--t2)', border: '1px solid var(--bd)', borderRadius: 6,
+  padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+};
+const btnDanger: React.CSSProperties = {
+  background: '#fef2f2', color: '#c62828', border: '1px solid #fecaca', borderRadius: 6,
   padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
 };
 const smallBtn: React.CSSProperties = {
