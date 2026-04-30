@@ -281,7 +281,18 @@ export default function ESignPrepare() {
       pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       console.log('[esign] pdfjs worker URL:', pdfWorkerUrl);
 
-      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      // Point PDF.js at the WASM decoders + cMaps + standard fonts
+      // we copy into /pdfjs/ at build time. Without wasmUrl, PDF.js's
+      // modern build silently skips JPEG2000/JBIG2 images — which is
+      // why the HCSO logo / Sheriff Ed Gonzalez banner at the top of
+      // government PDFs was rendering as a blank white block.
+      const pdf = await pdfjsLib.getDocument({
+        data: bytes,
+        wasmUrl:             '/pdfjs/wasm/',
+        cMapUrl:             '/pdfjs/cmaps/',
+        cMapPacked:          true,
+        standardFontDataUrl: '/pdfjs/standard_fonts/',
+      }).promise;
       console.log('[esign] PDF parsed, pages:', pdf.numPages);
       setNumPages(pdf.numPages);
 
