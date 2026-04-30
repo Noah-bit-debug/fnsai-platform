@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { jobsApi, submissionsApi, complianceBundlesApi, Job, JobRequirement, MatchingCandidate, CompBundle } from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
+import { useToast } from '../../components/ToastHost';
+import { useConfirm } from '../../components/ConfirmHost';
 
 const STATUS_COLOR: Record<Job['status'], string> = {
   draft: '#9ca3af', open: '#10b981', on_hold: '#f59e0b',
@@ -25,9 +27,12 @@ function formatPayRate(job: Job): string {
   return pay_rate ? `$${pay_rate}/hr` : '—';
 }
 
+// One-letter helper imports — keep at top of component scope.
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
+  const toast = useToast();
+  const confirm = useConfirm();
   const { can } = useRBAC();
   const [job, setJob] = useState<Job | null>(null);
   const [requirements, setRequirements] = useState<JobRequirement[]>([]);
@@ -76,7 +81,7 @@ export default function JobDetail() {
   const saveRequirement = async () => {
     if (!id) return;
     if (!reqBundleId && reqAdHoc.length === 0) {
-      alert('Select a bundle or add at least one ad-hoc item.');
+      toast.error('Select a bundle or add at least one ad-hoc item.');
       return;
     }
     setSavingReq(true);
@@ -88,9 +93,10 @@ export default function JobDetail() {
       });
       resetReqEditor();
       await load();
+      toast.success('Requirement added.');
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string };
-      alert(err.response?.data?.error ?? err.message ?? 'Failed to save');
+      toast.error(err.response?.data?.error ?? err.message ?? 'Failed to save.');
     } finally {
       setSavingReq(false);
     }
@@ -98,13 +104,20 @@ export default function JobDetail() {
 
   const removeRequirement = async (reqId: string) => {
     if (!id) return;
-    if (!window.confirm('Remove this requirement row?')) return;
+    const ok = await confirm({
+      title: 'Remove this requirement?',
+      description: 'Existing submissions tied to this job will lose this requirement on next gate-recheck.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await jobsApi.deleteRequirement(id, reqId);
       await load();
+      toast.success('Requirement removed.');
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string };
-      alert(err.response?.data?.error ?? err.message ?? 'Failed to remove');
+      toast.error(err.response?.data?.error ?? err.message ?? 'Failed to remove.');
     }
   };
 
@@ -137,8 +150,10 @@ export default function JobDetail() {
       if (kind === 'ad') await jobsApi.generateJobAd(id);
       if (kind === 'summary') await jobsApi.generateSummary(id);
       await load();
-    } catch (e) {
-      alert(`AI generation failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+      toast.success(`${kind === 'boolean' ? 'Boolean search' : kind === 'ad' ? 'Job ad' : 'Summary'} generated.`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? (e instanceof Error ? e.message : 'unknown error');
+      toast.error(`AI generation failed: ${msg}`);
     } finally {
       setAiBusy(null);
     }
@@ -152,7 +167,7 @@ export default function JobDetail() {
       nav(`/submissions/${res.data.submission.id}`);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string };
-      alert(err.response?.data?.error ?? err.message ?? 'Failed to submit');
+      toast.error(err.response?.data?.error ?? err.message ?? 'Failed to submit candidate.');
       setCreatingSub(null);
     }
   };

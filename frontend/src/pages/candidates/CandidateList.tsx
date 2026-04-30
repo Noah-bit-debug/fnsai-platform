@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { candidatesApi, Candidate, candidateSavedViewsApi, CandidateSavedView } from '../../lib/api';
 import { useRBAC } from '../../contexts/RBACContext';
 import PermissionGate from '../../components/PermissionGate';
+import { useToast } from '../../components/ToastHost';
+import { useConfirm } from '../../components/ConfirmHost';
 
 // ─── CSV Import ───────────────────────────────────────────────────────────────
 const CSV_TEMPLATE_HEADERS = ['first_name','last_name','email','phone','role','specialties','stage','recruiter_notes'];
@@ -219,6 +221,8 @@ function StageBadge({ stage }: { stage: string }) {
 
 export default function CandidateList() {
   const navigate = useNavigate();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -261,19 +265,27 @@ export default function CandidateList() {
       setActiveViewId(res.data.view.id);
       setNewViewName('');
       setShowSaveView(false);
+      toast.success(`Saved view "${res.data.view.name}".`);
     } catch (e: any) {
-      alert(e?.response?.data?.error ?? 'Failed to save view');
+      toast.error(e?.response?.data?.error ?? 'Failed to save view.');
     }
   };
 
   const deleteView = async (id: string) => {
-    if (!window.confirm('Delete this saved view?')) return;
+    const ok = await confirm({
+      title: 'Delete saved view?',
+      description: 'This removes the view for you only. The candidates themselves are unaffected.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await candidateSavedViewsApi.delete(id);
       setSavedViews(savedViews.filter((v) => v.id !== id));
       if (activeViewId === id) setActiveViewId(null);
+      toast.success('View deleted.');
     } catch (e: any) {
-      alert(e?.response?.data?.error ?? 'Failed to delete');
+      toast.error(e?.response?.data?.error ?? 'Failed to delete.');
     }
   };
 

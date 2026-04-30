@@ -608,14 +608,52 @@ router.post('/:id/documents', requireAuth, requirePermission('credentialing_mana
     res.status(400).json({ error: 'document_type and label are required' });
     return;
   }
+  // QA Phase 4 #17 — bound free-text fields. Without these the endpoint
+  // accepts megabytes of pasted text into the row, bloating the table
+  // and leaking past sane limits in audit logs. 5000 is generous for a
+  // doc note (~750 words) without inviting abuse.
+  if (typeof label === 'string' && label.length > 200) {
+    res.status(400).json({ error: 'Validation error', details: { fieldErrors: { label: ['Label must be 200 characters or less.'] } } });
+    return;
+  }
+  if (notes != null && typeof notes === 'string' && notes.length > 5000) {
+    res.status(400).json({ error: 'Validation error', details: { fieldErrors: { notes: ['Notes must be 5000 characters or less.'] } } });
+    return;
+  }
   try {
+    // Duplicate-document-type guard. QA Phase 4 #8 flagged that adding
+    // "ACLS Certification" twice silently created two rows — both could
+    // then have conflicting statuses (e.g. one "approved", one
+    // "expired"), an audit nightmare. Block by default if a document
+    // of the same type already exists, rejected status excepted (a
+    // rejected doc IS the reason the user is re-uploading). Override
+    // available via `?force=1` for legitimate edge cases (a candidate
+    // who legitimately holds two of the same cert from different
+    // states, e.g. dual-licensed RN).
+    const force = req.query.force === '1' || req.query.force === 'true' || (req.body as Record<string, unknown>)?.force === true;
+    if (!force) {
+      const dupRes = await query<{ id: string; status: string; label: string }>(
+        `SELECT id, status, label FROM candidate_documents
+          WHERE candidate_id = $1 AND document_type = $2 AND status <> 'rejected'`,
+        [id, document_type]
+      );
+      if (dupRes.rows.length > 0) {
+        res.status(409).json({
+          error: 'duplicate_document_type',
+          message: `A document of type "${document_type}" already exists for this candidate. Reject the existing one first, or pass force=true to keep both.`,
+          duplicates: dupRes.rows,
+        });
+        return;
+      }
+    }
+
     const result = await query(
       `INSERT INTO candidate_documents (candidate_id, document_type, label, required, expiry_date, notes)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [id, document_type, label, required, expiry_date || null, notes || null]
     );
     await logAudit(null, auth?.userId ?? 'unknown', 'candidate.document.add', id,
-      { label }, (req.ip ?? 'unknown'));
+      { label, force }, (req.ip ?? 'unknown'));
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Add document error:', err);
@@ -671,6 +709,42 @@ router.put('/:id/documents/:docId', requireAuth, requirePermission('credentialin
   } catch (err) {
     console.error('Update document error:', err);
     res.status(500).json({ error: 'Failed to update document' });
+  }
+});
+
+// DELETE /:id/documents/:docId — hard delete a credentialing document.
+//
+// QA Phase 4 #13 flagged that there was no way to remove a document
+// once added — the only "options" menu offered Nursys integration help
+// text. Test data accumulates and there's no recovery path for the
+// duplicate-doc case (#8 prevented going forward; this gives the user
+// a way to clean up rows that landed before the guard, or where they
+// genuinely want to remove a real-but-mistaken upload).
+//
+// Snapshot the row to the audit log first so a regulator question
+// "what was uploaded for this credential" can still be answered after
+// deletion. This is the same posture as the candidate hard-delete path.
+router.delete('/:id/documents/:docId', requireAuth, requirePermission('credentialing_manage'), async (req: Request, res: Response) => {
+  const { id, docId } = req.params;
+  const auth = getAuth(req);
+  try {
+    const cur = await query(
+      `SELECT * FROM candidate_documents WHERE id = $1 AND candidate_id = $2`,
+      [docId, id]
+    );
+    if (cur.rows.length === 0) { res.status(404).json({ error: 'Document not found' }); return; }
+    const snapshot = cur.rows[0];
+
+    await query(
+      `DELETE FROM candidate_documents WHERE id = $1 AND candidate_id = $2`,
+      [docId, id]
+    );
+    await logAudit(null, auth?.userId ?? 'unknown', 'candidate.document.delete', docId,
+      { document_type: snapshot.document_type, label: snapshot.label, snapshot }, (req.ip ?? 'unknown'));
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete document error:', err);
+    res.status(500).json({ error: 'Failed to delete document' });
   }
 });
 

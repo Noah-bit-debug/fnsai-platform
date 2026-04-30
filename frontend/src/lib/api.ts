@@ -1124,10 +1124,15 @@ export const candidatesApi = {
     });
   },
   getDocuments: (id: string) => api.get<{ documents: CandidateDocument[] }>(`/candidates/${id}/documents`),
-  addDocument: (id: string, data: Partial<CandidateDocument>) =>
-    api.post<CandidateDocument>(`/candidates/${id}/documents`, data),
+  // `force=true` bypasses the server-side duplicate-document-type guard
+  // (a 409 with `duplicate_document_type` is returned otherwise). Used
+  // by the document add flow's "Add anyway" override.
+  addDocument: (id: string, data: Partial<CandidateDocument>, opts?: { force?: boolean }) =>
+    api.post<CandidateDocument>(`/candidates/${id}/documents`, data, opts?.force ? { params: { force: 1 } } : undefined),
   updateDocument: (id: string, docId: string, data: Partial<CandidateDocument>) =>
     api.put<CandidateDocument>(`/candidates/${id}/documents/${docId}`, data),
+  deleteDocument: (id: string, docId: string) =>
+    api.delete<{ success: boolean }>(`/candidates/${id}/documents/${docId}`),
   // Phase 1.3B — upload a file and run AI credential review on an existing
   // candidate_documents row. The backend stores the review JSON in notes,
   // updates expiry_date if readable, and auto-advances status when
